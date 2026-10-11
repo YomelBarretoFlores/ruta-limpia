@@ -132,3 +132,90 @@
   margin: 0;
   padding-left: 1.25rem;
 }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.field label,
+.field legend {
+  font-weight: 700;
+  padding: 0;
+}
+
+.field input[type='text'],
+.field select {
+  min-height: var(--touch);
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.field input[readonly] {
+  background: var(--color-page);
+}
+
+.field__note {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-height: var(--touch);
+  padding: 0.5rem 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.choice input {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--color-brand);
+}
+
+.choice--consent {
+  font-weight: 700;
+}
+
+.subscription__notes {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+  color: var(--color-muted);
+}
+
+.subscription__active {
+  font-size: 1.1rem;
+}
+
+.install-steps {
+  border: 2px solid var(--color-brand);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.install-steps__title {
+  font-size: 1.05rem;
+}
+
+.install-steps__list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.install-steps__list li {
+  margin-bottom: 0.4rem;
+}

@@ -34,7 +34,9 @@ export function ArrivalCard(props: ArrivalCardProps) {
     >
       {map}
       {point === null ? (
-        <p className="arrival__point">Escanea el código QR de tu punto de referencia.</p>
+        <p className="arrival__point">
+          Elige tu punto cercano en «Suscripción a las alertas» o escanea el código QR de tu punto.
+        </p>
       ) : (
         <p className="arrival__point">
           Tu punto de referencia <strong>{point.code}</strong>

@@ -1,11 +1,12 @@
 import { render, screen } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../shared/http';
 import { CitizenDepsContext, type CitizenDeps } from './citizen-deps';
 import { CitizenHomePage } from './CitizenHomePage';
-import { fakeApi, fakeDeps, fakeStorage } from './test/fake-deps';
+import { fakeApi, fakeDeps, fakePush, fakeStorage } from './test/fake-deps';
 import { snapshot, trip } from './test/fixtures';
 
 // Leaflet needs a real layout engine; the map has its own text equivalents in the card.
@@ -74,7 +75,7 @@ describe('CitizenHomePage', () => {
 
     renderAt('/?r=RI-01&p=P77', deps);
 
-    expect(await screen.findByText(/Escanea el código QR/)).toBeInTheDocument();
+    expect(await screen.findByText(/código QR de tu punto/)).toBeInTheDocument();
     expect(deps.api.recordView).not.toHaveBeenCalled();
   });
 
@@ -95,5 +96,89 @@ describe('CitizenHomePage', () => {
     renderAt('/', fakeDeps({ api }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar la ruta');
+  });
+
+  describe('alert subscription', () => {
+    const consent = () =>
+      userEvent.click(
+        screen.getByRole('checkbox', {
+          name: 'Acepto recibir avisos y el uso de mi punto de referencia.',
+        }),
+      );
+
+    it('subscribes the linked point and household with consent', async () => {
+      const push = fakePush();
+      renderAt('/?r=RI-01&p=P08&h=H-001', fakeDeps({ push }));
+      const activate = await screen.findByRole('button', { name: 'Activar avisos' });
+
+      expect(activate).toBeDisabled();
+      await consent();
+      await userEvent.click(activate);
+
+      expect(push.activate).toHaveBeenCalledWith({
+        routeCode: 'RI-01',
+        pointCode: 'P08',
+        householdCode: 'H-001',
+      });
+      expect(
+        await screen.findByText(/Te avisaremos cuando el camión se acerque/),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancelar avisos' })).toBeInTheDocument();
+    });
+
+    it('explains a denied permission and keeps the form', async () => {
+      const push = fakePush();
+      push.activate.mockResolvedValue({ status: 'denied' });
+      renderAt('/?r=RI-01&p=P08', fakeDeps({ push }));
+
+      const activate = await screen.findByRole('button', { name: 'Activar avisos' });
+      await consent();
+      await userEvent.click(activate);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'No diste permiso para mostrar avisos',
+      );
+      expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled();
+    });
+
+    it('explains a household enrolled on another route', async () => {
+      const push = fakePush();
+      push.activate.mockResolvedValue({ status: 'rejected', reason: 'household_route_mismatch' });
+      renderAt('/?r=RI-01&p=P08&h=H-777', fakeDeps({ push }));
+
+      const activate = await screen.findByRole('button', { name: 'Activar avisos' });
+      await consent();
+      await userEvent.click(activate);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'El código de hogar no corresponde a esta zona',
+      );
+    });
+
+    it('cancels an existing subscription', async () => {
+      const push = fakePush();
+      push.current.mockResolvedValue({
+        subscriptionId: 'sub-1',
+        managementToken: 'token-1',
+        pointCode: 'P08',
+        routeCode: 'RI-01',
+      });
+      renderAt('/?r=RI-01&p=P08', fakeDeps({ push }));
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Cancelar avisos' }));
+
+      expect(push.cancel).toHaveBeenCalledOnce();
+      expect(await screen.findByText(/Cancelaste los avisos/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeDisabled();
+    });
+
+    it('moves the focus to the sign-up from "Configurar aviso"', async () => {
+      renderAt('/?r=RI-01&p=P08', fakeDeps());
+      Element.prototype.scrollIntoView = vi.fn();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Configurar aviso' }));
+
+      expect(screen.getByRole('heading', { name: 'Suscripción a las alertas' })).toHaveFocus();
+    });
   });
 });

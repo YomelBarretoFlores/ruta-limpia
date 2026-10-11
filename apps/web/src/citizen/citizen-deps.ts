@@ -2,6 +2,8 @@ import { createContext, useContext } from 'react';
 
 import { createCitizenApi, type CitizenApi } from './api/citizen-api';
 import type { EventSourceFactory } from './live/live-connection';
+import { createBrowserPushService, createBrowserSubscriptionStore } from './push/browser-push';
+import type { PushService } from './push/push-service';
 
 /** What the citizen app needs from the outside world; tests provide fakes. */
 export interface CitizenDeps {
@@ -10,6 +12,7 @@ export interface CitizenDeps {
   readonly createEventSource: EventSourceFactory | null;
   readonly storage: Pick<Storage, 'getItem' | 'setItem'>;
   readonly now: () => number;
+  readonly push: PushService;
   /** The proof of this browser's alert subscription, linked to usage views; null when none. */
   readonly viewCredentials: () => Promise<{
     readonly subscriptionId: string;
@@ -35,12 +38,20 @@ function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> {
 }
 
 export function createBrowserCitizenDeps(): CitizenDeps {
+  const api = createCitizenApi((input, init) => fetch(input, init));
+  const subscriptions = createBrowserSubscriptionStore();
   return {
-    api: createCitizenApi((input, init) => fetch(input, init)),
+    api,
     createEventSource: typeof EventSource === 'undefined' ? null : (url) => new EventSource(url),
     storage: browserStorage(),
     now: () => Date.now(),
-    viewCredentials: () => Promise.resolve(null),
+    push: createBrowserPushService(api, subscriptions),
+    viewCredentials: async () => {
+      const current = await subscriptions.load();
+      return current === null
+        ? null
+        : { subscriptionId: current.subscriptionId, managementToken: current.managementToken };
+    },
   };
 }
 

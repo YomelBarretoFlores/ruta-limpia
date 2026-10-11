@@ -302,6 +302,52 @@ received per week. The PWA reports each view of a point:
 - `app_views` stores only the point, the optional subscription and household, and the time. It never
   stores an IP address or a user agent.
 
+## Citizen PWA (`apps/web`, `/`)
+
+The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an
+OpenStreetMap map, the arrival window at the household's reference point ("Llegada estimada: 8 a 12
+minutos", with the time of the last fix), and the alert sign-up with consent.
+
+```bash
+pnpm infra:up && pnpm --filter api db:migrate && pnpm --filter api db:seed
+pnpm --filter api vapid:generate mailto:soporte@municipalidad.example   # add the lines to .env once
+pnpm dev                            # API on :3000, web on http://localhost:5173
+```
+
+Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the API
+(`VITE_API_PROXY_TARGET`, default `http://localhost:3000`), both in `vite dev` and in
+`vite preview` (http://localhost:4173, the production build with its service worker).
+
+- **QR deep link**: `/?r=<route>&p=<point>&h=<household>` preselects the route, the point and the
+  household code; each part is optional. The choices are saved on the device (`localStorage`).
+  Without a link, the saved choice or the first active route is used.
+- **Live data**: an `EventSource` on `/api/live/routes/:code/stream` (`snapshot`, `vehicle.position`,
+  `eta.updated`, `point.passed`, `trip.completed`; `trip.started` refetches the snapshot). The browser
+  reconnects by itself; after three failed attempts the page polls `GET /api/live/routes/:code`
+  every 30 s and tries the stream again after 5 minutes. A badge shows "En vivo" or "Reconectando…".
+- **Never a stale ETA**: when the signal is `stale`, the ETA is hidden and the printed schedule
+  (route `schedule`) is shown with "Sin actualización: la señal del camión se interrumpió. Usa el
+  horario de referencia.". Without an active trip, the page shows the schedule as well.
+- **Alerts (Web Push)**: "Activar avisos" is enabled only after the consent checkbox. The click asks
+  for the notification permission, subscribes the browser with the key from
+  `GET /api/push/vapid-public-key`, and calls `POST /api/subscriptions` with `consent: true` and
+  `consentVersion` `2026-10-v1`. The subscription id, the management token and the point are stored
+  in IndexedDB (database `ruta-limpia`), never in cookies, because the service worker needs them.
+  "Cancelar avisos" calls `DELETE /api/subscriptions/:id` with the token, then unsubscribes the
+  browser. Denied permission, unsupported browsers, push not configured (`503`) and rejected
+  subscriptions (`422`, for example a household code of another route) are explained in Spanish.
+- **iPhone and iPad**: Web Push works only from the app installed on the home screen
+  (iOS/iPadOS 16.4+). Safari outside the installed app shows the "Agregar a pantalla de inicio"
+  steps instead of the button.
+- **Service worker** (`src/sw/sw.ts`, built by `vite-plugin-pwa` with `injectManifest`): precaches the
+  app shell (pages open offline), shows each alert as a notification (one `tag` per point,
+  `renotify`), confirms it with `POST /api/alerts/:alertId/receipts` (best effort), and opens or
+  focuses the app on the alert's URL when the notification is tapped. It also runs under `vite dev`.
+- **Usage**: the page reports `POST /api/usage/views` once per page load and when it becomes visible
+  again (at most every 5 minutes), with the subscription proof when the browser is subscribed.
+
+Push needs a secure context: `http://localhost` works for development; any other host needs HTTPS.
+
 ## Scripts
 
 | Command                              | Description                                                                  |
@@ -328,7 +374,8 @@ instead.
 ```text
 apps/
   api/          Fastify API: src/<context>/{domain,application,infrastructure}, shared/, main.ts, config.ts
-  web/          Vite + React app: citizen area (/) and municipal panel (/panel)
+  web/          Vite + React app: citizen PWA (/: src/citizen, service worker in src/sw) and
+                municipal panel (/panel)
 infra/
   docker-compose.yml   Local PostGIS + Traccar
   db/init/             Database initialization scripts

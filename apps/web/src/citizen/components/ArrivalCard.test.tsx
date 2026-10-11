@@ -72,7 +72,7 @@ describe('ArrivalCard', () => {
     const onConfigureAlerts = vi.fn();
     renderCard({ kind: 'no_trip' }, { point: null, onConfigureAlerts });
 
-    expect(screen.getByText(/Escanea el código QR/)).toBeInTheDocument();
+    expect(screen.getByText(/código QR de tu punto/)).toBeInTheDocument();
     expect(screen.queryByText('El camión aún no inicia el recorrido')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Configurar aviso' }));
     expect(onConfigureAlerts).toHaveBeenCalledOnce();

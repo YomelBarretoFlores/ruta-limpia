@@ -71,7 +71,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T3 | Persistence + ingestion: schema/migrations, Traccar forward endpoint, tracking pipeline, Instrument 1 log | delegated (writer) | [x] |
 | T4 | Notifications: Web Push (VAPID), point subscriptions with consent/cancel, alert dispatch and delivery log | delegated (writer) | [x] |
 | T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [x] |
-| T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [ ] |
+| T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [x] |
 | T7 | Municipal panel: auth/roles, live tracking, pass table, alert status, incidents, trips, field forms, household registry | delegated (writer) | [ ] |
 | T8 | Indicators and exports: KPI computation (Tabla 16), CSV exports for Instruments 1–3 | delegated (writer) | [ ] |
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer) | [ ] |
@@ -308,8 +308,54 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   - The background notification `.catch` guards its logger call.
   - New test for the `/api/usage/views` rate limit (10x the public limit per IP).
 
+- 2026-10-11: T6 done in five work-unit commits, each under the ~1.5k-line review budget (changed
+  lines, lockfile excluded) and each building and passing its tests on its own:
+  - `43b1967` `fix(live): release early-disconnected streams and harden live reads and ingestion`
+    (521): the T5 findings above. RED first: the disconnect-during-lookup stream test saw
+    `hub.size` 1 instead of 0; deleting a household with views failed on
+    `app_views_household_id_fkey`; a fix 121 s ahead answered `processed` instead of `future_fix`
+    (and the route test 200 instead of 202, the config tests lacked `maxFixFutureSkewSec`); the
+    read model test saw no `start transaction isolation level repeatable read read only` before
+    its queries; a throwing logger produced an unhandled rejection (`log sink down`). All GREEN
+    after the fixes. The `/api/usage/views` rate-limit test passed as a characterization test.
+  - `8c3408a` `feat(web): add the citizen API client, QR deep link and live route state` (1211).
+  - `aad40e8` `feat(web): show the truck on the map and its arrival at the household's point`
+    (1305).
+  - `7abe83d` `feat(web): make the citizen app an installable PWA whose service worker shows
+    alerts` (504).
+  - The last commit (the parent records the hash) `feat(web): subscribe households to proximity
+    alerts with consent` (about 1.2k): push service, subscription card, iOS install steps,
+    container wiring, README.
+
+  Verification at the last commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0, `pnpm format:check`
+  clean, `pnpm test` 60 files / 409 tests passed (web 12 files / 70 tests), `pnpm --filter web build`
+  emitted `dist/sw.js` (15 precache entries) and `dist/manifest.webmanifest`. Smoke: compose db
+  healthy, `db:migrate` applied `0004-app-views-household-set-null`, `db:seed`, built API with
+  command-line VAPID keys; through the Vite dev server (:5173) `/` 200 (`text/html`),
+  `/api/routes/RI-01` 200, `/api/live/routes/RI-01` 200, `/api/push/vapid-public-key` 200,
+  `/manifest.webmanifest` 200, `/dev-sw.js?dev-sw` 200, the proxied stream sent `retry` and
+  `snapshot`, `POST /api/usage/views` 204; through `vite preview` (:4173) `/`, `/sw.js`,
+  `/manifest.webmanifest`, the icons and `/api/routes/RI-01` answered 200. API stopped with SIGTERM,
+  containers removed, volumes kept. Real-browser push is left to the parent (Chrome).
+
+  Decisions: `vite-plugin-pwa` 2.0.0 (peer `vite ^8`) with `injectManifest` and a TypeScript
+  service worker (`src/sw/sw.ts`, `tsconfig.sw.json` with the WebWorker lib; the web project is
+  now a solution `tsconfig.json` over app, node and sw projects, `tsc -b`). Leaflet 1.9.4 with
+  react-leaflet 5 on OpenStreetMap tiles (circle markers and a `divIcon` truck, no image assets).
+  The subscription credentials live in IndexedDB (`ruta-limpia` / `subscription`), shared with the
+  service worker; route, point and household choices live in `localStorage`. Consent version
+  `2026-10-v1`. Live data: SSE first; after 3 failures, polling every 30 s and a stream retry
+  after 5 min. App views: page load, then on visibility at most every 5 min. Dependencies are
+  injected through `CitizenDepsContext` (fakes in tests). New web variable
+  `VITE_API_PROXY_TARGET` (dev/preview proxy, default `http://localhost:3000`); new API variable
+  `MAX_FIX_FUTURE_SKEW_SEC` (default 120). Pending: `.env.example` must gain
+  `MAX_FIX_FUTURE_SKEW_SEC` (agents cannot edit `.env*` files). Follow-ups: the main bundle is
+  about 490 kB (150 kB gzip) with Leaflet; lazy-loading the map would help low-end phones.
+  `push_subscriptions.household_id` still has no `ON DELETE` action, so deleting a household with
+  subscriptions fails (T7 household registry).
+
 ## Next step
 
-T6 (citizen PWA: map, point selection, ETA window, subscription flow, QR deep link, offline/printed
-fallback), built on `GET /api/routes/:code`, `GET /api/live/routes/:code`, its `/stream` and
-`POST /api/usage/views`.
+T7 (municipal panel: auth and roles, live tracking, pass table, alert status, incidents, trips,
+field forms, household registry) at `/panel`, built on the public live API and new authenticated
+panel endpoints.
