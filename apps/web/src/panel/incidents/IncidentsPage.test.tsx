@@ -37,7 +37,9 @@ describe('IncidentsPage', () => {
     const api = setup();
 
     const table = await screen.findByRole('table');
-    expect(within(table).getByRole('rowheader', { name: 'Recolección omitida' })).toBeInTheDocument();
+    expect(
+      within(table).getByRole('rowheader', { name: 'Recolección omitida' }),
+    ).toBeInTheDocument();
     expect(within(table).getByText('Abierta')).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText('Estado'), 'open');
     expect(api.listIncidents).toHaveBeenLastCalledWith(

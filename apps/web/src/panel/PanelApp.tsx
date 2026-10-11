@@ -4,6 +4,8 @@ import { Route, Routes } from 'react-router';
 
 import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
 import { Notice } from '../shared/ui/Notice';
+import { HouseholdsPage } from './households/HouseholdsPage';
+import { StickerSheetPage } from './households/StickerSheetPage';
 import { IncidentsPage } from './incidents/IncidentsPage';
 import { LivePage } from './live/LivePage';
 import { LoginPage } from './session/LoginPage';
@@ -79,6 +81,22 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={['incidents:read']}>
                   <IncidentsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="hogares"
+              element={
+                <RequirePermission anyOf={['households:read']}>
+                  <HouseholdsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="hogares/stickers"
+              element={
+                <RequirePermission anyOf={['households:read']}>
+                  <StickerSheetPage />
                 </RequirePermission>
               }
             />
