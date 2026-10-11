@@ -99,6 +99,7 @@ describe('LivePage', () => {
     const form = screen.getByRole('region', { name: 'Registrar incidencia' });
 
     await userEvent.selectOptions(within(form).getByLabelText('Tipo'), 'gps_failure');
+    await within(form).findByRole('option', { name: /^P08/ });
     await userEvent.selectOptions(within(form).getByLabelText('Punto (opcional)'), 'P08');
     await userEvent.click(within(form).getByRole('button', { name: 'Registrar incidencia' }));
 

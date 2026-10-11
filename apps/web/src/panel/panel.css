@@ -696,3 +696,61 @@ textarea.input {
     height: 32mm;
   }
 }
+
+/* Field sheets (Instrument 2): parts in the order of the paper form, one column on a phone */
+.sheet {
+  max-width: 60rem;
+}
+
+.sheet__part {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4) var(--space-5) var(--space-2);
+  background: var(--surface);
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.sheet__legend {
+  padding: 0 var(--space-2);
+  margin-left: calc(-1 * var(--space-2));
+  font-size: var(--text-md);
+  font-weight: var(--weight-title);
+}
+
+.sheet__note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.sheet__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-2) 0 var(--space-6);
+}
+
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-5);
+}
+
+.choices.field--error {
+  padding-left: var(--space-3);
+}
+
+@media (max-width: 599px) {
+  .sheet__part {
+    padding: var(--space-3) var(--space-4) var(--space-1);
+  }
+
+  .sheet .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sheet__actions .button {
+    width: 100%;
+  }
+}

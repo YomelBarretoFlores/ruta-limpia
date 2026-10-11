@@ -65,7 +65,8 @@ describe('HouseholdsPage', () => {
       within(form).getByText('Elige el punto donde el hogar deja sus residuos.'),
     ).toBeInTheDocument();
 
-    await userEvent.selectOptions(await within(form).findByLabelText('Punto de referencia'), 'P09');
+    await within(form).findByRole('option', { name: /^P09/ });
+    await userEvent.selectOptions(within(form).getByLabelText('Punto de referencia'), 'P09');
     await userEvent.type(within(form).getByLabelText('Notas'), 'Puerta verde');
     await userEvent.click(within(form).getByRole('button', { name: 'Inscribir hogar' }));
 

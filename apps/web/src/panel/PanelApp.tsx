@@ -4,6 +4,8 @@ import { Route, Routes } from 'react-router';
 
 import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
 import { Notice } from '../shared/ui/Notice';
+import { FieldSheetEditorPage } from './field/FieldSheetEditorPage';
+import { FieldSheetsPage } from './field/FieldSheetsPage';
 import { HouseholdsPage } from './households/HouseholdsPage';
 import { StickerSheetPage } from './households/StickerSheetPage';
 import { IncidentsPage } from './incidents/IncidentsPage';
@@ -17,6 +19,8 @@ import { PanelIndex } from './shell/PanelIndex';
 import { PanelShell } from './shell/PanelShell';
 import { RequirePermission } from './shell/RequirePermission';
 import { UsersPage } from './users/UsersPage';
+
+const FIELD_READ = ['field:read_own', 'field:read_all'] as const;
 
 const renderFailure = (
   <div className="panel-failure" data-density="panel">
@@ -97,6 +101,30 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={['households:read']}>
                   <StickerSheetPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="fichas"
+              element={
+                <RequirePermission anyOf={FIELD_READ}>
+                  <FieldSheetsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="fichas/nueva"
+              element={
+                <RequirePermission anyOf={FIELD_READ}>
+                  <FieldSheetEditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="fichas/:id"
+              element={
+                <RequirePermission anyOf={FIELD_READ}>
+                  <FieldSheetEditorPage />
                 </RequirePermission>
               }
             />

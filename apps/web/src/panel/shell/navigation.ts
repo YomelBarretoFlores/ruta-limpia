@@ -8,12 +8,15 @@ export interface NavItem {
   readonly anyOf: readonly Permission[];
 }
 
+const FIELD_READ: readonly Permission[] = ['field:read_own', 'field:read_all'];
+
 /** The panel's sections, in navigation order. */
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/panel/en-vivo', label: 'En vivo', anyOf: ['live:read'] },
   { to: '/panel/viajes', label: 'Viajes', anyOf: ['trips:read'] },
   { to: '/panel/incidencias', label: 'Incidencias', anyOf: ['incidents:read'] },
   { to: '/panel/hogares', label: 'Hogares', anyOf: ['households:read'] },
+  { to: '/panel/fichas', label: 'Fichas de campo', anyOf: FIELD_READ },
   { to: '/panel/usuarios', label: 'Usuarios', anyOf: ['users:manage'] },
 ];
 
