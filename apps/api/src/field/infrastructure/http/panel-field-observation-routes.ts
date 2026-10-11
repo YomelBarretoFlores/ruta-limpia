@@ -58,6 +58,8 @@ const observationBodySchema = z.object({
   firstPlacementTime: optionalTime,
   truckPassTime: optionalTime,
   exposureMinutes: z.number().int().min(0).max(1440).nullable().default(null),
+  exposureIncomplete: z.boolean().default(false),
+  comparableWindow: z.boolean().nullable().default(null),
   bagsAtPass: count,
   brokenBags: count,
   dispersion: z.enum(DISPERSION_LEVELS).nullable().default(null),

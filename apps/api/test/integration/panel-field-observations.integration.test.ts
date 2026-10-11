@@ -114,6 +114,32 @@ describe('panel field observations, Instrument 2 (PostGIS)', () => {
     ).toEqual([{ action: 'field_observation.created' }]);
   });
 
+  it('records the incomplete-exposure and comparable-window flags, unset by default', async () => {
+    const { observation: plain } = await createSheet(observer);
+    expect(plain).toMatchObject({ exposureIncomplete: false, comparableWindow: null });
+
+    const { observation } = await createSheet(observer, {
+      ...SHEET,
+      phase: 'post',
+      firstPlacementTime: null,
+      exposureMinutes: 30,
+      exposureIncomplete: true,
+      comparableWindow: false,
+    });
+    expect(observation).toMatchObject({
+      exposureMinutes: 30,
+      exposureIncomplete: true,
+      comparableWindow: false,
+    });
+    const edited = await observer.put(`${URL}/${observation.id}`, {
+      ...SHEET,
+      comparableWindow: true,
+    });
+    expect(edited.json()).toMatchObject({
+      observation: { exposureIncomplete: false, comparableWindow: true },
+    });
+  });
+
   it('keeps an observed exposure only when a time is missing', async () => {
     const { observation } = await createSheet(observer, {
       ...SHEET,

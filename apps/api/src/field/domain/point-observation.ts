@@ -44,6 +44,11 @@ export interface PointObservationFacts {
   readonly truckPassTime: string | null;
   /** Observed exposure (minutes), used only when one of the two times is missing. */
   readonly exposureMinutes: number | null;
+  /**
+   * The first placement happened before the observation began: the exposure is the minimum time
+   * observed, an incomplete record (proposal, note to Tabla 18).
+   */
+  readonly exposureIncomplete: boolean;
   readonly bagsAtPass: number | null;
   readonly brokenBags: number | null;
   readonly dispersion: DispersionLevel | null;
@@ -53,6 +58,8 @@ export interface PointObservationFacts {
   readonly photoBefore: PhotoRecord;
   readonly photoAfter: PhotoRecord;
   readonly music: MusicObservation | null;
+  /** "Mismo punto y ventana" of the comparability check; null when not answered. */
+  readonly comparableWindow: boolean | null;
 }
 
 export type ObservationProblem =

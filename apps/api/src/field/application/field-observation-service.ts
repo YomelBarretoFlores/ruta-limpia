@@ -214,6 +214,8 @@ export class FieldObservationService {
         photoBefore: command.photoBefore,
         photoAfter: command.photoAfter,
         music: command.music,
+        exposureIncomplete: command.exposureIncomplete,
+        comparableWindow: command.comparableWindow,
         routeId: resolved.routeId,
         pointId: resolved.point.id,
         exposureMinutes: exposure.minutes,

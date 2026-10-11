@@ -313,6 +313,10 @@ export interface FieldObservationsTable {
   music_seconds: number | null;
   music_conditions: string | null;
   notes: string | null;
+  /** Migration 0014-indicator-inputs: the exposure is a minimum (placement seen before). */
+  exposure_incomplete: Generated<boolean>;
+  /** Migration 0014-indicator-inputs: "mismo punto y ventana"; null when not answered. */
+  comparable_window: boolean | null;
   created_by_user_id: string | null;
   created_at: Date;
   updated_at: Date;
@@ -359,6 +363,37 @@ export interface Instrument1ExportView {
   notes: string | null;
 }
 
+/** Instrument 3: one household survey per wave (migration 0014-indicator-inputs). */
+export interface HouseholdSurveysTable {
+  id: Generated<string>;
+  household_id: string;
+  wave: 'pre' | 'post';
+  /** `YYYY-MM-DD`: written as text, read through `to_char`. */
+  surveyed_on: ColumnType<string, string, string>;
+  q1_knows_schedule: boolean | null;
+  q2_lead_time: '0_15' | '15_60' | '1_3h' | 'gt_3h' | 'after_pass' | null;
+  q3_missed_pickups: '0' | '1_2' | '3_plus' | null;
+  q4_litter_seen: 'never' | 'sometimes' | 'often' | null;
+  q5_separates: 'yes' | 'sometimes' | 'no' | null;
+  q6_alerts_helped: number | null;
+  q7_easy_to_use: number | null;
+  q8_eta_reliable: number | null;
+  q9_street_cleaner: number | null;
+  q10_keep_system: number | null;
+  q11_satisfaction: number | null;
+  q12_annoyance: number | null;
+  q12_not_heard: Generated<boolean>;
+  q13_interrupted: 'never' | '1_2' | '3_plus' | 'not_heard' | null;
+  q14_channels: ColumnType<string[], string[] | undefined, string[]>;
+  q14_other: string | null;
+  q15_access: 'yes' | 'with_help' | 'no' | null;
+  q15_alt_channel: string | null;
+  import_batch_id: string | null;
+  created_by_user_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface Database {
   routes: RoutesTable;
   route_schedules: RouteSchedulesTable;
@@ -383,6 +418,7 @@ export interface Database {
   baseline_route_logs: BaselineRouteLogsTable;
   baseline_point_passes: BaselinePointPassesTable;
   instrument1_export: Instrument1ExportView;
+  household_surveys: HouseholdSurveysTable;
 }
 
 export interface DatabaseOptions {

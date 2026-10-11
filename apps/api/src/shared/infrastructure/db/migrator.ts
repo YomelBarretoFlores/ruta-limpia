@@ -15,6 +15,7 @@ import * as incidentLegacyData from './migrations/0010-incident-legacy-data.js';
 import * as householdCodeCounter from './migrations/0011-household-code-counter.js';
 import * as accountThrottle from './migrations/0012-account-throttle.js';
 import * as knownNetworks from './migrations/0013-known-networks.js';
+import * as indicatorInputs from './migrations/0014-indicator-inputs.js';
 
 /**
  * Migrations are registered in code (not discovered on disk) so they work the same from `src` with
@@ -34,6 +35,7 @@ const MIGRATIONS: Record<string, Migration> = {
   '0011-household-code-counter': householdCodeCounter,
   '0012-account-throttle': accountThrottle,
   '0013-known-networks': knownNetworks,
+  '0014-indicator-inputs': indicatorInputs,
 };
 
 export function createMigrator<DB>(db: Kysely<DB>): Migrator {

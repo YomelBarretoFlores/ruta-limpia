@@ -11,6 +11,7 @@ const EMPTY: PointObservationFacts = {
   firstPlacementTime: null,
   truckPassTime: null,
   exposureMinutes: null,
+  exposureIncomplete: false,
   bagsAtPass: null,
   brokenBags: null,
   dispersion: null,
@@ -20,6 +21,7 @@ const EMPTY: PointObservationFacts = {
   photoBefore: { taken: false, code: null },
   photoAfter: { taken: false, code: null },
   music: null,
+  comparableWindow: null,
 };
 const MUSIC_POINT = { observesMusic: true };
 const PLAIN_POINT = { observesMusic: false };
