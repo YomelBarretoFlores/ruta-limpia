@@ -164,6 +164,27 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   400-line heuristic because schema, pipeline, adapters and their integration tests form one deliverable;
   strategy `exception-ok`.
 
+- 2026-10-11: T2 review (slice `60244ed..ffb8af2`, medium, 1 lens) approved and acknowledged. Its WARNING (a point in
+  the last 15 m of the route was never passed) was fixed in T3 commit A.
+- 2026-10-11: T3 commit B was over the reviewer context budget (`lens_context_budget_exceeded`, 5.5k lines). With
+  the user's approval it was split, content unchanged (backup branch `backup/t3-before-split`), into `a2392ee`
+  (application services and ports), `65355eb` (PostGIS schema, migrations, seed) and `b1e148e` (ingest endpoint,
+  adapters, composition). Each slice built and passed its tests on its own. All three were reviewed (medium,
+  reliability lens), approved and acknowledged. The reviewed boundary is now `b1e148e`. Advisory findings, to
+  harden in T4 commit A:
+  - WARNING: a speed-profile load failure rolls back the whole ingest; it should fall back to recent speed only.
+  - WARNING: a missing route for an active trip makes every later fix fail; it should store the position and skip
+    trip advancement.
+  - SUGGESTION: the cache-invalidation race in `RouteCatalog` and `SpeedProfileProvider`.
+  - SUGGESTION: add a concurrent same-vehicle ingest test.
+  - SUGGESTION: add a duplicate `traccar_position_id` integration test.
+  - SUGGESTION: treat empty env values as unset.
+  - SUGGESTION: add a shutdown routine test with injectable exit and timers.
+  - WARNING (accepted): `pnpm test` requires Docker, by design (acceptance criteria). CI without Docker runs
+    `test:unit`.
+  - `.env.example` cannot be edited by agents (`.env*` access is blocked by the user's permission settings); the
+    user must apply the INGEST_TOKEN placeholder and new variables.
+
 ## Next step
 
-T4 (and the pending `.env.example` placeholder from T3).
+T4 (commit A: T3 review hardening; then Web Push).
