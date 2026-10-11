@@ -94,6 +94,11 @@ invalid values. An empty value (`PORT=`) counts as unset, so the default applies
 | `VAPID_PUBLIC_KEY`                   | unset                  | Web Push public key (87 chars). Set all three VAPID vars or none.                |
 | `VAPID_PRIVATE_KEY`                  | unset                  | Web Push private key (43 chars). Keep it secret.                                 |
 | `VAPID_SUBJECT`                      | unset                  | Contact for the push services: `mailto:…` or `https://…`.                        |
+| `SESSION_COOKIE_SECURE`              | `true`                 | `Secure` flag of the panel cookie. Set `false` only for plain-HTTP development.  |
+| `SESSION_IDLE_MINUTES`               | `480`                  | A panel session ends after this long without requests.                           |
+| `SESSION_ABSOLUTE_HOURS`             | `168`                  | A panel session ends this long after login, however active.                      |
+| `LOGIN_RATE_LIMIT_PER_MINUTE`        | `10`                   | Panel login attempts per client IP and minute.                                   |
+| `PUBLIC_ORIGIN`                      | unset                  | Public origin of the web app (`https://…`): panel CSRF check and sticker links.  |
 | `PUSH_CONCURRENCY`                   | `8`                    | Pushes sent at the same time for one alert.                                      |
 | `PUSH_MAX_CONSECUTIVE_FAILURES`      | `5`                    | Failed pushes in a row before a subscription is revoked.                         |
 
@@ -302,6 +307,89 @@ received per week. The PWA reports each view of a point:
 - `app_views` stores only the point, the optional subscription and household, and the time. It never
   stores an IP address or a user agent.
 
+## Municipal panel API (`/api/panel`)
+
+The panel API serves the municipal supervisors and the field team. Every route except the login
+needs a session, every answer is `Cache-Control: no-store`, and errors are
+`{ "error": "<snake_case code>", "message": "…" }` (validation errors: `400 invalid_request` with
+`details`). Lists are paged with `?page=1&pageSize=20` (at most 100) and answer
+`{ items, page, pageSize, total }`. Dates are ISO 8601; calendar dates (`YYYY-MM-DD`) and times of
+day (`HH:MM`) are local to the pilot (America/Lima).
+
+### Creating the first administrator
+
+```bash
+pnpm --filter api user:create --username ana.torres --role admin --display-name "Ana Torres"
+```
+
+The command asks for the password twice without echo. Piped input is read from the first line:
+`printf '%s\n' "$PASSWORD" | pnpm --filter api user:create --username … --role admin`. The password
+is never accepted as an argument (it would land in the shell history and the process list).
+Administrators then manage every other account from the panel.
+
+### Sessions and CSRF
+
+- **Passwords**: at least 12 characters (up to 256, no composition rules), hashed with Node's
+  built-in scrypt (N=2^17, r=8, p=1, 16-byte salt, 64-byte key; the parameters are encoded in the
+  hash, which is compared in constant time). Usernames are case-insensitive.
+- **Login**: `invalid_credentials` is the same answer, at the same cost, for unknown users, inactive
+  users and wrong passwords. Five failures in a row lock the account for 15 minutes
+  (`423 account_locked`); unknown usernames are locked the same way, so the lockout does not reveal
+  which accounts exist. Logins are rate-limited per client IP (`LOGIN_RATE_LIMIT_PER_MINUTE`).
+- **Session cookie** `rl_session`: a random 256-bit token; only its SHA-256 is stored. Flags:
+  `HttpOnly`, `SameSite=Strict`, `Secure` (`SESSION_COOKIE_SECURE`), `Path=/api/panel`, and
+  `Max-Age` = the remaining absolute lifetime. A session ends after `SESSION_IDLE_MINUTES` without
+  requests, `SESSION_ABSOLUTE_HOURS` after login, on logout, and when an administrator changes the
+  user's role, deactivates the user or resets their password. Each login opens a new session and
+  revokes the one the browser presented.
+- **CSRF**: on top of `SameSite=Strict`, every `POST`/`PATCH`/`PUT`/`DELETE` (the login included)
+  must send `X-Requested-With: ruta-limpia`, and a present `Origin` header must equal
+  `PUBLIC_ORIGIN` (when unset, in development, the origin of the requested host). Otherwise:
+  `403 csrf_rejected`. The API sends no CORS headers, so other sites cannot add the header.
+- Passwords, tokens and session ids are never logged nor stored in the audit trail.
+
+### Roles
+
+| Permission                            | admin | supervisor | observer |
+| ------------------------------------- | :---: | :--------: | :------: |
+| `live:read` (live route, vehicles)    |   ✓   |     ✓      |    ✓     |
+| `vehicles:read`, `trips:read`         |   ✓   |     ✓      |          |
+| `trips:write` (manual start, end)     |   ✓   |     ✓      |          |
+| `incidents:read`, `incidents:update`  |   ✓   |     ✓      |          |
+| `incidents:create`                    |   ✓   |     ✓      |    ✓     |
+| `households:read`, `households:write` |   ✓   |     ✓      |          |
+| `households:delete`                   |   ✓   |            |          |
+| `field:read_own`, `field:write_own`   |   ✓   |     ✓      |    ✓     |
+| `field:read_all`, `field:write_all`   |   ✓   |     ✓      |          |
+| `users:manage` (users, audit trail)   |   ✓   |            |          |
+
+Field records (observations, baseline logs) with only the `_own` permissions: the user sees the
+records they created and may edit or delete them within 24 hours of creating them.
+
+`401 unauthenticated` means no valid session (the stale cookie is cleared); `403 forbidden` means
+the role lacks the permission.
+
+### Authentication and users
+
+| Route                         | Access         | Request → response                                                                                             |
+| ----------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `POST /api/panel/auth/login`  | public         | `{ username, password }` → `200 { user }` + cookie; `401`, `423`, `429`                                        |
+| `POST /api/panel/auth/logout` | signed in      | → `204`, session revoked, cookie cleared                                                                       |
+| `GET /api/panel/auth/me`      | signed in      | → `200 { user }`                                                                                               |
+| `GET /api/panel/users`        | `users:manage` | → `200 { users: [user] }`                                                                                      |
+| `POST /api/panel/users`       | `users:manage` | `{ username, displayName, role, password }` → `201 { user }`; `409 username_taken`                             |
+| `PATCH /api/panel/users/:id`  | `users:manage` | `{ displayName?, role?, active?, password? }` → `200 { user }`; `409 cannot_modify_self`                       |
+| `GET /api/panel/audit-events` | `users:manage` | `?entity=&entityId=&page=&pageSize=` → paged `{ id, at, userId, username, action, entity, entityId, details }` |
+
+`user` is `{ id, username, displayName, role, active, permissions, createdAt, lastLoginAt }`;
+`permissions` lists the role's permissions so the panel can show or hide features. Invalid new
+users answer `400 invalid_username` or `400 weak_password` (with `problem`: `too_short` or
+`too_long`). Administrators cannot demote or deactivate themselves.
+
+The audit trail (`audit_events`) records logins (`auth.login_succeeded`, `auth.login_failed`,
+`auth.account_locked`, `auth.login_blocked`, `auth.logout`) and user changes (`user.created`,
+`user.updated`), with ids, codes, reasons and changed field names only.
+
 ## Citizen PWA (`apps/web`, `/`)
 
 The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an
@@ -350,20 +438,21 @@ Push needs a secure context: `http://localhost` works for development; any other
 
 ## Scripts
 
-| Command                              | Description                                                                  |
-| ------------------------------------ | ---------------------------------------------------------------------------- |
-| `pnpm dev`                           | Run the API (tsx watch) and the web app (Vite).                              |
-| `pnpm build`                         | Build every app (`tsc` for the API, Vite for web).                           |
-| `pnpm typecheck`                     | Type-check every package.                                                    |
-| `pnpm lint`                          | ESLint (typescript-eslint, type-aware) on the repo.                          |
-| `pnpm test`                          | Run every Vitest project (`api`, `api-integration`, `web`). Docker required. |
-| `pnpm --filter api test:unit`        | API unit tests only (no Docker).                                             |
-| `pnpm --filter api test:integration` | API integration tests against PostGIS (Testcontainers).                      |
-| `pnpm --filter api db:migrate`       | Apply pending database migrations.                                           |
-| `pnpm --filter api db:seed`          | Load the pilot catalog (idempotent).                                         |
-| `pnpm --filter api vapid:generate`   | Print a new VAPID key pair as `.env` lines.                                  |
-| `pnpm format` / `format:check`       | Format with Prettier, or check the formatting.                               |
-| `pnpm infra:up` / `down` / `logs`    | Manage the local Docker infrastructure.                                      |
+| Command                              | Description                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------ |
+| `pnpm dev`                           | Run the API (tsx watch) and the web app (Vite).                                |
+| `pnpm build`                         | Build every app (`tsc` for the API, Vite for web).                             |
+| `pnpm typecheck`                     | Type-check every package.                                                      |
+| `pnpm lint`                          | ESLint (typescript-eslint, type-aware) on the repo.                            |
+| `pnpm test`                          | Run every Vitest project (`api`, `api-integration`, `web`). Docker required.   |
+| `pnpm --filter api test:unit`        | API unit tests only (no Docker).                                               |
+| `pnpm --filter api test:integration` | API integration tests against PostGIS (Testcontainers).                        |
+| `pnpm --filter api db:migrate`       | Apply pending database migrations.                                             |
+| `pnpm --filter api db:seed`          | Load the pilot catalog (idempotent).                                           |
+| `pnpm --filter api vapid:generate`   | Print a new VAPID key pair as `.env` lines.                                    |
+| `pnpm --filter api user:create`      | Create a panel user (`--username`, `--role`); the password is read from stdin. |
+| `pnpm format` / `format:check`       | Format with Prettier, or check the formatting.                                 |
+| `pnpm infra:up` / `down` / `logs`    | Manage the local Docker infrastructure.                                        |
 
 Integration tests start a `postgis/postgis:16-3.5` container pinned to `linux/amd64` (the only published
 platform; Apple Silicon runs it emulated). Set `TEST_DATABASE_URL` to use an existing disposable database

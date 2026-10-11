@@ -13,9 +13,11 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "tsx --env-file-if-exists=../../.env src/shared/infrastructure/db/cli.ts migrate",
     "db:seed": "tsx --env-file-if-exists=../../.env src/shared/infrastructure/db/cli.ts seed",
-    "vapid:generate": "tsx src/alerts/infrastructure/vapid-keys-cli.ts"
+    "vapid:generate": "tsx src/alerts/infrastructure/vapid-keys-cli.ts",
+    "user:create": "tsx --env-file-if-exists=../../.env src/auth/infrastructure/user-cli.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.3",
     "@fastify/rate-limit": "^11.2.1",
     "fastify": "^5.12.5",
     "kysely": "^0.29.6",

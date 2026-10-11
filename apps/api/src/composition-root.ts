@@ -5,7 +5,13 @@ import { DEFAULT_ALERT_SETTINGS } from './alerts/domain/alert-policy.js';
 import { SubscriptionService } from './alerts/application/subscription-service.js';
 import { CryptoManagementTokens } from './alerts/infrastructure/crypto-management-tokens.js';
 import { KyselySubscriptionStore } from './alerts/infrastructure/kysely-subscription-store.js';
-import { buildApp } from './app.js';
+import { buildApp, type PanelRouteRegistration } from './app.js';
+import type { PasswordHasher } from './auth/application/auth-ports.js';
+import { AuthService } from './auth/application/auth-service.js';
+import { UserAdminService } from './auth/application/user-admin-service.js';
+import { CryptoSessionTokens } from './auth/infrastructure/crypto-session-tokens.js';
+import { KyselySessionStore, KyselyUserStore } from './auth/infrastructure/kysely-auth-stores.js';
+import { ScryptPasswordHasher } from './auth/infrastructure/scrypt-password-hasher.js';
 import { KyselyHouseholdDirectory } from './field/infrastructure/kysely-household-directory.js';
 import type { AppConfig } from './config.js';
 import type { AlertNotifier } from './alerts/application/alert-notifier.js';
@@ -31,6 +37,7 @@ import type { EventBus } from './shared/application/event-bus.js';
 import { KeyedMutex } from './shared/application/keyed-mutex.js';
 import type { AppDatabase } from './shared/infrastructure/db/database.js';
 import { InMemoryEventBus } from './shared/infrastructure/events/in-memory-event-bus.js';
+import { KyselyAuditLog } from './shared/infrastructure/audit/kysely-audit-log.js';
 import { IngestPositionService } from './tracking/application/ingest-position-service.js';
 import type { TrackingEvents } from './tracking/application/tracking-events.js';
 import { TripLifecycleService } from './tracking/application/trip-lifecycle-service.js';
@@ -50,6 +57,8 @@ const SPEED_PROFILE_MAX_TRIPS = 20;
 const SSE_HEARTBEAT_MS = 15_000;
 /** `EventSource` reconnects this long after a dropped stream. */
 const SSE_RETRY_MS = 5_000;
+/** A panel session's last-seen time is written at most this often. */
+const SESSION_TOUCH_INTERVAL_SEC = 60;
 
 export type ApiConfig = Pick<
   AppConfig,
@@ -62,6 +71,11 @@ export type ApiConfig = Pick<
   | 'maxFixFutureSkewSec'
   | 'trustProxy'
   | 'publicRateLimitPerMinute'
+  | 'sessionCookieSecure'
+  | 'sessionIdleMinutes'
+  | 'sessionAbsoluteHours'
+  | 'loginRateLimitPerMinute'
+  | 'publicOrigin'
   | 'vapid'
   | 'pushConcurrency'
   | 'pushMaxConsecutiveFailures'
@@ -79,6 +93,8 @@ export interface ApiDependencies {
    * VAPID and without a gateway, alerts are only logged.
    */
   readonly pushGateway?: PushGateway;
+  /** Replaces the scrypt password hasher (tests use cheaper parameters). */
+  readonly passwordHasher?: PasswordHasher;
 }
 
 export interface Api {
@@ -95,6 +111,9 @@ export interface Api {
   readonly liveSnapshots: LiveSnapshotService;
   readonly liveStreams: LiveStreamHub;
   readonly appViews: AppViewService;
+  readonly auth: AuthService;
+  readonly userAdmin: UserAdminService;
+  readonly audit: KyselyAuditLog;
 }
 
 /**
@@ -229,6 +248,30 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     logger: logger.child({ component: 'usage' }),
   });
 
+  const audit = new KyselyAuditLog(db);
+  const users = new KyselyUserStore(db);
+  const sessions = new KyselySessionStore(db);
+  const hasher = deps.passwordHasher ?? new ScryptPasswordHasher();
+  const auth = new AuthService({
+    users,
+    sessions,
+    hasher,
+    tokens: new CryptoSessionTokens(),
+    audit,
+    clock,
+    logger: logger.child({ component: 'auth' }),
+    sessionPolicy: {
+      idleMinutes: config.sessionIdleMinutes,
+      absoluteHours: config.sessionAbsoluteHours,
+      touchIntervalSec: SESSION_TOUCH_INTERVAL_SEC,
+    },
+  });
+  const userAdmin = new UserAdminService({ users, sessions, hasher, audit, clock });
+  if (!config.sessionCookieSecure) {
+    logger.warn('SESSION_COOKIE_SECURE=false: panel session cookies travel over plain HTTP');
+  }
+  const panelRoutes: PanelRouteRegistration[] = [];
+
   const app = await buildApp({
     loggerInstance: logger,
     trustProxy: config.trustProxy,
@@ -246,6 +289,20 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
       },
     },
     usage: { views: appViews, mutationsPerMinute: config.publicRateLimitPerMinute },
+    panel: {
+      guard: {
+        sessions: auth,
+        cookieSecure: config.sessionCookieSecure,
+        publicOrigin: config.publicOrigin,
+      },
+      auth: {
+        auth,
+        cookieSecure: config.sessionCookieSecure,
+        loginPerMinute: config.loginRateLimitPerMinute,
+      },
+      users: { users: userAdmin, audit },
+      routes: panelRoutes,
+    },
   });
 
   return {
@@ -262,5 +319,8 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     liveSnapshots,
     liveStreams,
     appViews,
+    auth,
+    userAdmin,
+    audit,
   };
 }

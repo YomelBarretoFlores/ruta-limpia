@@ -81,6 +81,12 @@ alerts/application       AlertNotifier port; PushAlertNotifier over the PushGate
 alerts/infrastructure    WebPushGateway (web-push, VAPID), LoggingAlertNotifier (no VAPID),
                          KyselySubscriptionStore, KyselyAlertDeliveryStore, CryptoManagementTokens,
                          http/ (public subscription and receipt routes), vapid-keys-cli
+auth/application         AuthService (login, session validation, logout) and UserAdminService over
+                         the UserStore, SessionStore, PasswordHasher and SessionTokens ports
+auth/infrastructure      ScryptPasswordHasher, CryptoSessionTokens, KyselyUserStore,
+                         KyselySessionStore, user-cli (user:create), http/ (panel guard: cookie,
+                         CSRF and role checks; /api/panel/auth/*, /users, /audit-events)
+shared/application       AuditLog and AuditTrail ports; shared/infrastructure/audit: KyselyAuditLog
 indicators/application   AppViewService (app views for the adoption indicator) over the AppViewStore
                          and SubscriberIdentification ports (SubscriptionService.identify provides it)
 indicators/infrastructure KyselyAppViewStore, http/ (POST /api/usage/views)
@@ -186,6 +192,23 @@ expired, anything else or no answer failed) and gives the TTL and topic. Each ou
 (one SQL statement, safe under concurrency). Finally the alert counts are recomputed from its deliveries.
 Errors are logged per subscription and never reach the ingest.
 
+### Panel access (`auth`)
+
+The domain holds the rules: `credentials` (12–256 characters, case-insensitive usernames),
+`lockout-policy` (five failures lock for 15 minutes), `session-policy` (idle and absolute lifetimes,
+touch interval), `role` (the permission matrix; code asks `can(role, permission)`, never compares
+role names) and `csrf-policy` (custom header plus `Origin` check). `AuthService` burns one password
+verification on every failed path (unknown, inactive and locked users included), counts failures
+under a row lock (`modifyLoginState`), applies the same lockout in memory to unknown usernames,
+opens a fresh session at each login and revokes the presented one. `UserAdminService` revokes a
+user's sessions on a role change, a deactivation or a password reset.
+
+All panel routes live in one encapsulated Fastify scope under `/api/panel`. `installPanelGuard`
+registers `@fastify/cookie` and an `onRequest` hook that runs the CSRF check, resolves the session
+cookie and checks the route's access rule (`config.panel`: `public`, `authenticated`, a permission
+or `{ anyOf }`; routes without a rule need a session). Other contexts add their panel routes through
+`PanelRouteRegistration` functions in the composition root, and read the actor with `actorOf`.
+
 ### Persistence
 
 PostgreSQL 16 + PostGIS through Kysely. Migrations are registered in code
@@ -195,6 +218,8 @@ point), unique Traccar position ids, unique push endpoints, one delivery per (al
 a household's point always belongs to its route. `app_views` (migrations `0003-app-views` and
 `0004-app-views-household-set-null`: deleting a household or a subscription keeps its views and clears
 the link) logs app views with the point, the subscription and household only when proven by the
-management token, and the time; never an IP address or a user agent. The `instrument1_route_log` view
+management token, and the time; never an IP address or a user agent. `0005-panel-auth` adds `users` (unique
+lower-case username), `sessions` (SHA-256 token hash only) and `audit_events` (append-only; the
+user link is cleared when a user is deleted). The `instrument1_route_log` view
 produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null
 when no alert was sent.

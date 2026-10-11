@@ -25,6 +25,14 @@ const configSchema = z
     SHUTDOWN_TIMEOUT_SEC: positiveInt(10),
     TRUST_PROXY: z.stringbool().default(false),
     PUBLIC_RATE_LIMIT_PER_MINUTE: positiveInt(20),
+    SESSION_COOKIE_SECURE: z.stringbool().default(true),
+    SESSION_IDLE_MINUTES: positiveInt(480),
+    SESSION_ABSOLUTE_HOURS: positiveInt(168),
+    LOGIN_RATE_LIMIT_PER_MINUTE: positiveInt(10),
+    PUBLIC_ORIGIN: z
+      .url({ protocol: /^https?$/ })
+      .transform((url) => new URL(url).origin)
+      .optional(),
     PUSH_CONCURRENCY: positiveInt(8),
     PUSH_MAX_CONSECUTIVE_FAILURES: positiveInt(5),
     VAPID_PUBLIC_KEY: base64Url.length(87, 'VAPID_PUBLIC_KEY must be 87 characters').optional(),
@@ -74,6 +82,19 @@ export interface AppConfig {
   readonly trustProxy: boolean;
   /** Per client IP and route, for the public mutating routes (subscriptions). */
   readonly publicRateLimitPerMinute: number;
+  /** `Secure` flag of the panel session cookie; false only for plain-HTTP development. */
+  readonly sessionCookieSecure: boolean;
+  /** A panel session ends after this long without requests. */
+  readonly sessionIdleMinutes: number;
+  /** A panel session ends this long after login, however active. */
+  readonly sessionAbsoluteHours: number;
+  /** Panel login attempts per client IP and minute. */
+  readonly loginRateLimitPerMinute: number;
+  /**
+   * Public origin of the web app (`https://rutalimpia.example.org`): the panel accepts mutating
+   * requests only from it, and sticker links point to it. Null in development (same host).
+   */
+  readonly publicOrigin: string | null;
   /** Pushes sent at the same time for one alert. */
   readonly pushConcurrency: number;
   /** A subscription is revoked after this many failed pushes in a row. */
@@ -133,6 +154,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     shutdownTimeoutSec: raw.SHUTDOWN_TIMEOUT_SEC,
     trustProxy: raw.TRUST_PROXY,
     publicRateLimitPerMinute: raw.PUBLIC_RATE_LIMIT_PER_MINUTE,
+    sessionCookieSecure: raw.SESSION_COOKIE_SECURE,
+    sessionIdleMinutes: raw.SESSION_IDLE_MINUTES,
+    sessionAbsoluteHours: raw.SESSION_ABSOLUTE_HOURS,
+    loginRateLimitPerMinute: raw.LOGIN_RATE_LIMIT_PER_MINUTE,
+    publicOrigin: raw.PUBLIC_ORIGIN ?? null,
     pushConcurrency: raw.PUSH_CONCURRENCY,
     pushMaxConsecutiveFailures: raw.PUSH_MAX_CONSECUTIVE_FAILURES,
     vapid:

@@ -29,6 +29,11 @@ describe('loadConfig', () => {
       shutdownTimeoutSec: 10,
       trustProxy: false,
       publicRateLimitPerMinute: 20,
+      sessionCookieSecure: true,
+      sessionIdleMinutes: 480,
+      sessionAbsoluteHours: 168,
+      loginRateLimitPerMinute: 10,
+      publicOrigin: null,
       pushConcurrency: 8,
       pushMaxConsecutiveFailures: 5,
       vapid: null,
@@ -93,6 +98,28 @@ describe('loadConfig', () => {
       pushConcurrency: 4,
       pushMaxConsecutiveFailures: 3,
     });
+  });
+
+  it('reads the panel session settings and normalizes the public origin', () => {
+    const config = loadConfig({
+      ...validEnv,
+      SESSION_COOKIE_SECURE: 'false',
+      SESSION_IDLE_MINUTES: '60',
+      SESSION_ABSOLUTE_HOURS: '24',
+      LOGIN_RATE_LIMIT_PER_MINUTE: '3',
+      PUBLIC_ORIGIN: 'https://RutaLimpia.example.org/panel/',
+    });
+
+    expect(config).toMatchObject({
+      sessionCookieSecure: false,
+      sessionIdleMinutes: 60,
+      sessionAbsoluteHours: 24,
+      loginRateLimitPerMinute: 3,
+      publicOrigin: 'https://rutalimpia.example.org',
+    });
+    expect(() => loadConfig({ ...validEnv, PUBLIC_ORIGIN: 'ftp://example.org' })).toThrow(
+      /PUBLIC_ORIGIN/,
+    );
   });
 
   it('treats empty values as unset, so the defaults apply', () => {
