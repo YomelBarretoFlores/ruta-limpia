@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { sql, type Kysely } from 'kysely';
 
 import type { AppDatabase, Database } from '../../shared/infrastructure/db/database.js';
@@ -168,6 +170,41 @@ export class KyselyHouseholdSurveyStore implements HouseholdSurveyStore {
         .executeTakeFirstOrThrow(),
     ]);
     return { items: rows.map(toRecord), total: Number(count.total) };
+  }
+
+  async upsertMany(
+    surveys: readonly StoredSurvey[],
+    meta: { readonly createdByUserId: string; readonly at: Date },
+  ): Promise<{ batchId: string; created: number; updated: number }> {
+    const batchId = randomUUID();
+    if (surveys.length === 0) return { batchId, created: 0, updated: 0 };
+    const rows = await this.db
+      .insertInto('household_surveys')
+      .values(
+        surveys.map((survey) => ({
+          ...columns(survey),
+          import_batch_id: batchId,
+          created_by_user_id: meta.createdByUserId,
+          created_at: meta.at,
+          updated_at: meta.at,
+        })),
+      )
+      .onConflict((oc) =>
+        oc.columns(['household_id', 'wave']).doUpdateSet((eb) => ({
+          ...Object.fromEntries(
+            Object.keys(columns(surveys[0] as StoredSurvey))
+              .filter((column) => column !== 'household_id' && column !== 'wave')
+              .map((column) => [column, eb.ref(`excluded.${column}` as 'excluded.surveyed_on')]),
+          ),
+          import_batch_id: batchId,
+          updated_at: meta.at,
+        })),
+      )
+      // xmax is 0 for a row this statement inserted, non-zero for one it updated.
+      .returning(sql<boolean>`(xmax = 0)`.as('inserted'))
+      .execute();
+    const created = rows.filter((r) => r.inserted).length;
+    return { batchId, created, updated: rows.length - created };
   }
 
   async householdsByCode(codes: readonly string[]): Promise<ReadonlyMap<string, string>> {

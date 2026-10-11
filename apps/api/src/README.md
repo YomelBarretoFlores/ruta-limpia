@@ -257,7 +257,10 @@ operational definitions and the pilot's methodological decisions are in `docs/in
 
 `field/domain/household-survey` holds the answer codes and the consistency rules (questions 6–11
 only in the post wave, "No la escuché" never with a score). `HouseholdSurveyService` creates, edits
-and deletes surveys, one per household and wave, each in one transaction with its audit event.
+and deletes surveys and imports a CSV file all or nothing (every row checked first; one upsert per
+household and wave in one transaction with its audit event). `shared/domain/csv` is the RFC 4180
+reader and writer (BOM, CRLF, quoting, formula neutralization); `field/infrastructure/survey-csv`
+maps the survey columns both ways.
 
 ### Persistence
 

@@ -5,14 +5,16 @@ import { ManualClock } from '../fakes/in-memory-tracking-store.js';
 import { TEST_API_CONFIG } from '../support/api-config.js';
 import {
   createPanelUser,
+  PANEL_HEADERS,
   panelClient,
   TEST_PASSWORD_HASHER,
   type PanelClient,
 } from '../support/panel-client.js';
 import { composeApi, type Api } from '../../src/composition-root.js';
+import { UTF8_BOM } from '../../src/shared/domain/csv.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
-import { connectTestDatabase, resetData } from './database.js';
+import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const URL = '/api/panel/household-surveys';
 const NOW = new Date('2026-12-15T15:00:00Z');
@@ -82,6 +84,15 @@ beforeEach(async () => {
   supervisor = await panelClient(api.app, 'sara.super');
 });
 
+function importCsv(client: PanelClient, csv: string, headers: Record<string, string> = {}) {
+  return api.app.inject({
+    method: 'POST',
+    url: `${URL}/import`,
+    headers: { ...PANEL_HEADERS, cookie: client.cookie, 'content-type': 'text/csv', ...headers },
+    payload: csv,
+  });
+}
+
 const auditActions = async () =>
   (
     await db
@@ -150,5 +161,131 @@ describe('panel household surveys, Instrument 3 (PostGIS)', () => {
 
     expect((await observer.get(URL)).statusCode).toBe(403);
     expect((await observer.post(URL, POST_SURVEY)).statusCode).toBe(403);
+    expect((await importCsv(observer, 'household_code,wave,surveyed_on\n')).statusCode).toBe(403);
+  });
+
+  it('imports a CSV file keyed by household and wave, replacing a survey already there', async () => {
+    await supervisor.post(URL, {
+      ...POST_SURVEY,
+      wave: 'pre',
+      satisfaction: null,
+      alertsHelped: null,
+    });
+    const csv = [
+      'household_code,route_code,wave,surveyed_on,q2_lead_time,q11_satisfaction,q12_annoyance',
+      'H-001,RI-01,pre,2026-10-15,gt_3h,,3',
+      'H-001,RI-01,post,2026-12-15,0_15,5,1',
+      'H-002,RI-01,pre,2026-10-16,after_pass,,2',
+    ].join('\r\n');
+
+    const response = await importCsv(supervisor, `${UTF8_BOM}${csv}\r\n`);
+
+    expect(response.statusCode).toBe(200);
+    const result = response.json<{ batchId: string; created: number; updated: number }>();
+    expect(result).toMatchObject({ created: 2, updated: 1 });
+    const stored = await db
+      .selectFrom('household_surveys as s')
+      .innerJoin('households as h', 'h.id', 's.household_id')
+      .select(['h.code', 's.wave', 's.q2_lead_time', 's.q12_annoyance', 's.import_batch_id'])
+      .orderBy('h.code')
+      .orderBy('s.wave')
+      .execute();
+    expect(stored).toEqual([
+      {
+        code: 'H-001',
+        wave: 'post',
+        q2_lead_time: '0_15',
+        q12_annoyance: 1,
+        import_batch_id: result.batchId,
+      },
+      {
+        code: 'H-001',
+        wave: 'pre',
+        q2_lead_time: 'gt_3h',
+        q12_annoyance: 3,
+        import_batch_id: result.batchId,
+      },
+      {
+        code: 'H-002',
+        wave: 'pre',
+        q2_lead_time: 'after_pass',
+        q12_annoyance: 2,
+        import_batch_id: result.batchId,
+      },
+    ]);
+    expect((await auditActions()).at(-1)).toEqual([
+      'household_survey.imported',
+      { rows: 3, created: 2, updated: 1 },
+    ]);
+  });
+
+  it('imports nothing when any row has a problem, and lists every problem by line', async () => {
+    const csv = [
+      'household_code,wave,surveyed_on,q11_satisfaction,q12_annoyance,q12_not_heard',
+      'H-001,pre,2026-10-15,,2,',
+      'H-404,pre,2026-10-15,,,',
+      'H-002,pre,2026-10-15,4,1,yes',
+      'H-001,pre,2026-10-17,,,',
+      'H-002,post,2026-13-01,,,',
+    ].join('\n');
+
+    const response = await importCsv(supervisor, csv);
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toEqual({
+      error: 'invalid_rows',
+      message: 'Some rows have problems; nothing was imported.',
+      errors: [
+        { line: 3, column: 'household_code', problem: 'unknown_household' },
+        { line: 4, column: null, problem: 'post_only_answer_in_pre' },
+        { line: 4, column: null, problem: 'annoyance_and_not_heard' },
+        { line: 5, column: null, problem: 'duplicate_of_line_2' },
+        { line: 6, column: 'surveyed_on', problem: 'invalid_value' },
+      ],
+    });
+    expect(await db.selectFrom('household_surveys').select('id').execute()).toEqual([]);
+  });
+
+  it('rolls the whole import back when its audit event cannot be written', async () => {
+    const restore = await failAuditWritesOf(db, 'household_survey.imported');
+    try {
+      const response = await importCsv(
+        supervisor,
+        'household_code,wave,surveyed_on\nH-001,pre,2026-10-15\n',
+      );
+      expect(response.statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    expect(await db.selectFrom('household_surveys').select('id').execute()).toEqual([]);
+  });
+
+  it('answers a broken file, an empty one and a body that is not CSV', async () => {
+    const broken = await importCsv(supervisor, 'household_code,wave,surveyed_on,address\n');
+    expect(broken.statusCode).toBe(400);
+    expect(broken.json()).toMatchObject({
+      error: 'invalid_csv',
+      errors: [{ line: 1, column: 'address', problem: 'unknown_column' }],
+    });
+    const empty = await importCsv(supervisor, 'household_code,wave,surveyed_on\r\n');
+    expect(empty.json()).toMatchObject({ error: 'empty_file' });
+    expect((await supervisor.post(`${URL}/import`, { rows: [] })).statusCode).toBe(415);
+    const withoutCsrf = await importCsv(supervisor, 'household_code,wave,surveyed_on\n', {
+      'x-requested-with': '',
+    });
+    expect(withoutCsrf.statusCode).toBe(403);
+  });
+
+  it('serves the CSV template as a download', async () => {
+    const response = await supervisor.get(`${URL}/template.csv`);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(response.headers['content-disposition']).toBe(
+      'attachment; filename="plantilla-instrumento3.csv"',
+    );
+    expect(response.body.startsWith(`${UTF8_BOM}household_code,route_code,wave,surveyed_on,`)).toBe(
+      true,
+    );
   });
 });

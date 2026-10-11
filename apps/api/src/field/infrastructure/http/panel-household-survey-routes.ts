@@ -2,6 +2,8 @@ import type { FastifyPluginCallback, FastifyReply } from 'fastify';
 import { z } from 'zod';
 
 import { actorOf, panelRoute } from '../../../auth/infrastructure/http/panel-guard.js';
+import { toCsv } from '../../../shared/domain/csv.js';
+import { sendCsv } from '../../../shared/infrastructure/http/csv-reply.js';
 import {
   codeSchema,
   invalidRequest,
@@ -13,6 +15,7 @@ import {
   uuidParamsSchema,
 } from '../../../shared/infrastructure/http/panel-http.js';
 import {
+  MAX_IMPORT_ROWS,
   type HouseholdSurveyService,
   type SurveyCommand,
   type SurveyResult,
@@ -29,7 +32,11 @@ import {
   SEPARATES,
   SURVEY_WAVES,
 } from '../../domain/household-survey.js';
+import { readSurveyCsv, SURVEY_CSV_COLUMNS } from '../survey-csv.js';
 import { blankToNull } from './field-http.js';
+
+/** The largest CSV file accepted (about 1000 rows of long answers). */
+export const MAX_IMPORT_BYTES = 1024 * 1024;
 
 const agreement = z
   .number()
@@ -112,7 +119,10 @@ function toCommand(body: z.infer<typeof surveyBodySchema>): SurveyCommand {
 }
 
 export interface PanelHouseholdSurveyRoutesOptions {
-  readonly surveys: Pick<HouseholdSurveyService, 'list' | 'get' | 'create' | 'update' | 'delete'>;
+  readonly surveys: Pick<
+    HouseholdSurveyService,
+    'list' | 'get' | 'create' | 'update' | 'delete' | 'import'
+  >;
 }
 
 /**
@@ -122,11 +132,22 @@ export interface PanelHouseholdSurveyRoutesOptions {
  * - `GET /household-surveys/:id` → `{ survey }`;
  * - `POST /household-surveys` → 201 `{ survey }` (409 when the household has that wave);
  * - `PUT /household-surveys/:id` (the whole edited survey) → `{ survey }`;
- * - `DELETE /household-surveys/:id` → 204.
+ * - `DELETE /household-surveys/:id` → 204;
+ * - `POST /household-surveys/import` (`Content-Type: text/csv`, keyed by `household_code` and
+ *   `wave`) → `{ batchId, created, updated }`, or `422 invalid_rows` with every row's problems
+ *   and nothing imported;
+ * - `GET /household-surveys/template.csv` → the CSV header to fill in.
  */
 export const panelHouseholdSurveyRoutes: FastifyPluginCallback<
   PanelHouseholdSurveyRoutesOptions
 > = (app, { surveys }, done) => {
+  // Encapsulated: only this plugin's routes read CSV bodies.
+  app.addContentTypeParser(
+    'text/csv',
+    { parseAs: 'string', bodyLimit: MAX_IMPORT_BYTES },
+    (_request, body, parsed) => parsed(null, body),
+  );
+
   app.get('/household-surveys', panelRoute('surveys:read'), async (request, reply) => {
     const query = listQuerySchema.safeParse(request.query);
     if (!query.success) return invalidRequest(reply, query.error);
@@ -141,6 +162,10 @@ export const panelHouseholdSurveyRoutes: FastifyPluginCallback<
     );
     return reply.send(paged(items, total, query.data));
   });
+
+  app.get('/household-surveys/template.csv', panelRoute('surveys:write'), (_request, reply) =>
+    sendCsv(reply, 'plantilla-instrumento3.csv', toCsv(SURVEY_CSV_COLUMNS, [])),
+  );
 
   app.get('/household-surveys/:id', panelRoute('surveys:read'), async (request, reply) => {
     const params = uuidParamsSchema.safeParse(request.params);
@@ -167,6 +192,44 @@ export const panelHouseholdSurveyRoutes: FastifyPluginCallback<
     const params = uuidParamsSchema.safeParse(request.params);
     if (!params.success) return send(reply, { status: 'not_found' }, 204);
     return send(reply, await surveys.delete(params.data.id, actorOf(request)), 204);
+  });
+
+  app.post('/household-surveys/import', panelRoute('surveys:write'), async (request, reply) => {
+    if (typeof request.body !== 'string') {
+      return sendError(reply, 415, 'unsupported_media_type', 'Send the file as text/csv.');
+    }
+    const reading = readSurveyCsv(request.body);
+    if (reading.status === 'invalid_csv') {
+      return reply.code(400).send({
+        error: 'invalid_csv',
+        message: 'The file is not a survey CSV; see errors.',
+        errors: reading.errors,
+      });
+    }
+    const result = await surveys.import(reading.rows, actorOf(request));
+    switch (result.status) {
+      case 'imported':
+        return reply.send({
+          batchId: result.batchId,
+          created: result.created,
+          updated: result.updated,
+        });
+      case 'invalid_rows':
+        return reply.code(422).send({
+          error: 'invalid_rows',
+          message: 'Some rows have problems; nothing was imported.',
+          errors: result.errors,
+        });
+      case 'empty':
+        return sendError(reply, 422, 'empty_file', 'The file has no survey rows.');
+      case 'too_many_rows':
+        return sendError(
+          reply,
+          422,
+          'too_many_rows',
+          `A file may hold at most ${MAX_IMPORT_ROWS} rows.`,
+        );
+    }
   });
 
   done();

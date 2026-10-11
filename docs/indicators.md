@@ -124,6 +124,43 @@ stats.binomtest(min(b, c), b + c, 0.5).pvalue  # McNemar exact (b, c: discordant
 In R: `wilcox.test(post, baseline, paired = TRUE)` and `mcnemar.test` (or
 `binom.test(min(b, c), b + c)` for the exact version).
 
+## Instrument 3: survey codes and the CSV import
+
+Surveys are typed in the panel (**Encuestas**) or imported from a CSV file (`POST
+/api/panel/household-surveys/import`, `Content-Type: text/csv`; permission `surveys:write`:
+administrators and supervisors). One row per household and wave, keyed by `household_code` and
+`wave`: a new pair is created, an existing one is replaced. The import is all or nothing: every row
+is checked first, and the answer lists each problem with its line and column; one problem anywhere
+imports none. Each import is audited (`household_survey.imported`, with the row counts) and its rows
+carry the batch id. The template is `GET /api/panel/household-surveys/template.csv`; the
+`instrumento3.csv` export has the same columns, so it imports back.
+
+| Column                                 | Question                                  | Codes                                                                |
+| -------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------- |
+| `household_code`                       | Código del hogar (required)               | `H-001` …                                                            |
+| `route_code`                           | — (informative, ignored on import)        | `RI-01`                                                              |
+| `wave`                                 | Aplicación (required)                     | `pre`, `post`                                                        |
+| `surveyed_on`                          | Date (required)                           | `YYYY-MM-DD`                                                         |
+| `q1_knows_schedule`                    | Q1 knows the schedule                     | `yes`, `no` (also `si`, `sí`, `true`, `false`, `1`, `0`)             |
+| `q2_lead_time`                         | Q2 how long before the pass               | `0_15`, `15_60`, `1_3h`, `gt_3h`, `after_pass`                       |
+| `q3_missed_pickups`                    | Q3 missed the truck, last month           | `0`, `1_2`, `3_plus`                                                 |
+| `q4_litter_seen`                       | Q4 broken bags or litter, last week       | `never`, `sometimes`, `often`                                        |
+| `q5_separates`                         | Q5 separates waste                        | `yes`, `sometimes`, `no`                                             |
+| `q6_alerts_helped` … `q10_keep_system` | Q6–Q10 agreement (post only)              | `1` … `5`                                                            |
+| `q11_satisfaction`                     | Q11 overall satisfaction (post only)      | `1` … `5`                                                            |
+| `q12_annoyance`                        | Q12 annoyance, last 7 days                | `0` … `4`                                                            |
+| `q12_not_heard`                        | Q12 "No la escuché"                       | `yes`, `no` (empty = no)                                             |
+| `q13_interrupted`                      | Q13 interrupted rest or activities        | `never`, `1_2`, `3_plus`, `not_heard`                                |
+| `q14_channels`                         | Q14 channels (several, separated by `\|`) | `music`, `alert`, `web_map`, `printed_schedule`, `neighbor`, `other` |
+| `q14_other`                            | Q14 "Otro" text                           | up to 200 characters                                                 |
+| `q15_access`                           | Q15 access to the alerts                  | `yes`, `with_help`, `no`                                             |
+| `q15_alt_channel`                      | Q15 alternative channel required          | up to 200 characters, only with `no`                                 |
+
+Empty cells are unanswered questions. A survey is refused when a question 6–11 is answered in the
+pre wave, when Q12 has a score and "No la escuché", when Q14 "Otro" lacks its text (or the text
+lacks "Otro"), or when an alternative channel is given without Q15 = `no`. Deleting a household
+(consent withdrawn) deletes its surveys.
+
 ## Data sources
 
 | Indicator  | Tables and views                                                    |
