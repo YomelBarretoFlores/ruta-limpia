@@ -25,6 +25,7 @@ export interface TraccarIngestRoutesOptions {
  * - 401 without the shared `X-Ingest-Token` (checked before the body is parsed);
  * - 400 for a malformed payload;
  * - 202 for an unknown device: accepted and logged, so Traccar does not retry it forever;
+ * - 202 for a fix dated too far in the future (`MAX_FIX_FUTURE_SKEW_SEC`): logged, never stored;
  * - 200 when processed, and for a replayed position (idempotent no-op);
  * - 5xx on processing errors, so Traccar retries (forward retry is enabled).
  */
@@ -59,6 +60,8 @@ export const traccarIngestRoutes: FastifyPluginCallback<TraccarIngestRoutesOptio
         return reply.code(200).send({ status: 'duplicate' });
       case 'unknown_device':
         return reply.code(202).send({ status: 'ignored', reason: 'unknown_device' });
+      case 'future_fix':
+        return reply.code(202).send({ status: 'ignored', reason: 'future_fix' });
     }
   });
 

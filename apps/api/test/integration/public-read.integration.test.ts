@@ -1,5 +1,7 @@
+import { Kysely, PostgresDialect } from 'kysely';
+import pg from 'pg';
 import { pino } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 
 import { ManualClock } from '../fakes/in-memory-tracking-store.js';
 import { TEST_API_CONFIG } from '../support/api-config.js';
@@ -8,8 +10,9 @@ import { forwardAt } from '../support/traccar-forward.js';
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { LiveSnapshotResponse } from '../../src/live/infrastructure/http/live-schemas.js';
 import type { RouteDetailResponse } from '../../src/routes/infrastructure/http/public-route-routes.js';
-import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
-import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
+import { KyselyLiveRouteReadModel } from '../../src/live/infrastructure/kysely-live-read-model.js';
+import type { AppDatabase, Database } from '../../src/shared/infrastructure/db/database.js';
+import { seedDatabase, type SeedResult } from '../../src/shared/infrastructure/db/seed.js';
 import type { TrackingEvents } from '../../src/tracking/application/tracking-events.js';
 import { connectTestDatabase, resetData } from './database.js';
 
@@ -18,6 +21,7 @@ const T0 = Date.parse('2026-10-20T12:05:00Z');
 
 let db: AppDatabase;
 let api: Api;
+let seeded: SeedResult;
 const clock = new ManualClock(new Date(T0));
 
 function get(url: string) {
@@ -56,7 +60,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await resetData(db);
-  await seedDatabase(db, { vehicleUniqueId: 'ruta-limpia-unidad-a' });
+  seeded = await seedDatabase(db, { vehicleUniqueId: 'ruta-limpia-unidad-a' });
   api.routes.invalidate();
   clock.set(new Date(T0));
 });
@@ -185,6 +189,33 @@ describe('live route snapshot (PostGIS)', () => {
     expect(pending.every((e) => e.status === 'stale')).toBe(true);
     expect(response.body).not.toContain('"predictedPassAt"');
     expect(response.body).not.toContain('"window"');
+  });
+
+  it('reads a trip and its passes, alerts and last position in one read-only snapshot', async () => {
+    await drive(300);
+    const statements: string[] = [];
+    const logged = new Kysely<Database>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({ connectionString: inject('databaseUrl'), max: 4 }),
+      }),
+      log: (event) => {
+        statements.push(event.query.sql);
+      },
+    });
+    try {
+      const trips = await new KyselyLiveRouteReadModel(logged).activeTrips(seeded.routeId);
+
+      expect(trips).toHaveLength(1);
+      expect(trips[0]!.passes.length).toBeGreaterThan(0);
+      expect(trips[0]!.lastPosition?.fixTime).toEqual(new Date(T0 + 300_000));
+      // Every query runs between the BEGIN and the COMMIT of one REPEATABLE READ transaction.
+      expect(statements[0]).toBe('start transaction isolation level repeatable read read only');
+      expect(statements.at(-1)).toBe('commit');
+      expect(statements.slice(1, -1).every((q) => q.startsWith('select'))).toBe(true);
+      expect(statements.length).toBeGreaterThan(3);
+    } finally {
+      await logged.destroy();
+    }
   });
 });
 

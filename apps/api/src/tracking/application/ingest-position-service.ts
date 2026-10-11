@@ -42,7 +42,9 @@ export interface IngestPositionCommand {
 export type IngestResult =
   | { readonly status: 'processed'; readonly positionId: string; readonly tripId: string | null }
   | { readonly status: 'duplicate' }
-  | { readonly status: 'unknown_device' };
+  | { readonly status: 'unknown_device' }
+  /** Dated too far ahead of the server clock: ignored, never stored. */
+  | { readonly status: 'future_fix' };
 
 export interface IngestPositionDependencies {
   readonly vehicles: VehicleDirectory;
@@ -95,6 +97,20 @@ export class IngestPositionService {
   }
 
   async ingest(command: IngestPositionCommand): Promise<IngestResult> {
+    const skewSec = (command.fixTime.getTime() - this.deps.clock.now().getTime()) / 1000;
+    if (skewSec > this.deps.settings.maxFixFutureSkewSec) {
+      this.deps.logger.warn(
+        {
+          deviceUniqueId: command.deviceUniqueId,
+          traccarPositionId: command.traccarPositionId,
+          fixTime: command.fixTime,
+          skewSec,
+        },
+        'Position dated in the future ignored',
+      );
+      return { status: 'future_fix' };
+    }
+
     const vehicle = await this.deps.vehicles.findByTraccarUniqueId(command.deviceUniqueId);
     if (vehicle === null || !vehicle.active) {
       this.deps.logger.warn(
@@ -398,11 +414,16 @@ export class IngestPositionService {
   private notifyInBackground(alerts: Outcome['alerts']): void {
     const running = this.notify(alerts)
       .catch((error: unknown) => {
-        // Terminal handler: a background run must never become an unhandled rejection.
-        this.deps.logger.error(
-          { err: error, alertIds: alerts.map((a) => a.alertId) },
-          'Background alert notification failed',
-        );
+        // Terminal handler: a background run must never become an unhandled rejection, not even
+        // when the logger itself throws (a broken log sink).
+        try {
+          this.deps.logger.error(
+            { err: error, alertIds: alerts.map((a) => a.alertId) },
+            'Background alert notification failed',
+          );
+        } catch {
+          // Nothing else can report it.
+        }
       })
       .finally(() => this.notifications.delete(running));
     this.notifications.add(running);

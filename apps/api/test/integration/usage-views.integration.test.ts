@@ -114,6 +114,36 @@ describe('POST /api/usage/views (PostGIS)', () => {
     ]);
   });
 
+  it('keeps the views of a deleted household, without the household link', async () => {
+    const p08 = await db
+      .selectFrom('reference_points')
+      .select('id')
+      .where('code', '=', 'P08')
+      .executeTakeFirstOrThrow();
+    const household = await db
+      .insertInto('households')
+      .values({
+        code: 'H-002',
+        route_id: seeded.routeId,
+        point_id: p08.id,
+        enrolled_at: NOW,
+        consent_at: NOW,
+        consent_version: '2026-10',
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await db
+      .insertInto('app_views')
+      .values({ point_id: p08.id, household_id: household.id, viewed_at: NOW })
+      .execute();
+
+    await db.deleteFrom('households').where('id', '=', household.id).execute();
+
+    expect(await views()).toEqual([
+      { code: 'P08', subscription_id: null, household_id: null, viewed_at: NOW },
+    ]);
+  });
+
   it('rejects unknown points with 422 and malformed bodies with 400', async () => {
     expect((await postView({ pointCode: 'P99' })).statusCode).toBe(422);
     expect((await postView({ pointCode: 'P08', routeCode: 'XX-99' })).statusCode).toBe(422);

@@ -12,6 +12,7 @@ export const TEST_API_CONFIG: ApiConfig = {
   tripInactivityCheckIntervalSec: 60,
   etaRefreshIntervalSec: 15,
   sseMaxConnections: 50,
+  maxFixFutureSkewSec: 120,
   trustProxy: false,
   publicRateLimitPerMinute: 1000,
   pushConcurrency: 4,

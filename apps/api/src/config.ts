@@ -21,6 +21,7 @@ const configSchema = z
     TRIP_INACTIVITY_CHECK_INTERVAL_SEC: positiveInt(60),
     ETA_REFRESH_INTERVAL_SEC: positiveInt(15),
     SSE_MAX_CONNECTIONS: positiveInt(500),
+    MAX_FIX_FUTURE_SKEW_SEC: positiveInt(120),
     SHUTDOWN_TIMEOUT_SEC: positiveInt(10),
     TRUST_PROXY: z.stringbool().default(false),
     PUBLIC_RATE_LIMIT_PER_MINUTE: positiveInt(20),
@@ -65,6 +66,8 @@ export interface AppConfig {
   readonly etaRefreshIntervalSec: number;
   /** Open live streams (SSE) across all routes; more answer 503. */
   readonly sseMaxConnections: number;
+  /** A fix dated more than this ahead of the server clock is ignored (202, never stored). */
+  readonly maxFixFutureSkewSec: number;
   /** Graceful-shutdown deadline before the process is forced to exit. */
   readonly shutdownTimeoutSec: number;
   /** Trust `X-Forwarded-*` from the reverse proxy (client IPs for rate limiting). */
@@ -126,6 +129,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tripInactivityCheckIntervalSec: raw.TRIP_INACTIVITY_CHECK_INTERVAL_SEC,
     etaRefreshIntervalSec: raw.ETA_REFRESH_INTERVAL_SEC,
     sseMaxConnections: raw.SSE_MAX_CONNECTIONS,
+    maxFixFutureSkewSec: raw.MAX_FIX_FUTURE_SKEW_SEC,
     shutdownTimeoutSec: raw.SHUTDOWN_TIMEOUT_SEC,
     trustProxy: raw.TRUST_PROXY,
     publicRateLimitPerMinute: raw.PUBLIC_RATE_LIMIT_PER_MINUTE,

@@ -293,6 +293,21 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   the inactivity abort (ingestion should reject or clamp fixes far ahead of the server clock); the
   reverse proxy (T10) must not buffer `text/event-stream` and needs read timeouts above 15 s.
 
+- 2026-10-11: T5's last commit is `38f530d`. T5 was reviewed in two slices, `7d80fb3..d213491` and
+  `d213491..38f530d`; both were approved and acknowledged. The reviewed boundary is now `38f530d`. Its
+  findings are handled in T6 commit A `fix(live): release early-disconnected streams and harden live
+  reads and ingestion` (the parent records the hash):
+  - WARNING (SSE slot leak): a client that disconnected while the route was looked up was registered
+    after its `close` event had fired, leaking the slot, the bus subscriptions and the heartbeat.
+    `LiveStreamHub.stream` now returns at once for a destroyed response (the check and the listener
+    registration run synchronously).
+  - Migration `0004-app-views-household-set-null`: `app_views.household_id` is `ON DELETE SET NULL`.
+  - Fixes dated more than `MAX_FIX_FUTURE_SKEW_SEC` (default 120) ahead of the server clock are
+    logged and ignored (`202 { status: "ignored", reason: "future_fix" }`, never stored).
+  - `KyselyLiveRouteReadModel.activeTrips` runs in one read-only `REPEATABLE READ` transaction.
+  - The background notification `.catch` guards its logger call.
+  - New test for the `/api/usage/views` rate limit (10x the public limit per IP).
+
 ## Next step
 
 T6 (citizen PWA: map, point selection, ETA window, subscription flow, QR deep link, offline/printed

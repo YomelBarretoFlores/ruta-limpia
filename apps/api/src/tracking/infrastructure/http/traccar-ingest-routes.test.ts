@@ -58,10 +58,20 @@ describe('POST /ingest/traccar/positions', () => {
     [{ status: 'processed', positionId: '1', tripId: null } as const, 200],
     [{ status: 'duplicate' } as const, 200],
     [{ status: 'unknown_device' } as const, 202],
+    [{ status: 'future_fix' } as const, 202],
   ])('maps %o to HTTP %i', async (result, statusCode) => {
     ({ app } = await buildWith(() => Promise.resolve(result)));
 
     expect((await post(app, sampleForward)).statusCode).toBe(statusCode);
+  });
+
+  it('accepts a fix dated in the future without processing it, so Traccar does not retry', async () => {
+    ({ app } = await buildWith(() => Promise.resolve({ status: 'future_fix' })));
+
+    expect((await post(app, sampleForward)).json()).toEqual({
+      status: 'ignored',
+      reason: 'future_fix',
+    });
   });
 
   it('answers 5xx when processing fails, so Traccar retries', async () => {

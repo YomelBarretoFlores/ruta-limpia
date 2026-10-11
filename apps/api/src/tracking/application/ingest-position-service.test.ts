@@ -137,6 +137,41 @@ describe('IngestPositionService', () => {
     expect(ctx.published).toEqual([]);
   });
 
+  it('ignores a fix dated more than the allowed skew ahead of the server clock', async () => {
+    const skew = DEFAULT_TRACKING_PIPELINE_SETTINGS.maxFixFutureSkewSec;
+    ctx.clock.set(new Date(T0));
+    const position = ri01PositionAt(0);
+    const command = {
+      traccarPositionId: 99,
+      deviceUniqueId: truck.traccarUniqueId,
+      serverTime: null,
+      lat: position.lat,
+      lon: position.lon,
+      speedKmh: 5,
+      course: null,
+      valid: true,
+      accuracy: null,
+    };
+
+    const ahead = await ctx.service.ingest({
+      ...command,
+      fixTime: new Date(T0 + (skew + 1) * 1000),
+    });
+    const withinSkew = await ctx.service.ingest({
+      ...command,
+      traccarPositionId: 100,
+      fixTime: new Date(T0 + skew * 1000),
+    });
+
+    expect(ahead).toEqual({ status: 'future_fix' });
+    expect(withinSkew).toMatchObject({ status: 'processed' });
+    expect(ctx.store.positions.map((p) => p.traccarPositionId)).toEqual([100]);
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceUniqueId: truck.traccarUniqueId, traccarPositionId: 99 }),
+      'Position dated in the future ignored',
+    );
+  });
+
   it('treats a replayed Traccar position as an idempotent no-op', async () => {
     const first = await ctx.send(0, 0, { traccarPositionId: 42 });
     const eventsAfterFirst = ctx.published.length;
@@ -377,6 +412,35 @@ describe('IngestPositionService', () => {
       expect.objectContaining({ err: expect.any(Error) as unknown }),
       'Background alert notification failed',
     );
+  });
+
+  it('never leaves a background notification unhandled, even when the logger throws', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      ctx.notify.mockRejectedValue(new Error('push service down'));
+      ctx.logger.error.mockImplementation(() => {
+        throw new Error('log sink down');
+      });
+      for (let s = 0; s <= 400 && ctx.store.alerts.length === 0; s += 20) {
+        await ctx.send(stopAndGoChainageAt(s), s);
+      }
+      expect(ctx.store.alerts.length).toBeGreaterThan(0);
+
+      // Let the background run fail on its own, before anyone waits for it.
+      await vi.waitFor(() =>
+        expect(ctx.logger.error).toHaveBeenCalledWith(
+          expect.anything(),
+          'Background alert notification failed',
+        ),
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(unhandled).not.toHaveBeenCalled();
+      await expect(ctx.service.whenNotificationsSettled()).resolves.toBeUndefined();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 
   it.each([

@@ -70,7 +70,7 @@ live/application         LiveSnapshotService over the LiveRouteReadModel port; l
                          mapping to the public JSON views, shared by the snapshot and the stream)
 live/application         live-event-views (pure mapping and route filtering of the streamed tracking
                          events to public views)
-live/infrastructure      KyselyLiveRouteReadModel, http/ (GET /api/live/routes/:code and its /stream,
+live/infrastructure      KyselyLiveRouteReadModel (one read-only REPEATABLE READ transaction per read), http/ (GET /api/live/routes/:code and its /stream,
                          zod response schemas), sse/ (LiveStreamHub: SSE streams with heartbeat,
                          connection cap and shutdown close; wire format)
 eta/application          SpeedProfileProvider (cached per route) over CompletedTripSamplesSource
@@ -97,6 +97,10 @@ shutdown.ts              createShutdown(): ordered graceful shutdown with a hard
 ```
 
 ### Tracking pipeline (`IngestPositionService`)
+
+A fix dated more than `MAX_FIX_FUTURE_SKEW_SEC` (default 120 s) ahead of the server clock is logged
+and ignored before anything else (`future_fix`, answered `202` so Traccar does not retry it): it would
+keep a trip `live` and delay the inactivity abort.
 
 Per forwarded position, serialized per vehicle by an in-process `KeyedMutex` and, inside one transaction,
 by `SELECT … FOR UPDATE` on the vehicle and its active trip (which also covers several API processes):
@@ -146,10 +150,11 @@ live stream can filter by route.
 
 Each SSE stream subscribes to the streamed tracking events (`trip.updated` stays internal), maps them
 with `toLiveStreamEvent` (null for other routes, invalid fixes and points no longer on the route), and
-writes them after the initial `snapshot`; events that arrive while the snapshot is built are queued.
-The hub caps open streams (`SSE_MAX_CONNECTIONS`), sends a heartbeat every 15 s, disconnects a client
-whose unsent output exceeds 1 MiB, releases everything when the response closes, and ends every stream
-in Fastify's `preClose` hook so graceful shutdown is not held by open streams.
+writes them after the initial `snapshot`; events that arrive while the snapshot is built are queued. The
+hub caps open streams (`SSE_MAX_CONNECTIONS`), sends a heartbeat every 15 s, disconnects a client whose
+unsent output exceeds 1 MiB, never registers a client that disconnected before its stream was set up
+(for example during the route lookup), releases everything when the response closes, and ends every
+stream in Fastify's `preClose` hook so graceful shutdown is not held by open streams.
 
 ### Subscriptions (`SubscriptionService`)
 
@@ -185,10 +190,11 @@ Errors are logged per subscription and never reach the ingest.
 
 PostgreSQL 16 + PostGIS through Kysely. Migrations are registered in code
 (`shared/infrastructure/db/migrations`) and run by `db:migrate` or on API start. Integrity rules live in
-the database: one active trip per vehicle (partial unique index), one pass and one alert per (trip, point),
-unique Traccar position ids, unique push endpoints, one delivery per (alert, subscription), and a
-household's point always belongs to its route. `app_views` (migration `0003-app-views`) logs app
-views with the point, the subscription and household only when proven by the management token, and
-the time; never an IP address or a user agent. The `instrument1_route_log` view produces the
-Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null when no alert
-was sent.
+the database: one active trip per vehicle (partial unique index), one pass and one alert per (trip,
+point), unique Traccar position ids, unique push endpoints, one delivery per (alert, subscription), and
+a household's point always belongs to its route. `app_views` (migrations `0003-app-views` and
+`0004-app-views-household-set-null`: deleting a household or a subscription keeps its views and clears
+the link) logs app views with the point, the subscription and household only when proven by the
+management token, and the time; never an IP address or a user agent. The `instrument1_route_log` view
+produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null
+when no alert was sent.

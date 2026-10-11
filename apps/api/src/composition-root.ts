@@ -59,6 +59,7 @@ export type ApiConfig = Pick<
   | 'tripInactivityCheckIntervalSec'
   | 'etaRefreshIntervalSec'
   | 'sseMaxConnections'
+  | 'maxFixFutureSkewSec'
   | 'trustProxy'
   | 'publicRateLimitPerMinute'
   | 'vapid'
@@ -150,6 +151,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
       eta: DEFAULT_ETA_SETTINGS,
       alerts: DEFAULT_ALERT_SETTINGS,
       startZoneMeters: config.tripStartZoneMeters,
+      maxFixFutureSkewSec: config.maxFixFutureSkewSec,
     },
   });
   const tripLifecycle = new TripLifecycleService({

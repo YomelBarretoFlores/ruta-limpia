@@ -86,6 +86,7 @@ invalid values. An empty value (`PORT=`) counts as unset, so the default applies
 | `TRIP_INACTIVITY_CHECK_INTERVAL_SEC` | `60`                   | How often the inactivity job runs.                                               |
 | `ETA_REFRESH_INTERVAL_SEC`           | `15`                   | How often the ETAs of active trips are recomputed and republished between fixes. |
 | `SSE_MAX_CONNECTIONS`                | `500`                  | Open live streams (SSE) across all routes; more answer `503`.                    |
+| `MAX_FIX_FUTURE_SKEW_SEC`            | `120`                  | A fix dated more than this ahead of the server clock is ignored (`202`).         |
 | `SHUTDOWN_TIMEOUT_SEC`               | `10`                   | Graceful-shutdown deadline before the process is forced to exit.                 |
 | `SEED_VEHICLE_UNIQUE_ID`             | `ruta-limpia-unidad-a` | Traccar identifier given to UNIDAD-A by `db:seed`.                               |
 | `TRUST_PROXY`                        | `false`                | Trust `X-Forwarded-*` from the reverse proxy (real client IPs).                  |
@@ -100,13 +101,14 @@ invalid values. An empty value (`PORT=`) counts as unset, so the default applies
 
 `POST /ingest/traccar/positions` receives Traccar's JSON forward (`{ position, device }`, speed in knots).
 
-| Response | When                                                                                      |
-| -------- | ----------------------------------------------------------------------------------------- |
-| `401`    | `X-Ingest-Token` is missing or wrong (constant-time comparison, checked before the body). |
-| `400`    | The payload is malformed.                                                                 |
-| `202`    | The device `uniqueId` is not a registered vehicle: accepted and logged, never retried.    |
-| `200`    | Processed, or a replay of an already stored Traccar position (idempotent no-op).          |
-| `5xx`    | Processing failed; Traccar retries the forward.                                           |
+| Response | When                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401`    | `X-Ingest-Token` is missing or wrong (constant-time comparison, checked before the body).                                                     |
+| `400`    | The payload is malformed.                                                                                                                     |
+| `202`    | The device `uniqueId` is not a registered vehicle: accepted and logged, never retried.                                                        |
+| `202`    | The fix is dated more than `MAX_FIX_FUTURE_SKEW_SEC` ahead of the server clock: logged, never stored, never retried (`reason: "future_fix"`). |
+| `200`    | Processed, or a replay of an already stored Traccar position (idempotent no-op).                                                              |
+| `5xx`    | Processing failed; Traccar retries the forward.                                                                                               |
 
 Each accepted position runs the tracking pipeline: it is stored, the vehicle's trip is found or auto-started
 (on its default route, within the start zone), passes and completion are detected, ETAs are estimated, and

@@ -1,3 +1,5 @@
+import type { Socket } from 'node:net';
+
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,7 +37,13 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
-async function start(options: { maxConnections?: number; heartbeatMs?: number } = {}) {
+async function start(
+  options: {
+    maxConnections?: number;
+    heartbeatMs?: number;
+    findRoute?: (code: string) => Promise<RouteSnapshot | null>;
+  } = {},
+) {
   const events = new InMemoryEventBus<TrackingEvents>(SILENT_LOGGER);
   const hub = new LiveStreamHub({
     events,
@@ -56,7 +64,9 @@ async function start(options: { maxConnections?: number; heartbeatMs?: number } 
       },
       live: {
         snapshots: {
-          findRoute: (code) => Promise.resolve(code === 'RI-01' ? RI01_SNAPSHOT : null),
+          findRoute:
+            options.findRoute ??
+            ((code) => Promise.resolve(code === 'RI-01' ? RI01_SNAPSHOT : null)),
           snapshot,
         },
         stream: { hub, maxFixAgeSec: 60 },
@@ -70,7 +80,7 @@ async function start(options: { maxConnections?: number; heartbeatMs?: number } 
     streams.push(stream);
     return stream;
   };
-  return { app, events, hub, snapshot, connect };
+  return { app, address, events, hub, snapshot, connect };
 }
 
 describe('GET /api/live/routes/:code/stream', () => {
@@ -141,6 +151,36 @@ describe('GET /api/live/routes/:code/stream', () => {
     await vi.waitFor(() => expect(hub.size).toBe(0));
     const third = await connect();
     expect(third.status).toBe(200);
+  });
+
+  it('releases the slot when the client disconnects while the route is being looked up', async () => {
+    let lookupStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => (lookupStarted = resolve));
+    let releaseLookup: () => void = () => undefined;
+    const { app, address, hub, snapshot } = await start({
+      findRoute: () => {
+        lookupStarted();
+        return new Promise((resolve) => (releaseLookup = () => resolve(RI01_SNAPSHOT)));
+      },
+    });
+    const serverSocketClosed = new Promise<void>((resolve) =>
+      app.server.once('connection', (socket: Socket) => socket.once('close', () => resolve())),
+    );
+    const client = new AbortController();
+    const request = fetch(`${address}/api/live/routes/RI-01/stream`, {
+      signal: client.signal,
+    }).catch(() => null);
+
+    await started;
+    client.abort();
+    await request;
+    await serverSocketClosed;
+    releaseLookup();
+
+    // The rest of the handler runs on microtasks, which all settle before `setImmediate`.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(hub.size).toBe(0);
+    expect(snapshot).not.toHaveBeenCalled();
   });
 
   it('answers 404 for an unknown route and 400 for a malformed code', async () => {

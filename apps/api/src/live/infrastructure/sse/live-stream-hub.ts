@@ -47,6 +47,10 @@ export class LiveStreamHub {
    * Streams the route to an already hijacked response: headers, then the `snapshot` event built
    * by `snapshot()`, then every relevant tracking event. Events published while the snapshot is
    * built are queued and sent right after it, so none is lost. Resolves once the stream is set up.
+   *
+   * A client that already disconnected (for example while the caller awaited the route lookup)
+   * gets nothing: its `close` event has already fired, so a registered stream would never be
+   * released. Everything from this check to the listeners below runs synchronously.
    */
   async stream(
     response: ServerResponse,
@@ -54,6 +58,7 @@ export class LiveStreamHub {
     snapshot: () => Promise<object>,
   ): Promise<void> {
     const { events, logger } = this.options;
+    if (response.destroyed) return;
     response.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-store',
