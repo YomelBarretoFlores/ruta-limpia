@@ -28,4 +28,25 @@ describe('visibleNavItems', () => {
     expect(users.every((item) => item.anyOf.length === 1)).toBe(true);
     expect(labels('supervisor', NAV_ITEMS)).not.toContain('Usuarios');
   });
+
+  it('gives each role its sections of the panel', () => {
+    expect(labels('admin', NAV_ITEMS)).toEqual([
+      'En vivo',
+      'Viajes',
+      'Incidencias',
+      'Hogares',
+      'Fichas de campo',
+      'Línea base',
+      'Usuarios',
+    ]);
+    expect(labels('supervisor', NAV_ITEMS)).toEqual([
+      'En vivo',
+      'Viajes',
+      'Incidencias',
+      'Hogares',
+      'Fichas de campo',
+      'Línea base',
+    ]);
+    expect(labels('observer', NAV_ITEMS)).toEqual(['En vivo', 'Fichas de campo', 'Línea base']);
+  });
 });

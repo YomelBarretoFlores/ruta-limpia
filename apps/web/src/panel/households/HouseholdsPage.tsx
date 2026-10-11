@@ -25,7 +25,7 @@ const FILTERS = ['punto', 'estado'] as const;
 const HOUSEHOLD_ERRORS = {
   unknown_point: 'Ese punto no pertenece a la ruta o ya no está activo. Elige otro.',
   unknown_route: 'La ruta ya no está activa.',
-  household_not_found: 'No se encontró el hogar. Es posible que lo hayan eliminado.',
+  not_found: 'No se encontró el hogar. Es posible que lo hayan eliminado.',
 } as const;
 
 type Editing =

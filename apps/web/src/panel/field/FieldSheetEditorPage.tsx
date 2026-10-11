@@ -30,7 +30,7 @@ const SHEET_ERRORS = {
   not_owner: 'Solo quien registró la ficha puede cambiarla.',
   unknown_point: 'El punto ya no está activo en la ruta. Elige otro.',
   unknown_route: 'La ruta ya no está activa.',
-  observation_not_found: 'No se encontró la ficha. Es posible que la hayan eliminado.',
+  not_found: 'No se encontró la ficha. Es posible que la hayan eliminado.',
 } as const;
 
 /** `/panel/fichas/nueva` and `/panel/fichas/:id`: one Instrument 2 sheet. */

@@ -4,6 +4,8 @@ import { Route, Routes } from 'react-router';
 
 import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
 import { Notice } from '../shared/ui/Notice';
+import { BaselineEditorPage } from './baseline/BaselineEditorPage';
+import { BaselinePage } from './baseline/BaselinePage';
 import { FieldSheetEditorPage } from './field/FieldSheetEditorPage';
 import { FieldSheetsPage } from './field/FieldSheetsPage';
 import { HouseholdsPage } from './households/HouseholdsPage';
@@ -125,6 +127,30 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={FIELD_READ}>
                   <FieldSheetEditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="linea-base"
+              element={
+                <RequirePermission anyOf={FIELD_READ}>
+                  <BaselinePage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="linea-base/nuevo"
+              element={
+                <RequirePermission anyOf={FIELD_READ}>
+                  <BaselineEditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="linea-base/:id"
+              element={
+                <RequirePermission anyOf={FIELD_READ}>
+                  <BaselineEditorPage />
                 </RequirePermission>
               }
             />
