@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { NO_MIGRATIONS } from 'kysely/migration';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { RI01_SNAPSHOT } from '../support/ri01-tracking.js';
@@ -41,10 +42,13 @@ describe('migrations', () => {
 
     expect(tables.rows.map((r) => r.table_name)).toEqual(
       expect.arrayContaining([
+        'alert_deliveries',
         'alerts',
+        'households',
         'incidents',
         'instrument1_route_log',
         'positions',
+        'push_subscriptions',
         'reference_points',
         'route_schedules',
         'routes',
@@ -61,10 +65,10 @@ describe('migrations', () => {
   it('roll back completely and apply again', async () => {
     const migrator = createMigrator(db);
 
-    const down = await migrator.migrateDown();
+    const down = await migrator.migrateTo(NO_MIGRATIONS);
     const tables = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = 'trips'`.execute(db);
+      WHERE table_schema = 'public' AND table_name IN ('trips', 'push_subscriptions')`.execute(db);
     await migrateToLatest(db, SILENT_LOGGER);
 
     expect(down.error).toBeUndefined();

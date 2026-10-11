@@ -4,6 +4,12 @@ import Fastify, {
   type FastifyServerOptions,
 } from 'fastify';
 
+import rateLimit from '@fastify/rate-limit';
+
+import {
+  pushSubscriptionRoutes,
+  type PushSubscriptionRoutesOptions,
+} from './alerts/infrastructure/http/push-subscription-routes.js';
 import { healthRoutes } from './shared/infrastructure/http/health-routes.js';
 import {
   traccarIngestRoutes,
@@ -17,6 +23,10 @@ export interface BuildAppOptions {
   readonly loggerInstance?: FastifyBaseLogger;
   /** Registers the Traccar ingest endpoint when present. */
   readonly ingest?: { readonly token: string; readonly ingestor: PositionIngestor };
+  /** Registers the public citizen API under `/api` when present. */
+  readonly publicApi?: PushSubscriptionRoutesOptions;
+  /** Trust `X-Forwarded-*` headers from the reverse proxy. */
+  readonly trustProxy?: boolean;
 }
 
 /**
@@ -24,10 +34,14 @@ export interface BuildAppOptions {
  * wired in the composition root and passed in through options.
  */
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
+  const trustProxy = options.trustProxy ?? false;
   const app =
     options.loggerInstance === undefined
-      ? Fastify({ logger: options.logger ?? false })
-      : Fastify({ loggerInstance: options.loggerInstance });
+      ? Fastify({ logger: options.logger ?? false, trustProxy })
+      : Fastify({ loggerInstance: options.loggerInstance, trustProxy });
+
+  // Opt-in per route (`config.rateLimit`): only the public mutating routes are limited.
+  await app.register(rateLimit, { global: false });
 
   await app.register(healthRoutes);
   if (options.ingest !== undefined) {
@@ -35,6 +49,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       ingestToken: options.ingest.token,
       ingestor: options.ingest.ingestor,
     });
+  }
+
+  if (options.publicApi !== undefined) {
+    await app.register(pushSubscriptionRoutes, { ...options.publicApi, prefix: '/api' });
   }
 
   return app;

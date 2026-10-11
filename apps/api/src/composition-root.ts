@@ -2,13 +2,18 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 
 import { LoggingAlertNotifier } from './alerts/infrastructure/logging-alert-notifier.js';
 import { DEFAULT_ALERT_SETTINGS } from './alerts/domain/alert-policy.js';
+import { SubscriptionService } from './alerts/application/subscription-service.js';
+import { CryptoManagementTokens } from './alerts/infrastructure/crypto-management-tokens.js';
+import { KyselySubscriptionStore } from './alerts/infrastructure/kysely-subscription-store.js';
 import { buildApp } from './app.js';
+import { KyselyHouseholdDirectory } from './field/infrastructure/kysely-household-directory.js';
 import type { AppConfig } from './config.js';
 import type { AlertNotifier } from './alerts/application/alert-notifier.js';
 import { SpeedProfileProvider } from './eta/application/speed-profile-provider.js';
 import { DEFAULT_ETA_SETTINGS } from './eta/domain/eta-settings.js';
 import { KyselyCompletedTripSamples } from './eta/infrastructure/kysely-completed-trip-samples.js';
 import { RouteCatalog } from './routes/application/route-catalog.js';
+import { KyselyReferencePointLookup } from './routes/infrastructure/kysely-reference-point-lookup.js';
 import { KyselyRouteRepository } from './routes/infrastructure/kysely-route-repository.js';
 import type { Clock } from './shared/application/clock.js';
 import type { EventBus } from './shared/application/event-bus.js';
@@ -34,6 +39,9 @@ export type ApiConfig = Pick<
   | 'tripStartZoneMeters'
   | 'tripInactivityTimeoutSec'
   | 'tripInactivityCheckIntervalSec'
+  | 'trustProxy'
+  | 'publicRateLimitPerMinute'
+  | 'vapid'
 >;
 
 export interface ApiDependencies {
@@ -53,6 +61,7 @@ export interface Api {
   readonly routes: RouteCatalog;
   readonly speedProfiles: SpeedProfileProvider;
   readonly inactivityJob: InactivityJob;
+  readonly subscriptions: SubscriptionService;
 }
 
 /**
@@ -108,10 +117,40 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     logger: logger.child({ component: 'inactivity-job' }),
   });
 
+  const subscriptions = new SubscriptionService({
+    store: new KyselySubscriptionStore(db),
+    points: new KyselyReferencePointLookup(db),
+    households: new KyselyHouseholdDirectory(db),
+    tokens: new CryptoManagementTokens(),
+    clock,
+    logger: logger.child({ component: 'subscriptions' }),
+  });
+  if (config.vapid === null) {
+    logger.warn(
+      'Web Push is not configured (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT): ' +
+        'subscriptions are disabled and alerts are only logged',
+    );
+  }
+
   const app = await buildApp({
     loggerInstance: logger,
+    trustProxy: config.trustProxy,
     ingest: { token: config.ingestToken, ingestor: ingestPosition },
+    publicApi: {
+      subscriptions,
+      vapidPublicKey: config.vapid?.publicKey ?? null,
+      mutationsPerMinute: config.publicRateLimitPerMinute,
+    },
   });
 
-  return { app, events, ingestPosition, tripLifecycle, routes, speedProfiles, inactivityJob };
+  return {
+    app,
+    events,
+    ingestPosition,
+    tripLifecycle,
+    routes,
+    speedProfiles,
+    inactivityJob,
+    subscriptions,
+  };
 }

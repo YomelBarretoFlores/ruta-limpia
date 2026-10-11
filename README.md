@@ -86,6 +86,11 @@ invalid values. An empty value (`PORT=`) counts as unset, so the default applies
 | `TRIP_INACTIVITY_CHECK_INTERVAL_SEC` | `60`                   | How often the inactivity job runs.                                |
 | `SHUTDOWN_TIMEOUT_SEC`               | `10`                   | Graceful-shutdown deadline before the process is forced to exit.  |
 | `SEED_VEHICLE_UNIQUE_ID`             | `ruta-limpia-unidad-a` | Traccar identifier given to UNIDAD-A by `db:seed`.                |
+| `TRUST_PROXY`                        | `false`                | Trust `X-Forwarded-*` from the reverse proxy (real client IPs).   |
+| `PUBLIC_RATE_LIMIT_PER_MINUTE`       | `20`                   | Requests per client IP and route on the public mutating routes.   |
+| `VAPID_PUBLIC_KEY`                   | unset                  | Web Push public key (87 chars). Set all three VAPID vars or none. |
+| `VAPID_PRIVATE_KEY`                  | unset                  | Web Push private key (43 chars). Keep it secret.                  |
+| `VAPID_SUBJECT`                      | unset                  | Contact for the push services: `mailto:…` or `https://…`.         |
 
 ### Position ingestion
 
@@ -105,6 +110,43 @@ at most one proximity alert per trip and point is recorded. The `instrument1_rou
 Instrument 1 route log: one row per reference point of every trip, with the alert time and communicated ETA
 only when an alert was actually sent.
 
+### Web Push subscriptions
+
+Households follow one public reference point (for example `P08`) and receive proximity alerts as Web
+Push notifications. There is no SMS or WhatsApp channel.
+
+Generate the VAPID keys once per deployment and add the printed lines to `.env`:
+
+```bash
+pnpm --filter api vapid:generate mailto:soporte@municipalidad.example
+```
+
+Changing the keys invalidates every existing browser subscription. Without VAPID keys the API still
+starts: it logs a warning, the subscription endpoints answer `503`, and alerts are only logged.
+
+| Endpoint                         | Description                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `GET /api/push/vapid-public-key` | `{ publicKey }` for `pushManager.subscribe()`.                                               |
+| `POST /api/subscriptions`        | Subscribe to a point (`201 { subscriptionId, managementToken, point }`). See the body below. |
+| `DELETE /api/subscriptions/:id`  | Cancel with `Authorization: Bearer <managementToken>` (`204`; `401`/`403`/`404`).            |
+
+The `POST /api/subscriptions` body is `{ subscription, pointCode | pointId, routeCode?, householdCode?,
+consent: true, consentVersion }`, where `subscription` is the browser's `PushSubscription.toJSON()`.
+
+- `consent` must be `true` (`400 consent_required` otherwise). The API records the consent time and the
+  version of the consent text.
+- An unknown point or household, a point code that exists on several routes without `routeCode`, or an
+  endpoint outside the browser push services (FCM, Mozilla, Apple, Windows) answers `422`.
+- Subscribing the same browser endpoint again moves it to the new point, reactivates it, and issues a new
+  management token. The old token stops working.
+- The mutating routes are rate-limited per client IP (`PUBLIC_RATE_LIMIT_PER_MINUTE`, `429` beyond).
+
+Privacy: the API never stores an address, a name or a phone number. A household is a code from its
+sticker plus a public reference point. A subscription stores the push endpoint and keys, the point, the
+optional household, the consent, and the SHA-256 hash of its management token (the token is shown only
+once, to the browser). Cancelling is a soft delete (`revoked_at`, `revoke_reason = user_cancelled`), kept
+for the indicators.
+
 ## Scripts
 
 | Command                              | Description                                                                  |
@@ -118,6 +160,7 @@ only when an alert was actually sent.
 | `pnpm --filter api test:integration` | API integration tests against PostGIS (Testcontainers).                      |
 | `pnpm --filter api db:migrate`       | Apply pending database migrations.                                           |
 | `pnpm --filter api db:seed`          | Load the pilot catalog (idempotent).                                         |
+| `pnpm --filter api vapid:generate`   | Print a new VAPID key pair as `.env` lines.                                  |
 | `pnpm format` / `format:check`       | Format with Prettier, or check the formatting.                               |
 | `pnpm infra:up` / `down` / `logs`    | Manage the local Docker infrastructure.                                      |
 

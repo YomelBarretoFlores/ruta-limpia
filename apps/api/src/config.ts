@@ -2,20 +2,43 @@ import { z } from 'zod';
 
 const positiveInt = (fallback: number) => z.coerce.number().int().positive().default(fallback);
 
-const configSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  HOST: z.string().min(1).default('0.0.0.0'),
-  PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
-  DATABASE_POOL_MAX: positiveInt(10),
-  MIGRATE_ON_START: z.stringbool().default(true),
-  INGEST_TOKEN: z.string().min(32, 'INGEST_TOKEN must be at least 32 characters long'),
-  TRIP_START_ZONE_METERS: positiveInt(150),
-  TRIP_INACTIVITY_TIMEOUT_SEC: positiveInt(30 * 60),
-  TRIP_INACTIVITY_CHECK_INTERVAL_SEC: positiveInt(60),
-  SHUTDOWN_TIMEOUT_SEC: positiveInt(10),
-});
+const base64Url = z.string().regex(/^[A-Za-z0-9_-]+$/, 'must be base64url without padding');
+
+const configSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    HOST: z.string().min(1).default('0.0.0.0'),
+    PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
+    DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+    DATABASE_POOL_MAX: positiveInt(10),
+    MIGRATE_ON_START: z.stringbool().default(true),
+    INGEST_TOKEN: z.string().min(32, 'INGEST_TOKEN must be at least 32 characters long'),
+    TRIP_START_ZONE_METERS: positiveInt(150),
+    TRIP_INACTIVITY_TIMEOUT_SEC: positiveInt(30 * 60),
+    TRIP_INACTIVITY_CHECK_INTERVAL_SEC: positiveInt(60),
+    SHUTDOWN_TIMEOUT_SEC: positiveInt(10),
+    TRUST_PROXY: z.stringbool().default(false),
+    PUBLIC_RATE_LIMIT_PER_MINUTE: positiveInt(20),
+    VAPID_PUBLIC_KEY: base64Url.length(87, 'VAPID_PUBLIC_KEY must be 87 characters').optional(),
+    VAPID_PRIVATE_KEY: base64Url.length(43, 'VAPID_PRIVATE_KEY must be 43 characters').optional(),
+    VAPID_SUBJECT: z
+      .string()
+      .regex(/^(mailto:|https:\/\/)\S+$/, 'VAPID_SUBJECT must be a mailto: or https: URL')
+      .optional(),
+  })
+  .refine(
+    (env) => {
+      const set = [env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY, env.VAPID_SUBJECT];
+      return set.every((v) => v === undefined) || set.every((v) => v !== undefined);
+    },
+    {
+      message: 'Set all of VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT, or none',
+      path: ['VAPID_PUBLIC_KEY'],
+    },
+  );
 
 type RawConfig = z.infer<typeof configSchema>;
 
@@ -36,6 +59,19 @@ export interface AppConfig {
   readonly tripInactivityCheckIntervalSec: number;
   /** Graceful-shutdown deadline before the process is forced to exit. */
   readonly shutdownTimeoutSec: number;
+  /** Trust `X-Forwarded-*` from the reverse proxy (client IPs for rate limiting). */
+  readonly trustProxy: boolean;
+  /** Per client IP and route, for the public mutating routes (subscriptions). */
+  readonly publicRateLimitPerMinute: number;
+  /** Web Push (VAPID) credentials; null disables push (alerts are then only logged). */
+  readonly vapid: VapidConfig | null;
+}
+
+export interface VapidConfig {
+  readonly publicKey: string;
+  readonly privateKey: string;
+  /** Contact for the push services: `mailto:` or `https:` URL. */
+  readonly subject: string;
 }
 
 export class ConfigError extends Error {
@@ -77,5 +113,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tripInactivityTimeoutSec: raw.TRIP_INACTIVITY_TIMEOUT_SEC,
     tripInactivityCheckIntervalSec: raw.TRIP_INACTIVITY_CHECK_INTERVAL_SEC,
     shutdownTimeoutSec: raw.SHUTDOWN_TIMEOUT_SEC,
+    trustProxy: raw.TRUST_PROXY,
+    publicRateLimitPerMinute: raw.PUBLIC_RATE_LIMIT_PER_MINUTE,
+    vapid:
+      raw.VAPID_PUBLIC_KEY !== undefined &&
+      raw.VAPID_PRIVATE_KEY !== undefined &&
+      raw.VAPID_SUBJECT !== undefined
+        ? {
+            publicKey: raw.VAPID_PUBLIC_KEY,
+            privateKey: raw.VAPID_PRIVATE_KEY,
+            subject: raw.VAPID_SUBJECT,
+          }
+        : null,
   };
 }

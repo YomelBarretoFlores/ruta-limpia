@@ -1,0 +1,42 @@
+/** What the browser's `PushSubscription.toJSON()` gives: the endpoint and its encryption keys. */
+export interface PushEndpoint {
+  readonly endpoint: string;
+  readonly p256dh: string;
+  readonly auth: string;
+}
+
+export type RevokeReason = 'user_cancelled' | 'expired' | 'too_many_failures';
+
+export interface NewSubscription extends PushEndpoint {
+  readonly pointId: string;
+  readonly householdId: string | null;
+  readonly consentAt: Date;
+  readonly consentVersion: string;
+  readonly managementTokenHash: string;
+}
+
+/** The fields needed to authorize a subscription's management (cancel, receipts). */
+export interface ManagedSubscription {
+  readonly id: string;
+  readonly managementTokenHash: string;
+  readonly revokedAt: Date | null;
+}
+
+/** Port: persists Web Push subscriptions. */
+export interface SubscriptionStore {
+  /**
+   * Inserts the subscription, or updates the one with the same endpoint (new point, keys, consent
+   * and token; reactivated if it was revoked) and keeps its id.
+   */
+  upsert(subscription: NewSubscription): Promise<{ readonly id: string }>;
+  findManaged(subscriptionId: string): Promise<ManagedSubscription | null>;
+  /** Revokes an active subscription (soft delete); an already revoked one keeps its reason. */
+  revoke(subscriptionId: string, reason: RevokeReason, at: Date): Promise<void>;
+}
+
+/** Port: issues management tokens and checks them against their stored hash. */
+export interface ManagementTokens {
+  issue(): { readonly token: string; readonly hash: string };
+  /** Constant-time comparison of the token's hash with `hash`. */
+  matches(token: string, hash: string): boolean;
+}

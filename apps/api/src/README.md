@@ -59,11 +59,16 @@ for the final stretch the truck never reached).
 shared/application       Clock, Logger, EventBus<T> ports; KeyedMutex (per-key serialization)
 shared/infrastructure    system clock, InMemoryEventBus, db/ (Kysely types, migrations, migrator, seed, CLI)
 routes/application       RouteCatalog (cached) over the RouteRepository port
-routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot)
+routes/application       ReferencePointLookup port (public points by id or code)
+routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot), KyselyReferencePointLookup
 eta/application          SpeedProfileProvider (cached per route) over CompletedTripSamplesSource
 eta/infrastructure       KyselyCompletedTripSamples (accepted positions of recent completed trips)
-alerts/application       AlertNotifier port (Web Push adapter in T4)
-alerts/infrastructure    LoggingAlertNotifier (placeholder)
+alerts/application       AlertNotifier port; SubscriptionService (subscribe, cancel) over the
+                         SubscriptionStore and ManagementTokens ports
+alerts/infrastructure    LoggingAlertNotifier, KyselySubscriptionStore, CryptoManagementTokens,
+                         http/ (public subscription routes), vapid-keys-cli
+field/application        HouseholdDirectory port (household registry: codes, never addresses)
+field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
                          IngestPositionService, TripLifecycleService
 tracking/infrastructure  KyselyTrackingStore, KyselyVehicleDirectory, http/ (Traccar ingest route,
@@ -108,10 +113,21 @@ Degraded inputs never block a vehicle's positions:
 aborted and `endReason`), `point.passed`, `eta.updated` (every point's `PointEta`; `stale` entries carry no
 prediction) and `alert.emitted`. They are published only after the transaction commits.
 
+### Subscriptions (`SubscriptionService`)
+
+A citizen subscribes one browser to one public reference point with explicit consent; the HTTP adapter
+rejects requests without `consent: true`. The service accepts only endpoints of the browser push
+services (`alerts/domain/push-endpoint.ts`), so the API never posts to arbitrary hosts. It resolves the
+point by id or by code (plus the route code when a code repeats across routes) and the optional household
+code. It issues a random management token and stores only its SHA-256 hash. Upserting by endpoint keeps
+the subscription id, moves it to the new point and rotates the token. `cancel` compares the token in
+constant time and soft-deletes the subscription.
+
 ### Persistence
 
 PostgreSQL 16 + PostGIS through Kysely. Migrations are registered in code
 (`shared/infrastructure/db/migrations`) and run by `db:migrate` or on API start. Integrity rules live in
 the database: one active trip per vehicle (partial unique index), one pass and one alert per (trip, point),
-and unique Traccar position ids. The `instrument1_route_log` view produces the Instrument 1 rows (dates in
+unique Traccar position ids, unique push endpoints, one delivery per (alert, subscription), and a
+household's point always belongs to its route. The `instrument1_route_log` view produces the Instrument 1 rows (dates in
 America/Lima); the alert columns and the ETA error stay null when no alert was sent.

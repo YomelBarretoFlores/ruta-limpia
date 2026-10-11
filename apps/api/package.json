@@ -12,19 +12,23 @@
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "tsx --env-file-if-exists=../../.env src/shared/infrastructure/db/cli.ts migrate",
-    "db:seed": "tsx --env-file-if-exists=../../.env src/shared/infrastructure/db/cli.ts seed"
+    "db:seed": "tsx --env-file-if-exists=../../.env src/shared/infrastructure/db/cli.ts seed",
+    "vapid:generate": "tsx src/alerts/infrastructure/vapid-keys-cli.ts"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^11.2.1",
     "fastify": "^5.12.5",
     "kysely": "^0.29.6",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
+    "web-push": "^3.6.7",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^12.2.0",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
+    "@types/web-push": "^3.6.4",
     "testcontainers": "^12.2.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",

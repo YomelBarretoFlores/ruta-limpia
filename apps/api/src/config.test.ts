@@ -24,7 +24,33 @@ describe('loadConfig', () => {
       tripInactivityTimeoutSec: 1800,
       tripInactivityCheckIntervalSec: 60,
       shutdownTimeoutSec: 10,
+      trustProxy: false,
+      publicRateLimitPerMinute: 20,
+      vapid: null,
     });
+  });
+
+  it('reads the VAPID credentials when all three are set', () => {
+    const vapid = {
+      VAPID_PUBLIC_KEY: 'B'.repeat(87),
+      VAPID_PRIVATE_KEY: 'k'.repeat(43),
+      VAPID_SUBJECT: 'mailto:municipalidad@example.org',
+    };
+
+    expect(loadConfig({ ...validEnv, ...vapid }).vapid).toEqual({
+      publicKey: vapid.VAPID_PUBLIC_KEY,
+      privateKey: vapid.VAPID_PRIVATE_KEY,
+      subject: vapid.VAPID_SUBJECT,
+    });
+    expect(() => loadConfig({ ...validEnv, VAPID_PUBLIC_KEY: vapid.VAPID_PUBLIC_KEY })).toThrow(
+      /all of VAPID_PUBLIC_KEY/,
+    );
+    expect(() => loadConfig({ ...validEnv, ...vapid, VAPID_SUBJECT: 'admin' })).toThrow(
+      /VAPID_SUBJECT/,
+    );
+    expect(() => loadConfig({ ...validEnv, ...vapid, VAPID_PRIVATE_KEY: 'short' })).toThrow(
+      /VAPID_PRIVATE_KEY/,
+    );
   });
 
   it('coerces numbers and booleans from their string form', () => {
@@ -37,6 +63,8 @@ describe('loadConfig', () => {
       TRIP_INACTIVITY_TIMEOUT_SEC: '900',
       TRIP_INACTIVITY_CHECK_INTERVAL_SEC: '30',
       SHUTDOWN_TIMEOUT_SEC: '5',
+      TRUST_PROXY: 'true',
+      PUBLIC_RATE_LIMIT_PER_MINUTE: '5',
     });
 
     expect(config).toMatchObject({
@@ -47,6 +75,8 @@ describe('loadConfig', () => {
       tripInactivityTimeoutSec: 900,
       tripInactivityCheckIntervalSec: 30,
       shutdownTimeoutSec: 5,
+      trustProxy: true,
+      publicRateLimitPerMinute: 5,
     });
   });
 

@@ -131,6 +131,52 @@ export interface IncidentsTable {
   created_at: CreatedAt;
 }
 
+export interface HouseholdsTable {
+  id: Generated<string>;
+  /** Public household code from the enrollment sticker, for example `H-001`. */
+  code: string;
+  route_id: string;
+  point_id: string;
+  enrolled_at: Date;
+  consent_at: Date;
+  consent_version: string;
+  active: Generated<boolean>;
+  notes: string | null;
+}
+
+export type RevokeReasonColumn = 'user_cancelled' | 'expired' | 'too_many_failures';
+
+export interface PushSubscriptionsTable {
+  id: Generated<string>;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  point_id: string;
+  household_id: string | null;
+  consent_at: Date;
+  consent_version: string;
+  /** SHA-256 (hex) of the management token; the token itself is never stored. */
+  management_token_hash: string;
+  created_at: CreatedAt;
+  revoked_at: Date | null;
+  revoke_reason: RevokeReasonColumn | null;
+  last_success_at: Date | null;
+  consecutive_failures: Generated<number>;
+}
+
+export type DeliveryStatusColumn = 'sent' | 'failed' | 'expired';
+
+export interface AlertDeliveriesTable {
+  id: Generated<string>;
+  alert_id: string;
+  subscription_id: string;
+  status: DeliveryStatusColumn;
+  http_status: number | null;
+  sent_at: Date;
+  /** Set when the service worker confirms reception; null when it could not. */
+  received_at: Date | null;
+}
+
 /** One Instrument 1 row: a reference point of a trip (read-only view). */
 export interface Instrument1RouteLogView {
   trip_id: string;
@@ -164,6 +210,9 @@ export interface Database {
   trip_point_passes: TripPointPassesTable;
   alerts: AlertsTable;
   incidents: IncidentsTable;
+  households: HouseholdsTable;
+  push_subscriptions: PushSubscriptionsTable;
+  alert_deliveries: AlertDeliveriesTable;
   instrument1_route_log: Instrument1RouteLogView;
 }
 

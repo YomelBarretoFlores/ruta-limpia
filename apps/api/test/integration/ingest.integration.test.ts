@@ -3,6 +3,7 @@ import { pino } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { ManualClock } from '../fakes/in-memory-tracking-store.js';
+import { TEST_API_CONFIG } from '../support/api-config.js';
 import { RI01_GEOMETRY, ri01PositionAt, stopAndGoChainageAt } from '../support/ri01-tracking.js';
 import { sampleForward } from '../support/traccar-forward.js';
 import type { EmittedAlert } from '../../src/alerts/application/alert-notifier.js';
@@ -12,7 +13,7 @@ import { seedDatabase, type SeedResult } from '../../src/shared/infrastructure/d
 import type { TrackingEventName } from '../../src/tracking/application/tracking-events.js';
 import { connectTestDatabase, resetData } from './database.js';
 
-const TOKEN = 'integration-ingest-token-0123456789abcdef';
+const TOKEN = TEST_API_CONFIG.ingestToken;
 const DEVICE = 'ruta-limpia-unidad-a';
 /** Tuesday 2026-10-20, 07:05 in Lima (UTC-5). The seeded schedule starts at 07:00. */
 const T0 = Date.parse('2026-10-20T12:05:00Z');
@@ -27,12 +28,7 @@ const published: TrackingEventName[] = [];
 
 async function startApi(): Promise<Api> {
   const api = await composeApi({
-    config: {
-      ingestToken: TOKEN,
-      tripStartZoneMeters: 150,
-      tripInactivityTimeoutSec: 1800,
-      tripInactivityCheckIntervalSec: 60,
-    },
+    config: TEST_API_CONFIG,
     db,
     clock,
     logger: pino({ level: 'silent' }),
