@@ -7,10 +7,23 @@ import { fakeApi, fakeDeps, type FakeApi } from '../citizen/test/fake-deps';
 import { ROUTE } from '../citizen/test/fixtures';
 import { PanelDepsContext } from '../panel/panel-deps';
 import { fakePanelApi, fakePanelDeps } from '../panel/test/fake-panel-deps';
-import mainSource from '../main.tsx?raw';
-import lazyPanelSource from './LazyPanel.tsx?raw';
-import routesSource from './routes.tsx?raw';
 import { appRoutes } from './routes';
+
+/** Every module outside the panel (tests and test helpers aside), as source text. */
+const citizenSources: Record<string, string> = import.meta.glob(
+  ['../**/*.{ts,tsx}', '!../panel/**', '!../**/*.test.{ts,tsx}', '!../**/test/**'],
+  { query: '?raw', import: 'default', eager: true },
+);
+
+/**
+ * The paths a module imports or re-exports statically: `import … from`, side-effect imports and
+ * `export … from` (a dynamic `import()` is not one of them).
+ */
+function staticImports(source: string): string[] {
+  const statement =
+    /^\s*(?:import\s+(?:[\w*{}\s,]+?\s+from\s+)?|export\s+[\w*{}\s,]+?\s+from\s+)['"]([^'"]+)['"]/gm;
+  return [...source.matchAll(statement)].map((match) => match[1] ?? '');
+}
 
 function renderAt(path: string, api: FakeApi = loadingApi()) {
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
@@ -45,16 +58,44 @@ describe('app routes', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps the panel out of the citizen bundle: it is only imported dynamically', () => {
-    const staticImports = (source: string) =>
-      [...source.matchAll(/^import[^;]*?from\s+'([^']+)'/gms)].map((match) => match[1] ?? '');
-    const importsPanel = (source: string) =>
-      staticImports(source).some((path) => path.includes('/panel/'));
+  it('finds every kind of static import and re-export, but not a dynamic import', () => {
+    const source = [
+      "import './side-effect.css';",
+      "import { a, type B } from '../panel/a';",
+      'import Default, {',
+      '  c as d,',
+      "} from '../panel/multi-line';",
+      "import * as all from '../panel/namespace';",
+      "import type { T } from '../panel/types';",
+      "export { e } from '../panel/re-export';",
+      "export * from '../panel/star';",
+      "export type { F } from '../panel/type-re-export';",
+      "const lazy = () => import('../panel/PanelApp');",
+      "export const text = 'not an import';",
+    ].join('\n');
 
-    expect(importsPanel(mainSource)).toBe(false);
-    expect(importsPanel(routesSource)).toBe(false);
-    expect(importsPanel(lazyPanelSource)).toBe(false);
-    expect(lazyPanelSource).toContain("import('../panel/PanelApp')");
+    expect(staticImports(source)).toEqual([
+      './side-effect.css',
+      '../panel/a',
+      '../panel/multi-line',
+      '../panel/namespace',
+      '../panel/types',
+      '../panel/re-export',
+      '../panel/star',
+      '../panel/type-re-export',
+    ]);
+  });
+
+  it('keeps the panel out of the citizen bundle: no citizen module imports it statically', () => {
+    const offenders = Object.entries(citizenSources).filter(([, source]) =>
+      staticImports(source).some((path) => /(^|\/)panel(\/|$)/.test(path)),
+    );
+
+    expect(Object.keys(citizenSources)).toEqual(
+      expect.arrayContaining(['../main.tsx', './routes.tsx', './LazyPanel.tsx']),
+    );
+    expect(offenders.map(([file]) => file)).toEqual([]);
+    expect(citizenSources['./LazyPanel.tsx']).toContain("import('../panel/PanelApp')");
   });
 
   it('shows a calm Spanish page when the citizen page fails to render', async () => {

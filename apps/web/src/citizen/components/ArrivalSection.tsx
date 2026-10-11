@@ -7,7 +7,8 @@ import { Num } from '../../shared/ui/Num';
 import { Section } from '../../shared/ui/Section';
 import type { ScheduleEntry } from '../api/types';
 import type { ArrivalView, ConnectionStatus, TruckSignal } from '../live/live-state';
-import { ConnectionBadge, TruckSignalStatus } from './ConnectionBadge';
+import { ConnectionBadge } from './ConnectionBadge';
+import { TruckSignalStatus } from './TruckSignalStatus';
 import { ScheduleList } from './ScheduleList';
 
 export interface ArrivalSectionProps {

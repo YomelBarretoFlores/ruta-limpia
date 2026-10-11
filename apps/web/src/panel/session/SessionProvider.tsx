@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import { ApiError } from '../../shared/http';
 import type { PanelUser } from '../api/types';
+import { errorMessage } from '../components/errors';
 import { usePanelDeps } from '../panel-deps';
 import { SessionContext, type Session, type SessionState } from './session-context';
 
@@ -37,12 +39,16 @@ export function SessionProvider({ children }: { readonly children: ReactNode }) 
     (user: PanelUser) => setState({ status: 'authenticated', user }),
     [],
   );
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (): Promise<string | null> => {
     try {
       await api.logout();
-    } finally {
-      setState({ status: 'anonymous', expired: false });
+    } catch (error) {
+      // A 401: the session had already ended on the server, so the person is signed out anyway.
+      // Otherwise the server-side session may still be open: say so instead of pretending.
+      if (!(error instanceof ApiError && error.status === 401)) return errorMessage(error);
     }
+    setState({ status: 'anonymous', expired: false });
+    return null;
   }, [api]);
 
   const session = useMemo<Session>(

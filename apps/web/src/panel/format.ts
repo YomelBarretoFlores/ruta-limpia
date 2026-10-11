@@ -44,15 +44,20 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${rest} s`;
 }
 
+/** Year, month and day in Lima, read by part (no locale's date layout is relied on). */
+const LOCAL_DATE_PARTS = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  timeZone: LOCAL_TIME_ZONE,
+});
+
 /** Today's calendar date in Lima, `YYYY-MM-DD` (the default of the field forms). */
 export function localToday(now: number): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: LOCAL_TIME_ZONE,
-  }).format(new Date(now));
-  return parts;
+  const parts = LOCAL_DATE_PARTS.formatToParts(new Date(now));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
 /** Minutes between two `HH:MM` times of the same day; null when one is missing or malformed. */

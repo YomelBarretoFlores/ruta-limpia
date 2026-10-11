@@ -25,6 +25,8 @@ export function UserEditor(props: UserEditorProps) {
   const [active, setActive] = useState(user.active);
   const [password, setPassword] = useState('');
   const [passwordChecked, setPasswordChecked] = useState(false);
+  const [nameChecked, setNameChecked] = useState(false);
+  const [unchanged, setUnchanged] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
@@ -40,13 +42,23 @@ export function UserEditor(props: UserEditorProps) {
     }
   };
 
+  const nameError = displayName.trim() === '' ? 'Escribe el nombre.' : null;
+
   const save = (event: FormEvent) => {
     event.preventDefault();
+    setNameChecked(true);
+    setUnchanged(false);
+    if (nameError !== null) return;
     const changes: UserChanges = {
       ...(displayName.trim() !== user.displayName ? { displayName: displayName.trim() } : {}),
       ...(role !== user.role ? { role } : {}),
       ...(active !== user.active ? { active } : {}),
     };
+    // Nothing to send: no request, and no "saved" message for a save that did nothing.
+    if (Object.keys(changes).length === 0) {
+      setUnchanged(true);
+      return;
+    }
     void run(() => onSave(changes));
   };
 
@@ -76,10 +88,16 @@ export function UserEditor(props: UserEditorProps) {
           <p>{error}</p>
         </Notice>
       )}
+      {unchanged && (
+        <Notice tone="info">
+          <p>No hay cambios que guardar.</p>
+        </Notice>
+      )}
       <form className="form-grid" onSubmit={save} noValidate>
         <Field
           id="edit-user-name"
           label="Nombre para mostrar"
+          error={nameChecked ? (nameError ?? undefined) : undefined}
           control={(control) => (
             <input
               {...control}

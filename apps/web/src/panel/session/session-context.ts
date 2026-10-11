@@ -10,7 +10,11 @@ export type SessionState =
 export interface Session {
   readonly state: SessionState;
   readonly signedIn: (user: PanelUser) => void;
-  readonly signOut: () => Promise<void>;
+  /**
+   * Ends the session on the server. Resolves to null once signed out, or to the reason the server
+   * could not end it (the person stays signed in and can try again); it never rejects.
+   */
+  readonly signOut: () => Promise<string | null>;
 }
 
 export const SessionContext = createContext<Session | null>(null);

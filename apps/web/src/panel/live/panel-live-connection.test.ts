@@ -69,6 +69,36 @@ describe('connectPanelLive', () => {
     expect(streams[0]!.closed).toBe(true);
   });
 
+  it('polls only, on the interval, when the browser has no EventSource', () => {
+    const refetch = vi.fn();
+    const connections: PanelConnection[] = [];
+    connectPanelLive({
+      streamUrl: '/api/live/routes/RI-01/stream',
+      createEventSource: null,
+      refetch,
+      onConnection: (c) => connections.push(c),
+    });
+
+    expect(connections).toEqual(['polling']);
+    vi.advanceTimersByTime(19_999);
+    expect(refetch).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the reconnection to the browser while the stream is still connecting', () => {
+    const { connections } = start();
+    streams[0]!.readyState = 0;
+    streams[0]!.onerror?.(new Event('error'));
+
+    vi.advanceTimersByTime(60_000);
+
+    expect(connections).toEqual(['reconnecting']);
+    expect(streams).toHaveLength(1);
+    streams[0]!.emit('snapshot');
+    expect(connections).toEqual(['reconnecting', 'live']);
+  });
+
   it('reopens a stream the browser closed', () => {
     const { connections } = start();
     streams[0]!.readyState = 2;

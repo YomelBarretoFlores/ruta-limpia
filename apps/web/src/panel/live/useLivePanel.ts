@@ -15,7 +15,11 @@ export function useLivePanel(
     [api, routeCode],
   );
   const live = useAsync(load);
-  const [connection, setConnection] = useState<PanelConnection>('connecting');
+  // The connection state belongs to one route: another route starts "connecting" again.
+  const [reported, setReported] = useState<{
+    readonly routeCode: string;
+    readonly connection: PanelConnection;
+  } | null>(null);
   const { reload } = live;
 
   useEffect(() => {
@@ -24,9 +28,10 @@ export function useLivePanel(
       streamUrl: api.liveStreamUrl(routeCode),
       createEventSource,
       refetch: reload,
-      onConnection: setConnection,
+      onConnection: (connection) => setReported({ routeCode, connection }),
     });
   }, [api, createEventSource, routeCode, reload]);
 
+  const connection = reported?.routeCode === routeCode ? reported.connection : 'connecting';
   return { ...live, connection };
 }

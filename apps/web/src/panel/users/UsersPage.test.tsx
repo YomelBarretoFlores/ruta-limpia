@@ -77,6 +77,24 @@ describe('UsersPage', () => {
     expect(await screen.findByText(/Se restableció la contraseña/)).toBeInTheDocument();
   });
 
+  it('refuses a blank name and sends nothing when nothing changed', async () => {
+    const { api, observer } = setup();
+    await screen.findByRole('table');
+    await userEvent.click(screen.getByRole('button', { name: `Editar ${observer.username}` }));
+    const name = screen.getByLabelText('Nombre para mostrar', { selector: '#edit-user-name' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    expect(await screen.findByText('No hay cambios que guardar.')).toBeInTheDocument();
+
+    await userEvent.clear(name);
+    await userEvent.type(name, '   ');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    expect(await screen.findByText('Escribe el nombre.')).toBeInTheDocument();
+
+    expect(api.updateUser).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Se guardaron los cambios/)).not.toBeInTheDocument();
+  });
+
   it('explains why administrators cannot demote themselves', async () => {
     const { api, admin } = setup();
     api.updateUser.mockRejectedValue(new PanelApiError(409, 'cannot_modify_self'));

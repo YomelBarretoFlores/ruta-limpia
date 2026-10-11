@@ -79,4 +79,28 @@ describe('panel sign-in and session', () => {
     expect(await screen.findByRole('heading', { name: 'Ingresar al panel' })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/panel/ingresar');
   });
+
+  it('stays signed in and says so when the server could not end the session', async () => {
+    const api = fakePanelApi(panelUser('observer'));
+    api.logout.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const router = renderPanel('/panel', fakePanelDeps(api));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Salir' }));
+
+    expect(await screen.findByText('No se pudo cerrar la sesión')).toBeInTheDocument();
+    expect(router.state.location.pathname).not.toBe('/panel/ingresar');
+    // Trying again works.
+    await userEvent.click(screen.getByRole('button', { name: 'Salir' }));
+    expect(await screen.findByRole('heading', { name: 'Ingresar al panel' })).toBeInTheDocument();
+  });
+
+  it('signs out when the server says the session had already ended', async () => {
+    const api = fakePanelApi(panelUser('observer'));
+    api.logout.mockRejectedValueOnce(new PanelApiError(401, null));
+    renderPanel('/panel', fakePanelDeps(api));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Salir' }));
+
+    expect(await screen.findByRole('heading', { name: 'Ingresar al panel' })).toBeInTheDocument();
+  });
 });

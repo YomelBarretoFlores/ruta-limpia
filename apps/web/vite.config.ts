@@ -56,6 +56,7 @@ export default defineConfig({
       devOptions: { enabled: true, type: 'module', navigateFallback: 'index.html' },
     }),
   ],
+  build: { manifest: true },
   server: { port: 5173, proxy },
   preview: { port: 4173, proxy },
   test: {

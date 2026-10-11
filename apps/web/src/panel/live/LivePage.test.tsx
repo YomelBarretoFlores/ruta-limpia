@@ -6,6 +6,7 @@ import { PanelApiError } from '../api/panel-api';
 import type { Vehicle } from '../api/types';
 import { panelUser } from '../test/fixtures';
 import { fakePanelApi, fakePanelDeps, renderPanel } from '../test/fake-panel-deps';
+import { trip } from '../../citizen/test/fixtures';
 import { liveSnapshot } from '../test/live-fixtures';
 
 // Leaflet needs a real layout engine; the table and the summary carry the same facts.
@@ -21,10 +22,14 @@ const VEHICLE: Vehicle = {
   activeTrip: null,
 };
 
-function setup(role: 'supervisor' | 'observer' = 'supervisor', snapshot = liveSnapshot()) {
+function setup(
+  role: 'supervisor' | 'observer' = 'supervisor',
+  snapshot = liveSnapshot(),
+  vehicles: readonly Vehicle[] = [VEHICLE],
+) {
   const api = fakePanelApi(panelUser(role));
   api.getLive.mockResolvedValue(snapshot);
-  api.listVehicles.mockResolvedValue([VEHICLE]);
+  api.listVehicles.mockResolvedValue([...vehicles]);
   renderPanel('/panel/en-vivo', fakePanelDeps(api));
   return api;
 }
@@ -54,7 +59,24 @@ describe('LivePage', () => {
     ).toBeInTheDocument();
   });
 
-  it('says the GPS signal is stale and lists the route points when no truck runs it', async () => {
+  it('says the GPS signal is stale when the last position is old', async () => {
+    const stale = liveSnapshot();
+    setup('supervisor', { ...stale, trips: [{ ...stale.trips[0]!, signal: 'stale' }] });
+
+    expect(await screen.findByText('Sin actualización')).toBeInTheDocument();
+  });
+
+  it('warns when more than one trip runs the route, showing the latest', async () => {
+    const snapshot = liveSnapshot();
+    const second = { ...snapshot.trips[0]!, ...trip({ tripId: 'trip-2' }), points: [] };
+    setup('supervisor', { ...snapshot, trips: [...snapshot.trips, second] });
+
+    expect(
+      await screen.findByText(/Hay 2 viajes en curso en esta ruta; se muestra el más reciente\./),
+    ).toBeInTheDocument();
+  });
+
+  it('says no trip runs the route and lists the route points', async () => {
     setup('supervisor', liveSnapshot({ trips: [] }));
 
     expect(
@@ -64,7 +86,73 @@ describe('LivePage', () => {
     expect(screen.getByRole('button', { name: 'Iniciar viaje' })).toBeInTheDocument();
   });
 
-  it('starts a trip with the route vehicle, and ends one only with a note', async () => {
+  it('ends a trip with a note and confirms it', async () => {
+    const api = setup();
+    api.endTrip.mockResolvedValue({} as never);
+    await userEvent.click(await screen.findByRole('button', { name: 'Finalizar viaje' }));
+    const form = screen.getByRole('region', { name: 'Finalizar viaje' });
+
+    await userEvent.type(within(form).getByRole('textbox'), 'Avería hidráulica');
+    await userEvent.click(within(form).getByRole('button', { name: 'Finalizar viaje' }));
+
+    expect(api.endTrip).toHaveBeenCalledWith('trip-1', 'Avería hidráulica');
+    expect(
+      await screen.findByText('Se finalizó el viaje. El motivo quedó registrado.'),
+    ).toBeInTheDocument();
+  });
+
+  it('starts a trip with a free vehicle, never with one already on a trip', async () => {
+    const busy: Vehicle = {
+      ...VEHICLE,
+      activeTrip: { id: 'trip-9', routeCode: 'RI-01', startedAt: '2026-10-20T22:00:00.000Z' },
+    };
+    const free: Vehicle = {
+      ...VEHICLE,
+      code: 'UNIDAD-B',
+      label: 'Unidad B (baranda)',
+      defaultRoute: null,
+    };
+    const api = setup('supervisor', liveSnapshot({ trips: [] }), [busy, free]);
+    api.startTrip.mockResolvedValue({} as never);
+    await userEvent.click(await screen.findByRole('button', { name: 'Iniciar viaje' }));
+    const form = screen.getByRole('region', { name: 'Iniciar viaje' });
+    await within(form).findByRole('option', { name: 'Unidad B (baranda)' });
+
+    expect(within(form).getByLabelText('Vehículo')).toHaveValue('UNIDAD-B');
+    await userEvent.click(within(form).getByRole('button', { name: 'Iniciar viaje' }));
+    expect(api.startTrip).toHaveBeenCalledWith('UNIDAD-B', 'RI-01');
+  });
+
+  it('cannot start a trip when every vehicle is already on one', async () => {
+    const busy: Vehicle = {
+      ...VEHICLE,
+      activeTrip: { id: 'trip-9', routeCode: 'RI-01', startedAt: '2026-10-20T22:00:00.000Z' },
+    };
+    const api = setup('supervisor', liveSnapshot({ trips: [] }), [busy]);
+    await userEvent.click(await screen.findByRole('button', { name: 'Iniciar viaje' }));
+    const form = screen.getByRole('region', { name: 'Iniciar viaje' });
+    await within(form).findByRole('option', { name: /Unidad A/ });
+
+    expect(within(form).getByRole('button', { name: 'Iniciar viaje' })).toBeDisabled();
+    expect(within(form).getByText('Todos los vehículos están en viaje.')).toBeInTheDocument();
+    expect(api.startTrip).not.toHaveBeenCalled();
+  });
+
+  it('explains a refused incident in words', async () => {
+    const api = setup('observer');
+    api.createIncident.mockRejectedValue(new PanelApiError(422, 'trip_route_mismatch'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Registrar incidencia' }));
+    const form = screen.getByRole('region', { name: 'Registrar incidencia' });
+
+    await userEvent.selectOptions(within(form).getByLabelText('Tipo'), 'gps_failure');
+    await userEvent.click(within(form).getByRole('button', { name: 'Registrar incidencia' }));
+
+    expect(
+      await within(form).findByText('Ese viaje recorre otra ruta. Elige un viaje de esta ruta.'),
+    ).toBeInTheDocument();
+  });
+
+  it('starts a trip with the route vehicle', async () => {
     const api = setup('supervisor', liveSnapshot({ trips: [] }));
     api.startTrip.mockResolvedValue({} as never);
     await userEvent.click(await screen.findByRole('button', { name: 'Iniciar viaje' }));

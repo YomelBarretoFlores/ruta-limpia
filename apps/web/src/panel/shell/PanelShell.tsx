@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router';
 
 import type { RouteSummary } from '../../citizen/api/types';
 import { Button } from '../../shared/ui/Button';
+import { Notice } from '../../shared/ui/Notice';
 import { usePanelDeps } from '../panel-deps';
 import { ROLE_LABELS } from '../session/permissions';
 import { useSession, useUser } from '../session/session-context';
@@ -30,6 +31,7 @@ export function PanelShell() {
   const [routes, setRoutes] = useState<readonly RouteSummary[]>([]);
   const [chosen, setChosen] = useState<string | null>(savedRoute);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const items = visibleNavItems(user);
 
   useEffect(() => {
@@ -104,7 +106,14 @@ export function PanelShell() {
               <strong>{user.displayName}</strong>
               <span className="panel-topbar__role"> · {ROLE_LABELS[user.role]}</span>
             </span>
-            <Button variant="secondary" className="button--compact" onClick={() => void signOut()}>
+            <Button
+              variant="secondary"
+              className="button--compact"
+              onClick={() => {
+                setSignOutError(null);
+                void signOut().then(setSignOutError);
+              }}
+            >
               Salir
             </Button>
           </div>
@@ -129,6 +138,11 @@ export function PanelShell() {
           </ul>
         </nav>
         <main id="contenido" className="panel-main" tabIndex={-1}>
+          {signOutError !== null && (
+            <Notice tone="danger" title="No se pudo cerrar la sesión">
+              <p>{signOutError}</p>
+            </Notice>
+          )}
           <Outlet />
         </main>
       </div>

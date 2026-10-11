@@ -45,6 +45,9 @@ export function IncidentForm(props: IncidentFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const occurredAt = fromLocalDateTimeInput(values.occurredAt);
+  // A trip that is no longer offered (it ended while the form was open) is not chosen anymore:
+  // the select shows "Sin viaje" and nothing stale is sent. Editing never sends the trip.
+  const tripId = editing || trips.some((trip) => trip.id === values.tripId) ? values.tripId : '';
   const kindError = checked && values.kind === '' ? 'Elige el tipo de incidencia.' : undefined;
   const timeError =
     checked && occurredAt === null
@@ -63,7 +66,7 @@ export function IncidentForm(props: IncidentFormProps) {
         kind: values.kind,
         routeCode,
         ...(values.pointCode === '' ? {} : { pointCode: values.pointCode }),
-        ...(values.tripId === '' ? {} : { tripId: values.tripId }),
+        ...(tripId === '' ? {} : { tripId }),
         occurredAt,
         ...(description === '' ? {} : { description }),
       });
@@ -130,7 +133,7 @@ export function IncidentForm(props: IncidentFormProps) {
           <select
             {...control}
             className="select"
-            value={values.tripId}
+            value={tripId}
             disabled={editing}
             onChange={(event) => setValues({ ...values, tripId: event.target.value })}
           >

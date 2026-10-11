@@ -43,11 +43,15 @@ export function StartTripForm({
   readonly onStart: (vehicleCode: string) => Promise<void>;
 }) {
   const usable = (vehicles ?? []).filter((v) => v.active);
-  const preferred = usable.find((v) => v.defaultRoute?.code === routeCode) ?? usable[0];
+  // A vehicle already on a trip cannot start another: the default is a free one, the route's
+  // own vehicle first.
+  const free = usable.filter((v) => v.activeTrip === null);
+  const preferred = free.find((v) => v.defaultRoute?.code === routeCode) ?? free[0];
   const [vehicleCode, setVehicleCode] = useState(preferred?.code ?? '');
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
-  const chosen = vehicleCode === '' ? (preferred?.code ?? '') : vehicleCode;
+  const chosen = free.some((v) => v.code === vehicleCode) ? vehicleCode : (preferred?.code ?? '');
+  const allBusy = vehicles !== undefined && usable.length > 0 && free.length === 0;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -67,7 +71,13 @@ export function StartTripForm({
       <Field
         id="start-vehicle"
         label="Vehículo"
-        hint={vehicles === undefined ? 'Cargando los vehículos…' : undefined}
+        hint={
+          vehicles === undefined
+            ? 'Cargando los vehículos…'
+            : allBusy
+              ? 'Todos los vehículos están en viaje.'
+              : undefined
+        }
         control={(control) => (
           <select
             {...control}
