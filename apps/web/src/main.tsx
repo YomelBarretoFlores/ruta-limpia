@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 
 import { appRoutes } from './app/routes';
+import { registerServiceWorker } from './register-service-worker';
 import './shared/styles/global.css';
 
 const rootElement = document.getElementById('root');
@@ -17,3 +18,5 @@ createRoot(rootElement).render(
     <RouterProvider router={router} />
   </StrictMode>,
 );
+
+registerServiceWorker();
