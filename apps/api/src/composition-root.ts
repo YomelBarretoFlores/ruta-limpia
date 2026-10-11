@@ -18,6 +18,7 @@ import { SpeedProfileProvider } from './eta/application/speed-profile-provider.j
 import { DEFAULT_ETA_SETTINGS } from './eta/domain/eta-settings.js';
 import { KyselyCompletedTripSamples } from './eta/infrastructure/kysely-completed-trip-samples.js';
 import { RouteCatalog } from './routes/application/route-catalog.js';
+import { KyselyPublicRouteQueries } from './routes/infrastructure/kysely-public-route-queries.js';
 import { KyselyReferencePointLookup } from './routes/infrastructure/kysely-reference-point-lookup.js';
 import { KyselyRouteRepository } from './routes/infrastructure/kysely-route-repository.js';
 import type { Clock } from './shared/application/clock.js';
@@ -163,6 +164,8 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     );
   }
 
+  const routeQueries = new KyselyPublicRouteQueries(db);
+
   const app = await buildApp({
     loggerInstance: logger,
     trustProxy: config.trustProxy,
@@ -171,6 +174,9 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
       subscriptions,
       vapidPublicKey: config.vapid?.publicKey ?? null,
       mutationsPerMinute: config.publicRateLimitPerMinute,
+    },
+    publicRead: {
+      catalog: { queries: routeQueries },
     },
   });
 

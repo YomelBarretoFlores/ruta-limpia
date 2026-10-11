@@ -60,7 +60,9 @@ shared/application       Clock, Logger, EventBus<T> ports; KeyedMutex (per-key s
 shared/infrastructure    system clock, InMemoryEventBus, db/ (Kysely types, migrations, migrator, seed, CLI)
 routes/application       RouteCatalog (cached) over the RouteRepository port
 routes/application       ReferencePointLookup port (public points by id or code)
-routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot), KyselyReferencePointLookup
+routes/application       PublicRouteQueries port (active catalog: summaries, detail, schedule)
+routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot), KyselyReferencePointLookup,
+                         KyselyPublicRouteQueries, http/ (GET /api/routes, /api/routes/:code)
 eta/application          SpeedProfileProvider (cached per route) over CompletedTripSamplesSource
 eta/infrastructure       KyselyCompletedTripSamples (accepted positions of recent completed trips)
 alerts/application       AlertNotifier port; PushAlertNotifier over the PushGateway and

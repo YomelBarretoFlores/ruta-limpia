@@ -168,6 +168,32 @@ optional household, the consent, and the SHA-256 hash of its management token (t
 once, to the browser). Cancelling is a soft delete (`revoked_at`, `revoke_reason = user_cancelled`), kept
 for the indicators.
 
+### Public read API
+
+The citizen PWA and the municipal panel read the route catalog from these public
+endpoints (no authentication, no personal data). Route codes are case-insensitive. An unknown or
+inactive route answers `404 { error: "route_not_found" }`, a malformed code `400`.
+
+| Endpoint                | Cache-Control         | Description                                                                        |
+| ----------------------- | --------------------- | ---------------------------------------------------------------------------------- |
+| `GET /api/routes`       | `public, max-age=300` | Active routes: `{ routes: [{ code, name, district, lengthMeters, pointCount }] }`. |
+| `GET /api/routes/:code` | `public, max-age=300` | Route detail: geometry, reference points, weekly schedule.                         |
+
+Route detail (`GET /api/routes/RI-01`):
+
+```jsonc
+{
+  "code": "RI-01", "name": "Av. Centenario – Independencia", "district": "Independencia",
+  "lengthMeters": 1285.8, "pointCount": 15, "timeZone": "America/Lima",
+  "geometry": { "type": "LineString", "coordinates": [[-77.52855, -9.523468], ...] }, // [lon, lat]
+  "points": [
+    { "code": "P01", "name": "…", "sequence": 1, "lat": -9.523207, "lon": -77.528621,
+      "chainageMeters": 30, "observesMusic": false }
+  ],
+  "schedule": [{ "weekday": 1, "plannedStart": "07:00" }] // 0 = Sunday … 6 = Saturday, local time
+}
+```
+
 ## Scripts
 
 | Command                              | Description                                                                  |
