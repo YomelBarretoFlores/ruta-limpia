@@ -1,14 +1,16 @@
-import type { FastifyPluginCallback } from 'fastify';
+import type { FastifyError, FastifyInstance, FastifyPluginCallback } from 'fastify';
 import { z } from 'zod';
 
 import { invalidRequest, iso, sendError } from '../../../shared/infrastructure/http/panel-http.js';
-import type { PanelUser } from '../../application/auth-ports.js';
+import { PasswordHasherBusyError, type PanelUser } from '../../application/auth-ports.js';
 import type {
   AuthenticatedSession,
   LoginCommand,
   LoginResult,
 } from '../../application/auth-service.js';
+import type { LockoutPolicy } from '../../domain/lockout-policy.js';
 import { permissionsOf } from '../../domain/role.js';
+import { clientNetwork } from './client-network.js';
 import {
   clearSessionCookie,
   panelRoute,
@@ -27,6 +29,26 @@ export interface PanelAuthRoutesOptions {
   readonly cookieSecure: boolean;
   /** Login attempts per client IP and minute. */
   readonly loginPerMinute: number;
+  /** The lockout policy in force, quoted in the failure message. */
+  readonly lockoutPolicy: LockoutPolicy;
+}
+
+/** How long a client should wait after `503 auth_busy` (the hasher sheds load for seconds). */
+export const AUTH_BUSY_RETRY_AFTER_SEC = 5;
+
+/**
+ * Answers `503 auth_busy` with `Retry-After` when password hashing sheds load (login, user
+ * creation, password reset); every other error goes to the parent handler. Install it on the
+ * panel scope.
+ */
+export function installAuthBusyHandler(scope: FastifyInstance): void {
+  scope.setErrorHandler((error: FastifyError, _request, reply) => {
+    if (!(error instanceof PasswordHasherBusyError)) throw error;
+    return reply
+      .code(503)
+      .header('retry-after', String(AUTH_BUSY_RETRY_AFTER_SEC))
+      .send({ error: 'auth_busy', message: 'Sign-in is busy; try again in a few seconds.' });
+  });
 }
 
 const loginBodySchema = z.object({
@@ -52,8 +74,8 @@ export function userProfile(user: PanelUser) {
  * Panel authentication (registered under `/api/panel`):
  *
  * - `POST /auth/login` `{ username, password }` → 200 `{ user }` and the `rl_session` cookie;
- *   401 `invalid_credentials` (the same for unknown users, wrong passwords and inactive users);
- *   423 `account_locked`; 429 when the per-IP limit is exceeded;
+ *   401 `invalid_credentials` (the same for unknown users, wrong passwords, inactive users and
+ *   paused sign-in); 429 when the per-IP limit is exceeded; 503 `auth_busy` under overload;
  * - `POST /auth/logout` → 204, the session is revoked and the cookie cleared;
  * - `GET /auth/me` → 200 `{ user }` of the current session.
  */
@@ -62,6 +84,15 @@ export const panelAuthRoutes: FastifyPluginCallback<PanelAuthRoutesOptions> = (
   options,
   done,
 ) => {
+  const pauseMinutes = Math.max(
+    options.lockoutPolicy.perSource.lockoutMinutes,
+    options.lockoutPolicy.perAccount.lockoutMinutes,
+  );
+  // One message for every failure: it may not say whether the account exists or is paused.
+  const invalidCredentialsMessage =
+    'Wrong username or password. After repeated failures, sign-in pauses for up to ' +
+    `${pauseMinutes} minutes.`;
+
   app.post(
     '/auth/login',
     {
@@ -82,17 +113,10 @@ export const panelAuthRoutes: FastifyPluginCallback<PanelAuthRoutesOptions> = (
           ? {}
           : { userAgent: request.headers['user-agent'] }),
         ...(previousToken === undefined || previousToken === '' ? {} : { previousToken }),
+        clientNetwork: clientNetwork(request.ip),
       });
       if (result.status === 'invalid_credentials') {
-        return sendError(reply, 401, 'invalid_credentials', 'Wrong username or password.');
-      }
-      if (result.status === 'account_locked') {
-        return sendError(
-          reply,
-          423,
-          'account_locked',
-          'Too many failed attempts; try again in 15 minutes.',
-        );
+        return sendError(reply, 401, 'invalid_credentials', invalidCredentialsMessage);
       }
       reply.setCookie(
         SESSION_COOKIE,

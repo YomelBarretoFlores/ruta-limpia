@@ -9,7 +9,9 @@ import { buildApp, type PanelRouteRegistration } from './app.js';
 import type { PasswordHasher } from './auth/application/auth-ports.js';
 import { AuthService } from './auth/application/auth-service.js';
 import { UserAdminService } from './auth/application/user-admin-service.js';
+import { DEFAULT_LOCKOUT_POLICY } from './auth/domain/lockout-policy.js';
 import { CryptoSessionTokens } from './auth/infrastructure/crypto-session-tokens.js';
+import { InMemoryLoginSourceStore } from './auth/infrastructure/in-memory-login-source-store.js';
 import { KyselySessionStore, KyselyUserStore } from './auth/infrastructure/kysely-auth-stores.js';
 import { ScryptPasswordHasher } from './auth/infrastructure/scrypt-password-hasher.js';
 import { KyselyHouseholdDirectory } from './field/infrastructure/kysely-household-directory.js';
@@ -271,9 +273,11 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
   const users = new KyselyUserStore(db);
   const sessions = new KyselySessionStore(db);
   const hasher = deps.passwordHasher ?? new ScryptPasswordHasher();
+  const lockoutPolicy = DEFAULT_LOCKOUT_POLICY;
   const auth = new AuthService({
     users,
     sessions,
+    sources: new InMemoryLoginSourceStore(),
     hasher,
     tokens: new CryptoSessionTokens(),
     audit,
@@ -284,6 +288,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
       absoluteHours: config.sessionAbsoluteHours,
       touchIntervalSec: SESSION_TOUCH_INTERVAL_SEC,
     },
+    lockoutPolicy,
   });
   const userAdmin = new UserAdminService({ users, sessions, hasher, audit, clock });
   if (!config.sessionCookieSecure) {
@@ -368,6 +373,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
         auth,
         cookieSecure: config.sessionCookieSecure,
         loginPerMinute: config.loginRateLimitPerMinute,
+        lockoutPolicy,
       },
       users: { users: userAdmin, audit },
       routes: panelRoutes,

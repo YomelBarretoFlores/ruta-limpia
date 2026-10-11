@@ -7,6 +7,7 @@ import Fastify, {
 import rateLimit from '@fastify/rate-limit';
 
 import {
+  installAuthBusyHandler,
   panelAuthRoutes,
   type PanelAuthRoutesOptions,
 } from './auth/infrastructure/http/panel-auth-routes.js';
@@ -108,6 +109,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(
       async (scope) => {
         await installPanelGuard(scope, panel.guard);
+        installAuthBusyHandler(scope);
         await scope.register(panelAuthRoutes, panel.auth);
         await scope.register(panelUserRoutes, panel.users);
         for (const register of panel.routes ?? []) await register(scope);

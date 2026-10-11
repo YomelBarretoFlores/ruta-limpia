@@ -159,9 +159,13 @@ export class InMemorySessionStore implements SessionStore {
   }
 }
 
-/** `hashed:<password>`; counts every verification so equal-cost paths can be asserted. */
+/**
+ * `hashed:<password>`; counts every verification so equal-cost paths can be asserted, and calls
+ * `onVerify` with the password each verification received.
+ */
 export class FakePasswordHasher implements PasswordHasher {
   verifications = 0;
+  onVerify: (password: string) => void = () => undefined;
 
   hash(password: string): Promise<string> {
     return Promise.resolve(`hashed:${password}`);
@@ -169,11 +173,13 @@ export class FakePasswordHasher implements PasswordHasher {
 
   verify(password: string, encodedHash: string): Promise<boolean> {
     this.verifications += 1;
+    this.onVerify(password);
     return Promise.resolve(encodedHash === `hashed:${password}`);
   }
 
-  verifyDummy(): Promise<void> {
+  verifyDummy(password: string): Promise<void> {
     this.verifications += 1;
+    this.onVerify(password);
     return Promise.resolve();
   }
 }

@@ -8,7 +8,8 @@ import {
   SequentialSessionTokens,
 } from '../../../test/fakes/in-memory-auth.js';
 import { ManualClock } from '../../../test/fakes/in-memory-tracking-store.js';
-import { SILENT_LOGGER } from '../../shared/application/logger.js';
+import type { Logger } from '../../shared/application/logger.js';
+import { InMemoryLoginSourceStore } from '../infrastructure/in-memory-login-source-store.js';
 import { AuthService } from './auth-service.js';
 
 const T0 = new Date('2026-10-20T12:00:00Z');
@@ -20,8 +21,12 @@ let users: InMemoryUserStore;
 let sessions: InMemorySessionStore;
 let hasher: FakePasswordHasher;
 let audit: InMemoryAuditLog;
+let warnings: { context: object; message: string | undefined }[];
 let auth: AuthService;
 let userId: string;
+
+const OFFICE = '190.40.12.0/24';
+const ELSEWHERE = '200.48.7.0/24';
 
 beforeEach(async () => {
   clock = new ManualClock(T0);
@@ -29,14 +34,22 @@ beforeEach(async () => {
   sessions = new InMemorySessionStore(users);
   hasher = new FakePasswordHasher();
   audit = new InMemoryAuditLog();
+  warnings = [];
+  const logger: Logger = {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: (context, message) => warnings.push({ context, message }),
+    error: () => undefined,
+  };
   auth = new AuthService({
     users,
     sessions,
+    sources: new InMemoryLoginSourceStore(),
     hasher,
     tokens: new SequentialSessionTokens(),
     audit,
     clock,
-    logger: SILENT_LOGGER,
+    logger,
     sessionPolicy: { idleMinutes: 30, absoluteHours: 2, touchIntervalSec: 60 },
   });
   const created = await users.create({
@@ -91,45 +104,106 @@ describe('AuthService.login', () => {
     expect(hasher.verifications).toBe(1);
   });
 
-  it('locks the account at the fifth failure for 15 minutes, even for the right password', async () => {
+  const attempt = (password: string, clientNetwork = OFFICE, username = 'ana') =>
+    auth.login({ username, password, clientNetwork });
+
+  it('pauses a client network after five failures, answering like a wrong password', async () => {
     const results = [];
-    for (let i = 0; i < 5; i++) {
-      results.push((await auth.login({ username: 'ana', password: 'wrong password!' })).status);
-    }
-    expect(results).toEqual([...Array<string>(4).fill('invalid_credentials'), 'account_locked']);
+    for (let i = 0; i < 5; i++) results.push((await attempt('wrong password!')).status);
+    expect(results).toEqual(Array<string>(5).fill('invalid_credentials'));
     expect(audit.actions().at(-1)).toBe('auth.account_locked');
+    expect(audit.events.at(-1)?.details).toEqual({ reason: 'wrong_password', scope: 'source' });
 
     clock.set(minutes(14));
-    expect(await auth.login({ username: 'ana', password: PASSWORD })).toEqual({
-      status: 'account_locked',
+    // Even the right password is refused from the paused network, at the same cost.
+    expect(await attempt(PASSWORD)).toEqual({ status: 'invalid_credentials' });
+    expect(audit.events.at(-1)).toMatchObject({
+      action: 'auth.login_blocked',
+      details: { reason: 'source_locked' },
     });
-    expect(audit.actions().at(-1)).toBe('auth.login_blocked');
     expect(hasher.verifications).toBe(6);
 
     clock.set(minutes(15));
-    expect((await auth.login({ username: 'ana', password: PASSWORD })).status).toBe(
-      'authenticated',
-    );
+    expect((await attempt(PASSWORD)).status).toBe('authenticated');
   });
 
-  it('locks unknown usernames the same way, so lockout does not reveal which accounts exist', async () => {
-    const results = [];
-    for (let i = 0; i < 6; i++) {
-      results.push((await auth.login({ username: 'ghost', password: 'wrong password!' })).status);
+  it('does not let failures from another network lock the owner out', async () => {
+    for (let i = 0; i < 10; i++) await attempt('wrong password!', ELSEWHERE);
+
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+  });
+
+  it('pauses the whole account after 50 failures from many networks', async () => {
+    for (let n = 0; n < 10; n++) {
+      for (let i = 0; i < 5; i++) await attempt('wrong password!', `10.0.${n}.0/24`);
     }
+    expect(audit.events.at(-1)?.details).toEqual({ reason: 'wrong_password', scope: 'account' });
 
-    expect(results).toEqual([
-      ...Array<string>(4).fill('invalid_credentials'),
-      'account_locked',
-      'account_locked',
-    ]);
+    expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
+    expect(audit.events.at(-1)?.details).toEqual({ reason: 'account_locked' });
+    clock.set(minutes(15));
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
   });
 
-  it('resets the failure count after a successful login', async () => {
-    for (let i = 0; i < 4; i++) await auth.login({ username: 'ana', password: 'wrong password!' });
-    await auth.login({ username: 'ana', password: PASSWORD });
+  it('logs each pause without the username, the password or the client network', async () => {
+    for (let i = 0; i < 5; i++) await attempt('wrong password!');
 
+    expect(warnings).toEqual([
+      {
+        context: { userId, scope: 'source', lockoutMinutes: 15 },
+        message: 'Panel sign-in paused after repeated failures',
+      },
+    ]);
+    expect(JSON.stringify(warnings)).not.toMatch(/ana|wrong|190\.40/);
+  });
+
+  it('never answers differently for unknown usernames, however many attempts', async () => {
+    const results = new Set<string>();
+    for (let i = 0; i < 12; i++)
+      results.add((await attempt('wrong password!', OFFICE, 'ghost')).status);
+
+    expect([...results]).toEqual(['invalid_credentials']);
+    expect(warnings).toEqual([]);
+  });
+
+  it('bounds oversized input: no lookup, a bounded dummy verification, a generic failure', async () => {
+    const seen: string[] = [];
+    hasher.onVerify = (password) => seen.push(password);
+
+    const longName = await auth.login({ username: 'a'.repeat(100_000), password: PASSWORD });
+    const longPassword = await auth.login({ username: 'ana', password: 'p'.repeat(100_000) });
+
+    expect([longName, longPassword]).toEqual([
+      { status: 'invalid_credentials' },
+      { status: 'invalid_credentials' },
+    ]);
+    expect(seen.map((p) => p.length)).toEqual([PASSWORD.length, 512]);
+    // An over-long password is never counted against the real account.
+    expect(users.rows.get(userId)).toMatchObject({ failedAttempts: 0 });
+  });
+
+  it('refuses a correct password when a parallel attempt locked the account meanwhile', async () => {
+    hasher.onVerify = () => {
+      const row = users.rows.get(userId);
+      if (row !== undefined) row.lockedUntil = minutes(15);
+    };
+
+    expect(await attempt(PASSWORD)).toEqual({ status: 'invalid_credentials' });
+    expect(audit.events.at(-1)).toMatchObject({
+      action: 'auth.login_blocked',
+      details: { reason: 'account_locked' },
+    });
+    expect(sessions.rows.size).toBe(0);
+  });
+
+  it('resets the failure counts after a successful login', async () => {
+    for (let i = 0; i < 4; i++) await attempt('wrong password!');
+    await attempt(PASSWORD);
     expect(users.rows.get(userId)).toMatchObject({ failedAttempts: 0, lockedUntil: null });
+
+    // The network's count restarted too: four more failures do not pause it.
+    for (let i = 0; i < 4; i++) await attempt('wrong password!');
+    expect((await attempt(PASSWORD)).status).toBe('authenticated');
   });
 
   it('rotates the session: the cookie presented at login is revoked', async () => {

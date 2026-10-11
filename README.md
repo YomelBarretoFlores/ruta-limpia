@@ -331,11 +331,36 @@ Administrators then manage every other account from the panel.
 
 - **Passwords**: at least 12 characters (up to 256, no composition rules), hashed with Node's
   built-in scrypt (N=2^17, r=8, p=1, 16-byte salt, 64-byte key; the parameters are encoded in the
-  hash, which is compared in constant time). Usernames are case-insensitive.
-- **Login**: `invalid_credentials` is the same answer, at the same cost, for unknown users, inactive
-  users and wrong passwords. Five failures in a row lock the account for 15 minutes
-  (`423 account_locked`); unknown usernames are locked the same way, so the lockout does not reveal
-  which accounts exist. Logins are rate-limited per client IP (`LOGIN_RATE_LIMIT_PER_MINUTE`).
+  hash, which is compared in constant time). Usernames are case-insensitive. Oversized login input
+  (a username over 64 characters, a password over 512 UTF-16 units) is cut before any
+  normalization, lookup or hashing.
+- **Hashing load**: each scrypt run takes about 128 MiB and one libuv threadpool thread. At most
+  two run at once (about 256 MiB, leaving two of the four default threadpool threads to DNS, file
+  and other crypto work); at most 16 more wait, each for at most 5 s. Beyond that the request is
+  shed with `503 auth_busy` and `Retry-After: 5` (login, user creation, password reset), so a burst
+  of anonymous logins cannot make every legitimate login wait without bound. Raising
+  `UV_THREADPOOL_SIZE` (an environment variable read by Node at start) gives other threadpool work
+  more room on a larger host; the hashing bound stays two.
+- **Login**: `401 invalid_credentials` is the only failure answer, at the same cost, for unknown
+  users, inactive users, wrong passwords and paused sign-in. Lockout policy
+  (`DEFAULT_LOCKOUT_POLICY`):
+  - five consecutive failures against one account from one client network (IPv4 /24, IPv6 /64)
+    pause that network's sign-in on that account for 15 minutes;
+  - fifty consecutive failures against one account from any networks pause the account itself for
+    15 minutes (a cap on distributed guessing);
+  - a successful login resets both counts; an administrator's password reset clears the account
+    pause.
+
+  Tradeoffs: a paused attempt is not told it is paused (the message only says sign-in pauses after
+  repeated failures), because a distinct answer would reveal which usernames exist; there is
+  therefore nothing to enumerate, across restarts and instances too. Counting per network means
+  someone who knows a username cannot lock its owner out from elsewhere; locking the account itself
+  takes fifty failures, which at `LOGIN_RATE_LIMIT_PER_MINUTE` per IP needs many networks. The
+  per-network counts live in process memory (at most 10,000 pairs), so a restart forgets them; the
+  per-account count is stored with the user. Logins are also rate-limited per client IP
+  (`LOGIN_RATE_LIMIT_PER_MINUTE`). Pauses are logged as a warning with the user id only (never the
+  username, the password or the address).
+
 - **Session cookie** `rl_session`: a random 256-bit token; only its SHA-256 is stored. Flags:
   `HttpOnly`, `SameSite=Strict`, `Secure` (`SESSION_COOKIE_SECURE`), `Path=/api/panel`, and
   `Max-Age` = the remaining absolute lifetime. A session ends after `SESSION_IDLE_MINUTES` without
@@ -373,7 +398,7 @@ the role lacks the permission.
 
 | Route                         | Access         | Request → response                                                                                             |
 | ----------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------- |
-| `POST /api/panel/auth/login`  | public         | `{ username, password }` → `200 { user }` + cookie; `401`, `423`, `429`                                        |
+| `POST /api/panel/auth/login`  | public         | `{ username, password }` → `200 { user }` + cookie; `401`, `429`, `503`                                        |
 | `POST /api/panel/auth/logout` | signed in      | → `204`, session revoked, cookie cleared                                                                       |
 | `GET /api/panel/auth/me`      | signed in      | → `200 { user }`                                                                                               |
 | `GET /api/panel/users`        | `users:manage` | → `200 { users: [user] }`                                                                                      |
@@ -387,8 +412,9 @@ users answer `400 invalid_username` or `400 weak_password` (with `problem`: `too
 `too_long`). Administrators cannot demote or deactivate themselves.
 
 The audit trail (`audit_events`) records logins (`auth.login_succeeded`, `auth.login_failed`,
-`auth.account_locked`, `auth.login_blocked`, `auth.logout`) and user changes (`user.created`,
-`user.updated`), with ids, codes, reasons and changed field names only.
+`auth.account_locked` with `scope` `source` or `account` when a failure starts a pause,
+`auth.login_blocked` with `reason` `source_locked` or `account_locked`, `auth.logout`) and user
+changes (`user.created`, `user.updated`), with ids, codes, reasons and changed field names only.
 
 ### Fleet and trips
 

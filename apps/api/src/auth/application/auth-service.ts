@@ -1,7 +1,7 @@
 import type { AuditLog } from '../../shared/application/audit-log.js';
 import type { Clock } from '../../shared/application/clock.js';
 import type { Logger } from '../../shared/application/logger.js';
-import { isValidUsername, normalizeUsername, PASSWORD_MAX_LENGTH } from '../domain/credentials.js';
+import { loginPassword, loginUsername } from '../domain/credentials.js';
 import {
   DEFAULT_LOCKOUT_POLICY,
   isLocked,
@@ -19,6 +19,7 @@ import {
   type SessionPolicy,
 } from '../domain/session-policy.js';
 import type {
+  LoginSourceStore,
   PanelUser,
   PasswordHasher,
   SessionStore,
@@ -29,6 +30,7 @@ import type {
 export interface AuthServiceDependencies {
   readonly users: UserStore;
   readonly sessions: SessionStore;
+  readonly sources: LoginSourceStore;
   readonly hasher: PasswordHasher;
   readonly tokens: SessionTokens;
   readonly audit: AuditLog;
@@ -44,8 +46,15 @@ export interface LoginCommand {
   readonly userAgent?: string;
   /** The session cookie the browser still sent, if any: it is revoked (session rotation). */
   readonly previousToken?: string;
+  /** The client's network (IPv4 /24, IPv6 /64), the "source" of the per-source lockout. */
+  readonly clientNetwork?: string;
 }
 
+/**
+ * The outcome of a login. There is deliberately no "locked" variant: a paused account or network
+ * gets the same `invalid_credentials` as a wrong password, so no answer depends on whether the
+ * username exists.
+ */
 export type LoginResult =
   | {
       readonly status: 'authenticated';
@@ -54,8 +63,7 @@ export type LoginResult =
       readonly token: string;
       readonly maxAgeSec: number;
     }
-  | { readonly status: 'invalid_credentials' }
-  | { readonly status: 'account_locked' };
+  | { readonly status: 'invalid_credentials' };
 
 /** An authenticated request: the session and its (active) user. */
 export interface AuthenticatedSession {
@@ -64,18 +72,19 @@ export interface AuthenticatedSession {
   readonly maxAgeSec: number;
 }
 
-/**
- * Unknown usernames get the same failure counting and lockout as real accounts (kept in memory,
- * bounded), so the `account_locked` answer cannot be used to tell which usernames exist.
- */
-const MAX_PHANTOM_ACCOUNTS = 10_000;
+const INVALID_CREDENTIALS: LoginResult = Object.freeze({ status: 'invalid_credentials' });
+/** The source of logins without a known client network (command line, tests). */
+const UNKNOWN_NETWORK = 'unknown';
 
 /**
  * Panel login, session validation and logout (OWASP ASVS L2):
  *
+ * - oversized usernames and passwords are cut before any normalization, lookup or hashing;
  * - every failed path burns one password verification, so the response time does not reveal
- *   whether the user exists, is inactive or is locked;
- * - failures are counted under a row lock; five in a row lock the account for 15 minutes;
+ *   whether the user exists, is inactive or is paused;
+ * - failures are counted per (account, client network) and per account, as the lockout policy
+ *   says; a paused attempt answers `invalid_credentials` like a wrong password, so neither the
+ *   answer nor its timing tells real usernames from unknown ones, even across restarts;
  * - a login always opens a new session with a fresh random token and revokes the session the
  *   browser presented (no session fixation);
  * - sessions end on idleness, on their absolute lifetime, on logout, and when an administrator
@@ -83,7 +92,6 @@ const MAX_PHANTOM_ACCOUNTS = 10_000;
  */
 export class AuthService {
   private readonly lockout: LockoutPolicy;
-  private readonly phantoms = new Map<string, LoginState>();
 
   constructor(private readonly deps: AuthServiceDependencies) {
     this.lockout = deps.lockoutPolicy ?? DEFAULT_LOCKOUT_POLICY;
@@ -91,53 +99,46 @@ export class AuthService {
 
   async login(command: LoginCommand): Promise<LoginResult> {
     const { users, hasher, clock } = this.deps;
-    const username = normalizeUsername(command.username);
-    const password = command.password;
     const now = clock.now();
+    const username = loginUsername(command.username);
+    const password = loginPassword(command.password);
 
     const credentials =
-      isValidUsername(username) && [...password].length <= PASSWORD_MAX_LENGTH
-        ? await users.findCredentials(username)
-        : null;
+      username !== null && password.withinLimit ? await users.findCredentials(username) : null;
     if (credentials === null || !credentials.user.active) {
-      await hasher.verifyDummy(password);
-      const lockedNow = this.failPhantom(username, now);
+      await hasher.verifyDummy(password.value);
       await this.record('auth.login_failed', credentials?.user.id ?? null, now, {
         reason: credentials === null ? 'unknown_user' : 'inactive_user',
       });
-      return lockedNow ? { status: 'account_locked' } : { status: 'invalid_credentials' };
+      return INVALID_CREDENTIALS;
     }
 
     const user = credentials.user;
-    if (isLocked(credentials, now)) {
-      await hasher.verifyDummy(password);
-      await this.record('auth.login_blocked', user.id, now, { reason: 'locked' });
-      return { status: 'account_locked' };
+    const source = `${user.id}|${command.clientNetwork ?? UNKNOWN_NETWORK}`;
+    const paused = await this.pauseOf(credentials, source, now);
+    if (paused !== null) {
+      await hasher.verifyDummy(password.value);
+      await this.record('auth.login_blocked', user.id, now, { reason: paused });
+      return INVALID_CREDENTIALS;
     }
 
-    if (!(await hasher.verify(password, credentials.passwordHash))) {
-      const outcome = await users.modifyLoginState(user.id, (current) =>
-        registerFailedLogin(current, now, this.lockout),
-      );
-      await this.record(
-        outcome.lockedNow ? 'auth.account_locked' : 'auth.login_failed',
-        user.id,
-        now,
-        { reason: 'wrong_password' },
-      );
-      return outcome.lockedNow || isLocked(outcome, now)
-        ? { status: 'account_locked' }
-        : { status: 'invalid_credentials' };
+    if (!(await hasher.verify(password.value, credentials.passwordHash))) {
+      await this.countFailure(user, source, now);
+      return INVALID_CREDENTIALS;
     }
 
     // The password was checked outside the row lock: a parallel attempt may have locked it since.
     const state = await users.modifyLoginState(user.id, (current) =>
       isLocked(current, now) ? current : registerSuccessfulLogin(),
     );
-    if (isLocked(state, now)) {
-      await this.record('auth.login_blocked', user.id, now, { reason: 'locked' });
-      return { status: 'account_locked' };
+    const pausedMeanwhile = isLocked(state, now)
+      ? 'account_locked'
+      : await this.pauseOf(state, source, now);
+    if (pausedMeanwhile !== null) {
+      await this.record('auth.login_blocked', user.id, now, { reason: pausedMeanwhile });
+      return INVALID_CREDENTIALS;
     }
+    await this.deps.sources.modify(source, () => registerSuccessfulLogin());
 
     const opened = await this.openSession(user, now, command.userAgent);
     if (command.previousToken !== undefined) await this.revokeToken(command.previousToken, now);
@@ -186,21 +187,37 @@ export class AuthService {
     if (previous !== null) await this.deps.sessions.revoke(previous.id, now);
   }
 
-  /** Counts a failure of an unknown or inactive username; true when it locks now. */
-  private failPhantom(username: string, now: Date): boolean {
-    const current = this.phantoms.get(username) ?? { failedAttempts: 0, lockedUntil: null };
-    if (isLocked(current, now)) return true;
-    const next = registerFailedLogin(current, now, this.lockout);
-    this.phantoms.delete(username);
-    this.phantoms.set(username, {
-      failedAttempts: next.failedAttempts,
-      lockedUntil: next.lockedUntil,
-    });
-    if (this.phantoms.size > MAX_PHANTOM_ACCOUNTS) {
-      const oldest = this.phantoms.keys().next().value;
-      if (oldest !== undefined) this.phantoms.delete(oldest);
+  /** Why sign-in is paused for this account and source, or null when it is not. */
+  private async pauseOf(
+    account: LoginState,
+    source: string,
+    now: Date,
+  ): Promise<'account_locked' | 'source_locked' | null> {
+    if (isLocked(account, now)) return 'account_locked';
+    return isLocked(await this.deps.sources.find(source), now) ? 'source_locked' : null;
+  }
+
+  /** A wrong password: counts it for the source and for the account, and reports a new pause. */
+  private async countFailure(user: PanelUser, source: string, now: Date): Promise<void> {
+    const bySource = await this.deps.sources.modify(source, (current) =>
+      registerFailedLogin(current, now, this.lockout.perSource),
+    );
+    const byAccount = await this.deps.users.modifyLoginState(user.id, (current) =>
+      registerFailedLogin(current, now, this.lockout.perAccount),
+    );
+    if (!byAccount.lockedNow && !bySource.lockedNow) {
+      await this.record('auth.login_failed', user.id, now, { reason: 'wrong_password' });
+      return;
     }
-    return next.lockedNow;
+    const scope = byAccount.lockedNow ? 'account' : 'source';
+    const lockoutMinutes =
+      this.lockout[byAccount.lockedNow ? 'perAccount' : 'perSource'].lockoutMinutes;
+    // The user id is an opaque key; the username, the password and the network are never logged.
+    this.deps.logger.warn(
+      { userId: user.id, scope, lockoutMinutes },
+      'Panel sign-in paused after repeated failures',
+    );
+    await this.record('auth.account_locked', user.id, now, { reason: 'wrong_password', scope });
   }
 
   private async record(

@@ -12,6 +12,7 @@ import {
   TEST_PASSWORD,
   TEST_PASSWORD_HASHER,
 } from '../support/panel-client.js';
+import { PasswordHasherBusyError } from '../../src/auth/application/auth-ports.js';
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { connectTestDatabase, resetData } from './database.js';
@@ -33,7 +34,7 @@ beforeEach(async () => {
   await resetData(db);
   clock = new ManualClock(NOW);
   if (api !== undefined) await api.app.close();
-  // A fresh API per test: the phantom lockout of unknown usernames lives in memory.
+  // A fresh API per test: the per-network login failures live in memory.
   api = await composeApi({
     config: TEST_API_CONFIG,
     db,
@@ -88,7 +89,8 @@ describe('panel login (PostGIS)', () => {
     expect(unknown.json()).toEqual(wrong.json());
     expect(unknown.json()).toEqual({
       error: 'invalid_credentials',
-      message: 'Wrong username or password.',
+      message:
+        'Wrong username or password. After repeated failures, sign-in pauses for up to 15 minutes.',
     });
     expect(unknown.headers['set-cookie']).toBeUndefined();
     const events = await db
@@ -103,29 +105,65 @@ describe('panel login (PostGIS)', () => {
     expect(JSON.stringify(events)).not.toMatch(/nobody|not the right/);
   });
 
-  it('locks an account for 15 minutes after five failures', async () => {
-    const statuses: number[] = [];
-    for (let i = 0; i < 5; i++) {
-      statuses.push((await login(api.app, 'sara.super', 'wrong password!!')).statusCode);
-    }
-    expect(statuses).toEqual([401, 401, 401, 401, 423]);
+  const loginFrom = (remoteAddress: string, username: string, password = TEST_PASSWORD) =>
+    api.app.inject({
+      method: 'POST',
+      url: '/api/panel/auth/login',
+      headers: PANEL_HEADERS,
+      payload: { username, password },
+      remoteAddress,
+    });
 
-    const locked = await login(api.app, 'sara.super');
-    expect(locked.statusCode).toBe(423);
-    expect(locked.json()).toMatchObject({ error: 'account_locked' });
+  it('pauses sign-in from a network after five failures, with the generic 401', async () => {
+    const failures: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      failures.push((await loginFrom('190.40.12.7', 'sara.super', 'wrong password!!')).statusCode);
+    }
+    expect(failures).toEqual([401, 401, 401, 401, 401]);
+
+    // Paused for that network (another address of the same /24), even with the right password.
+    const paused = await loginFrom('190.40.12.99', 'sara.super');
+    expect(paused.statusCode).toBe(401);
+    expect(paused.json()).toMatchObject({ error: 'invalid_credentials' });
     expect(await auditActions()).toEqual(
       expect.arrayContaining(['auth.account_locked', 'auth.login_blocked']),
     );
+    // The owner, on another network, still signs in.
+    expect((await loginFrom('200.48.7.1', 'sara.super')).statusCode).toBe(200);
 
     clock.set(new Date(NOW.getTime() + 15 * 60_000));
-    expect((await login(api.app, 'sara.super')).statusCode).toBe(200);
+    expect((await loginFrom('190.40.12.7', 'sara.super')).statusCode).toBe(200);
   });
 
-  it('locks unknown usernames identically (no enumeration through the lockout)', async () => {
-    const statuses: number[] = [];
-    for (let i = 0; i < 6; i++) statuses.push((await login(api.app, 'ghost.user', 'x')).statusCode);
+  it('answers unknown usernames exactly like real ones, however many attempts', async () => {
+    const answers = new Set<string>();
+    for (let i = 0; i < 7; i++) {
+      for (const username of ['ghost.user', 'sara.super']) {
+        const response = await loginFrom('10.1.1.1', username, 'wrong password!!');
+        answers.add(`${response.statusCode} ${response.body}`);
+      }
+    }
 
-    expect(statuses).toEqual([401, 401, 401, 401, 423, 423]);
+    expect(answers.size).toBe(1);
+    expect([...answers][0]).toMatch(/^401 .*invalid_credentials/);
+  });
+
+  it('answers 503 auth_busy with Retry-After when password hashing sheds load', async () => {
+    await api.app.close();
+    const busy = () => Promise.reject(new PasswordHasherBusyError('queue_full'));
+    api = await composeApi({
+      config: TEST_API_CONFIG,
+      db,
+      clock,
+      logger: pino({ level: 'silent' }),
+      passwordHasher: { hash: busy, verify: busy, verifyDummy: busy },
+    });
+
+    const response = await login(api.app, 'ana.admin');
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('5');
+    expect(response.json()).toMatchObject({ error: 'auth_busy' });
   });
 
   it('rate-limits login attempts per client IP', async () => {

@@ -17,7 +17,14 @@ import type {
   UpdateUserCommand,
   UserCommandResult,
 } from '../../application/user-admin-service.js';
-import { PASSWORD_MAX_LENGTH } from '../../domain/credentials.js';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_UTF16_UNITS,
+  PASSWORD_MIN_LENGTH,
+  USERNAME_MAX_LENGTH,
+  USERNAME_MIN_LENGTH,
+  type PasswordProblem,
+} from '../../domain/credentials.js';
 import { ROLES } from '../../domain/role.js';
 import { userProfile } from './panel-auth-routes.js';
 import { actorOf, panelRoute } from './panel-guard.js';
@@ -35,11 +42,9 @@ export interface PanelUserRoutesOptions {
 }
 
 const displayName = z.string().trim().min(1).max(80);
-// The length rules (12+ code points) are checked by the use case, which names the problem.
-const password = z
-  .string()
-  .min(1)
-  .max(PASSWORD_MAX_LENGTH * 4);
+// The length rules (in code points) are checked by the use case, which names the problem; this
+// transport bound is the same maximum in UTF-16 units, so longer input is refused before hashing.
+const password = z.string().min(1).max(PASSWORD_MAX_UTF16_UNITS);
 
 const createBodySchema = z.object({
   username: z.string().min(1).max(64),
@@ -62,9 +67,18 @@ const auditQuerySchema = pageQuerySchema.extend({
   entityId: z.string().min(1).max(64).optional(),
 });
 
+const WEAK_PASSWORD_MESSAGES: Record<PasswordProblem, string> = {
+  too_short: `Passwords need at least ${PASSWORD_MIN_LENGTH} characters.`,
+  too_long: `Passwords have at most ${PASSWORD_MAX_LENGTH} characters.`,
+};
+
 const FAILURES = {
-  invalid_username: [400, 'Usernames have 3-32 characters: a-z, 0-9, dot, dash, underscore.'],
-  weak_password: [400, 'Passwords need at least 12 characters.'],
+  invalid_username: [
+    400,
+    `Usernames have ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} characters: a-z, 0-9, dot, ` +
+      'dash, underscore.',
+  ],
+  weak_password: [400, ''],
   username_taken: [409, 'This username is already taken.'],
   not_found: [404, 'There is no such user.'],
   cannot_modify_self: [409, 'You cannot change your own role or deactivate yourself.'],
@@ -72,7 +86,9 @@ const FAILURES = {
 
 function sendUserResult(reply: FastifyReply, result: UserCommandResult, okStatus: number) {
   if (result.status === 'ok') return reply.code(okStatus).send({ user: userProfile(result.user) });
-  const [status, message] = FAILURES[result.status];
+  const [status, generic] = FAILURES[result.status];
+  const message =
+    result.status === 'weak_password' ? WEAK_PASSWORD_MESSAGES[result.problem] : generic;
   return reply.code(status).send({
     error: result.status,
     message,

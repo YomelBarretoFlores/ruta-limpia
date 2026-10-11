@@ -53,6 +53,17 @@ export interface UserStore {
   recordLogin(userId: string, at: Date): Promise<void>;
 }
 
+/**
+ * Port: login failures per (account, client network), the "per source" layer of the lockout
+ * policy. It may live in process memory: losing it on a restart only resets the per-source counts,
+ * while the per-account count stays in the user store.
+ */
+export interface LoginSourceStore {
+  find(key: string): Promise<LoginState>;
+  /** Read-modify-write of one key's state; returns what `change` returned. */
+  modify<T extends LoginState>(key: string, change: (current: LoginState) => T): Promise<T>;
+}
+
 export interface StoredSession extends SessionTimes {
   readonly id: string;
   readonly user: PanelUser;
@@ -75,7 +86,22 @@ export interface SessionStore {
   purgeEndedOf(userId: string, before: Date): Promise<void>;
 }
 
-/** Port: password hashing (a slow, salted KDF). */
+/**
+ * The password hasher is saturated: too many hashes are already waiting, or this one waited too
+ * long. Callers answer "try again shortly" instead of queueing without bound (load shedding).
+ */
+export class PasswordHasherBusyError extends Error {
+  override readonly name = 'PasswordHasherBusyError';
+
+  constructor(readonly reason: 'queue_full' | 'wait_timeout') {
+    super(`Password hashing is busy (${reason})`);
+  }
+}
+
+/**
+ * Port: password hashing (a slow, salted KDF). Every method may reject with
+ * `PasswordHasherBusyError` under overload.
+ */
 export interface PasswordHasher {
   hash(password: string): Promise<string>;
   verify(password: string, encodedHash: string): Promise<boolean>;

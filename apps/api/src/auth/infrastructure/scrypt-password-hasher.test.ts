@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { PasswordHasherBusyError } from '../application/auth-ports.js';
 import { CryptoSessionTokens } from './crypto-session-tokens.js';
-import { decode, DEFAULT_SCRYPT_PARAMS, ScryptPasswordHasher } from './scrypt-password-hasher.js';
+import {
+  decode,
+  DEFAULT_SCRYPT_PARAMS,
+  ScryptPasswordHasher,
+  type KeyDerivation,
+} from './scrypt-password-hasher.js';
 
 /** Cheap parameters keep the suite fast; one test exercises the production defaults. */
 const fast = new ScryptPasswordHasher({ params: { logN: 10, r: 8, p: 1 } });
@@ -72,6 +78,74 @@ describe('ScryptPasswordHasher', () => {
     );
 
     await expect(limited.verify('two password 2', hashes[1] ?? '')).resolves.toBe(true);
+  });
+});
+
+/** A key derivation that runs only when the test releases it, so queue states are deterministic. */
+function gatedKdf() {
+  const pending: { release: () => void; fail: (error: Error) => void }[] = [];
+  const kdf: KeyDerivation = (_password, _salt, keyLength) =>
+    new Promise<Buffer>((resolve, reject) => {
+      pending.push({ release: () => resolve(Buffer.alloc(keyLength, 7)), fail: reject });
+    });
+  return { kdf, pending };
+}
+
+describe('ScryptPasswordHasher load shedding', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('fails fast once the wait queue is full, instead of piling up waiters', async () => {
+    const { kdf, pending } = gatedKdf();
+    const hasher = new ScryptPasswordHasher({ kdf, maxConcurrent: 1, maxQueued: 1 });
+
+    const running = hasher.hash('first password');
+    const queued = hasher.hash('second password');
+    await expect(hasher.hash('third password')).rejects.toBeInstanceOf(PasswordHasherBusyError);
+
+    pending[0]?.release();
+    await running;
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    pending[1]?.release();
+    await expect(queued).resolves.toMatch(/^\$scrypt\$/);
+  });
+
+  it('gives up on a queued hash after the maximum wait', async () => {
+    vi.useFakeTimers();
+    const { kdf, pending } = gatedKdf();
+    const hasher = new ScryptPasswordHasher({ kdf, maxConcurrent: 1, maxWaitMs: 1000 });
+
+    const running = hasher.hash('first password');
+    const queued = hasher.hash('second password');
+    const outcome = expect(queued).rejects.toThrow(PasswordHasherBusyError);
+    await vi.advanceTimersByTimeAsync(1000);
+    await outcome;
+
+    // The expired waiter left the queue: the released slot goes to the next request.
+    pending[0]?.release();
+    await running;
+    const next = hasher.hash('third password');
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    pending[1]?.release();
+    await expect(next).resolves.toMatch(/^\$scrypt\$/);
+  });
+
+  it('retries the dummy hash after a failed first attempt instead of caching the failure', async () => {
+    let calls = 0;
+    const flaky: KeyDerivation = (_password, _salt, keyLength) => {
+      calls += 1;
+      return calls === 1
+        ? Promise.reject(new Error('memory limit exceeded'))
+        : Promise.resolve(Buffer.alloc(keyLength, 1));
+    };
+    const hasher = new ScryptPasswordHasher({ kdf: flaky });
+
+    await expect(hasher.verifyDummy('some password')).rejects.toThrow('memory limit exceeded');
+    await expect(hasher.verifyDummy('some password')).resolves.toBeUndefined();
+    await expect(hasher.verifyDummy('some password')).resolves.toBeUndefined();
+    // One failed dummy hash, one successful (then cached) dummy hash, two verifications.
+    expect(calls).toBe(4);
   });
 });
 

@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
-import { isValidUsername, normalizeUsername, passwordProblem } from './credentials.js';
+import {
+  isValidUsername,
+  loginPassword,
+  loginUsername,
+  normalizeUsername,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_UTF16_UNITS,
+  passwordProblem,
+} from './credentials.js';
 import { checkCsrf, CSRF_HEADER_VALUE, isMutatingMethod } from './csrf-policy.js';
-import { isLocked, registerFailedLogin, registerSuccessfulLogin } from './lockout-policy.js';
+import {
+  DEFAULT_LOCKOUT_POLICY,
+  isLocked,
+  registerFailedLogin,
+  registerSuccessfulLogin,
+} from './lockout-policy.js';
 import { can, isRole, permissionsOf, PERMISSIONS } from './role.js';
 import {
   classifyUserAgent,
@@ -67,10 +80,42 @@ describe('credentials', () => {
     expect(passwordProblem('ñandú-ñandú')).toBe('too_short');
     expect(passwordProblem('x'.repeat(257))).toBe('too_long');
   });
+
+  it('bounds login input before any normalization or hashing', () => {
+    expect(loginUsername(' Ana.Torres ')).toBe('ana.torres');
+    expect(loginUsername('a b')).toBeNull();
+    expect(loginUsername(`ana${' '.repeat(100)}`)).toBeNull();
+    expect(loginUsername('x'.repeat(1_000_000))).toBeNull();
+
+    expect(loginPassword('long enough!')).toEqual({ value: 'long enough!', withinLimit: true });
+    // 256 astral code points are 512 UTF-16 units: still within the limit.
+    const astral = '😀'.repeat(PASSWORD_MAX_LENGTH);
+    expect(loginPassword(astral)).toEqual({ value: astral, withinLimit: true });
+    const huge = loginPassword('x'.repeat(1_000_000));
+    expect(huge.withinLimit).toBe(false);
+    expect(huge.value).toHaveLength(PASSWORD_MAX_UTF16_UNITS);
+    expect(loginPassword('x'.repeat(PASSWORD_MAX_LENGTH + 1)).withinLimit).toBe(false);
+  });
 });
 
 describe('lockout policy', () => {
-  it('locks the account for 15 minutes at the fifth consecutive failure', () => {
+  it('pauses one client network after 5 failures and the whole account after 50', () => {
+    expect(DEFAULT_LOCKOUT_POLICY).toEqual({
+      perSource: { maxFailedAttempts: 5, lockoutMinutes: 15 },
+      perAccount: { maxFailedAttempts: 50, lockoutMinutes: 15 },
+    });
+    let account = { failedAttempts: 0, lockedUntil: null as Date | null };
+    for (let i = 1; i < 50; i++) {
+      account = registerFailedLogin(account, T0, DEFAULT_LOCKOUT_POLICY.perAccount);
+    }
+    expect(isLocked(account, T0)).toBe(false);
+    expect(registerFailedLogin(account, T0, DEFAULT_LOCKOUT_POLICY.perAccount)).toMatchObject({
+      lockedUntil: at(15),
+      lockedNow: true,
+    });
+  });
+
+  it('locks for 15 minutes at the fifth consecutive failure of a threshold', () => {
     let state = { failedAttempts: 0, lockedUntil: null as Date | null };
     for (let i = 1; i <= 4; i++) {
       const next = registerFailedLogin(state, T0);
