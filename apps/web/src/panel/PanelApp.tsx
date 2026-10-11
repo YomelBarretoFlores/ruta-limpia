@@ -4,6 +4,7 @@ import { Route, Routes } from 'react-router';
 
 import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
 import { Notice } from '../shared/ui/Notice';
+import { IncidentsPage } from './incidents/IncidentsPage';
 import { LivePage } from './live/LivePage';
 import { LoginPage } from './session/LoginPage';
 import { RequireSession } from './session/RequireSession';
@@ -70,6 +71,14 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={['trips:read']}>
                   <TripDetailPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="incidencias"
+              element={
+                <RequirePermission anyOf={['incidents:read']}>
+                  <IncidentsPage />
                 </RequirePermission>
               }
             />

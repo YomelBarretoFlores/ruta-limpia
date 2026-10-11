@@ -12,6 +12,7 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/panel/en-vivo', label: 'En vivo', anyOf: ['live:read'] },
   { to: '/panel/viajes', label: 'Viajes', anyOf: ['trips:read'] },
+  { to: '/panel/incidencias', label: 'Incidencias', anyOf: ['incidents:read'] },
   { to: '/panel/usuarios', label: 'Usuarios', anyOf: ['users:manage'] },
 ];
 
