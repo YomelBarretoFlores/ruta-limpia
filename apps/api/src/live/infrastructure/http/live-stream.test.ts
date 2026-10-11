@@ -34,6 +34,9 @@ const apps: FastifyInstance[] = [];
 const streams: SseConnection[] = [];
 afterEach(async () => {
   for (const stream of streams.splice(0)) stream.close();
+  // An aborted `fetch` can leave an idle keep-alive socket of undici open on the server, which
+  // would hold `close()` until the hook times out; tests do not need graceful draining.
+  for (const app of apps) app.server.closeAllConnections();
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
