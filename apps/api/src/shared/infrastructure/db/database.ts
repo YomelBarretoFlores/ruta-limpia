@@ -155,6 +155,12 @@ export interface HouseholdsTable {
   updated_at: Generated<Date>;
 }
 
+/** Migration 0011-household-code-counter: the last generated `H-###` sequence (one row). */
+export interface HouseholdCodeCounterTable {
+  singleton: Generated<boolean>;
+  last_sequence: number;
+}
+
 export type RevokeReasonColumn = 'user_cancelled' | 'expired' | 'too_many_failures';
 
 export interface PushSubscriptionsTable {
@@ -349,6 +355,7 @@ export interface Database {
   alerts: AlertsTable;
   incidents: IncidentsTable;
   households: HouseholdsTable;
+  household_code_counter: HouseholdCodeCounterTable;
   push_subscriptions: PushSubscriptionsTable;
   alert_deliveries: AlertDeliveriesTable;
   app_views: AppViewsTable;

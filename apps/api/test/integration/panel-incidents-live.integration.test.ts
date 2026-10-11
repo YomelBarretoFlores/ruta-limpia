@@ -13,7 +13,7 @@ import {
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
-import { connectTestDatabase, resetData } from './database.js';
+import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const T0 = Date.parse('2026-10-20T12:00:00Z');
 
@@ -149,6 +149,84 @@ describe('panel incidents (PostGIS)', () => {
         })
       ).statusCode,
     ).toBe(404);
+  });
+
+  it('filters by local service date (America/Lima), both bounds inclusive', async () => {
+    const report = (occurredAt: string, description: string) =>
+      supervisor.post('/api/panel/incidents', {
+        kind: 'weather',
+        routeCode: 'RI-01',
+        occurredAt,
+        description,
+      });
+    // Local dates 19, 20, 20 and 21 October; in UTC the second and third fall on the 20th and 21st.
+    await report('2026-10-19T23:30:00-05:00', 'late on the 19th');
+    await report('2026-10-20T00:10:00-05:00', 'early on the 20th');
+    await report('2026-10-20T23:50:00-05:00', 'late on the 20th');
+    await report('2026-10-21T00:05:00-05:00', 'early on the 21st');
+
+    const descriptions = async (query: string) =>
+      (await supervisor.get(`/api/panel/incidents?${query}`))
+        .json<{ items: { description: string }[] }>()
+        .items.map((i) => i.description);
+
+    expect(await descriptions('from=2026-10-20&to=2026-10-20')).toEqual([
+      'late on the 20th',
+      'early on the 20th',
+    ]);
+    expect(await descriptions('from=2026-10-21')).toEqual(['early on the 21st']);
+    expect(await descriptions('to=2026-10-19')).toEqual(['late on the 19th']);
+  });
+
+  it('reopens a resolved incident and refuses a resolution note without resolving', async () => {
+    const created = await supervisor.post('/api/panel/incidents', {
+      kind: 'missed_collection',
+      routeCode: 'RI-01',
+    });
+    const id = created.json<{ incident: IncidentJson }>().incident.id;
+    await supervisor.patch(`/api/panel/incidents/${id}`, {
+      resolved: true,
+      resolutionNote: 'Collected later',
+    });
+
+    const reopened = await supervisor.patch(`/api/panel/incidents/${id}`, { resolved: false });
+    expect(reopened.json()).toMatchObject({ incident: { resolvedAt: null, resolutionNote: null } });
+    const noteOnly = await supervisor.patch(`/api/panel/incidents/${id}`, {
+      resolutionNote: 'Just a note',
+    });
+    expect(noteOnly.statusCode).toBe(400);
+    const notResolving = await supervisor.patch(`/api/panel/incidents/${id}`, {
+      resolved: false,
+      resolutionNote: 'Just a note',
+    });
+    expect(notResolving.statusCode).toBe(400);
+
+    const events = await db
+      .selectFrom('audit_events')
+      .select(['action', 'details'])
+      .where('entity', '=', 'incident')
+      .orderBy('id')
+      .execute();
+    expect(events.map((e) => [e.action, e.details])).toEqual([
+      ['incident.created', expect.objectContaining({ kind: 'missed_collection' })],
+      ['incident.resolved', { fields: ['resolved', 'resolutionNote'] }],
+      ['incident.updated', { fields: ['resolved', 'resolutionNote'] }],
+    ]);
+  });
+
+  it('records no incident when its audit event cannot be written', async () => {
+    const restore = await failAuditWritesOf(db, 'incident.created');
+    try {
+      const created = await observer.post('/api/panel/incidents', {
+        kind: 'weather',
+        routeCode: 'RI-01',
+      });
+      expect(created.statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+
+    expect((await supervisor.get('/api/panel/incidents')).json()).toMatchObject({ total: 0 });
   });
 
   it('lets observers report but not list or resolve incidents', async () => {

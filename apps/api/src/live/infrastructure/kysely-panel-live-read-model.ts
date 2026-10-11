@@ -45,6 +45,7 @@ export class KyselyPanelLiveReadModel implements PanelLiveReadModel {
       .where('i.route_id', '=', routeId)
       .where('i.resolved_at', 'is', null)
       .orderBy('i.occurred_at', 'desc')
+      .orderBy('i.id')
       .limit(50)
       .execute();
     return rows.map((row) => ({

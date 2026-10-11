@@ -2,6 +2,7 @@ import type { PanelActor } from '../../auth/application/panel-actor.js';
 import type { RoutePointResolver } from '../../routes/application/route-point-resolver.js';
 import type { AuditLog } from '../../shared/application/audit-log.js';
 import type { Clock } from '../../shared/application/clock.js';
+import type { UnitOfWork } from '../../shared/application/unit-of-work.js';
 import type { IncidentKind } from '../domain/incident.js';
 
 export interface IncidentRecord {
@@ -89,14 +90,24 @@ export type IncidentResult =
         'unknown_route' | 'unknown_point' | 'unknown_trip' | 'trip_route_mismatch' | 'not_found';
     };
 
-export interface IncidentServiceDependencies {
+/** The ports an incident change writes through, in one transaction with its audit event. */
+export interface IncidentTransaction {
   readonly store: IncidentStore;
-  readonly points: RoutePointResolver;
   readonly audit: AuditLog;
+}
+
+export interface IncidentServiceDependencies {
+  /** Reads outside any transaction. */
+  readonly store: IncidentStore;
+  readonly transactions: UnitOfWork<IncidentTransaction>;
+  readonly points: RoutePointResolver;
   readonly clock: Clock;
 }
 
-/** The panel's incident log: report, list, edit and resolve (audited). */
+/**
+ * The panel's incident log: report, list, edit and resolve. Every change commits together with
+ * its audit event.
+ */
 export class IncidentService {
   constructor(private readonly deps: IncidentServiceDependencies) {}
 
@@ -113,22 +124,24 @@ export class IncidentService {
       if (tripRoute !== resolved.routeId) return { status: 'trip_route_mismatch' };
     }
     const now = this.deps.clock.now();
-    const incident = await this.deps.store.insert({
-      kind: command.kind,
-      routeId: resolved.routeId,
-      tripId: command.tripId ?? null,
-      pointId: resolved.point?.id ?? null,
-      description: command.description ?? '',
-      occurredAt: command.occurredAt ?? now,
-      reportedByUserId: actor.userId,
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      const incident = await store.insert({
+        kind: command.kind,
+        routeId: resolved.routeId,
+        tripId: command.tripId ?? null,
+        pointId: resolved.point?.id ?? null,
+        description: command.description ?? '',
+        occurredAt: command.occurredAt ?? now,
+        reportedByUserId: actor.userId,
+      });
+      await this.record(audit, 'incident.created', actor, incident.id, {
+        kind: incident.kind,
+        routeCode: incident.routeCode,
+        pointCode: incident.pointCode,
+        tripId: incident.tripId,
+      });
+      return { status: 'ok', incident };
     });
-    await this.record('incident.created', actor, incident.id, {
-      kind: incident.kind,
-      routeCode: incident.routeCode,
-      pointCode: incident.pointCode,
-      tripId: incident.tripId,
-    });
-    return { status: 'ok', incident };
   }
 
   async update(
@@ -148,24 +161,29 @@ export class IncidentService {
               : null,
           }),
     };
-    const incident = await this.deps.store.update(id, changes, now);
-    if (incident === null) return { status: 'not_found' };
-    await this.record(
-      command.resolved === true ? 'incident.resolved' : 'incident.updated',
-      actor,
-      id,
-      { fields: Object.keys(command) },
-    );
-    return { status: 'ok', incident };
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      const before = await store.findById(id);
+      const incident = before === null ? null : await store.update(id, changes, now);
+      if (before === null || incident === null) return { status: 'not_found' };
+      await this.record(
+        audit,
+        command.resolved === true ? 'incident.resolved' : 'incident.updated',
+        actor,
+        id,
+        { fields: changedFields(before, incident) },
+      );
+      return { status: 'ok', incident };
+    });
   }
 
   private async record(
+    audit: AuditLog,
     action: string,
     actor: PanelActor,
     entityId: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    await this.deps.audit.record({
+    await audit.record({
       userId: actor.userId,
       action,
       entity: 'incident',
@@ -174,4 +192,14 @@ export class IncidentService {
       details,
     });
   }
+}
+
+/** The incident fields whose value differs between two versions (the audit's `fields`). */
+function changedFields(before: IncidentRecord, after: IncidentRecord): string[] {
+  const fields: string[] = [];
+  if (before.kind !== after.kind) fields.push('kind');
+  if (before.description !== after.description) fields.push('description');
+  if ((before.resolvedAt === null) !== (after.resolvedAt === null)) fields.push('resolved');
+  if (before.resolutionNote !== after.resolutionNote) fields.push('resolutionNote');
+  return fields;
 }

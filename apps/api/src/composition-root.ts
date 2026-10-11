@@ -44,6 +44,7 @@ import { KeyedMutex } from './shared/application/keyed-mutex.js';
 import type { AppDatabase } from './shared/infrastructure/db/database.js';
 import { InMemoryEventBus } from './shared/infrastructure/events/in-memory-event-bus.js';
 import { KyselyAuditLog } from './shared/infrastructure/audit/kysely-audit-log.js';
+import { KyselyUnitOfWork } from './shared/infrastructure/db/kysely-unit-of-work.js';
 import { IngestPositionService } from './tracking/application/ingest-position-service.js';
 import type { TrackingEvents } from './tracking/application/tracking-events.js';
 import { TripLifecycleService } from './tracking/application/trip-lifecycle-service.js';
@@ -314,18 +315,21 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
   panelRoutes.push((scope) => scope.register(panelTripRoutes, { trips: panelTrips }));
 
   const routePoints = new KyselyRoutePointResolver(db);
+  /** A field store and the audit log, both bound to one transaction. */
+  const audited = <Store>(storeOn: (trx: AppDatabase) => Store) =>
+    new KyselyUnitOfWork(db, (trx) => ({ store: storeOn(trx), audit: new KyselyAuditLog(trx) }));
   const incidents = new IncidentService({
     store: new KyselyIncidentStore(db),
+    transactions: audited((trx) => new KyselyIncidentStore(trx)),
     points: routePoints,
-    audit,
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelIncidentRoutes, { incidents }));
 
   const households = new HouseholdRegistryService({
     store: new KyselyHouseholdStore(db),
+    transactions: audited((trx) => new KyselyHouseholdStore(trx)),
     points: routePoints,
-    audit,
     clock,
   });
   panelRoutes.push((scope) =>
@@ -334,16 +338,16 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
 
   const observations = new FieldObservationService({
     store: new KyselyFieldObservationStore(db),
+    transactions: audited((trx) => new KyselyFieldObservationStore(trx)),
     points: routePoints,
-    audit,
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelFieldObservationRoutes, { observations }));
 
   const baselineLogs = new BaselineLogService({
     store: new KyselyBaselineLogStore(db),
+    transactions: audited((trx) => new KyselyBaselineLogStore(trx)),
     points: routePoints,
-    audit,
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelBaselineLogRoutes, { logs: baselineLogs }));

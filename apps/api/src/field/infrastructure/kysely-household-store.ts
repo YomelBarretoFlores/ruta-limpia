@@ -1,6 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 
 import type { AppDatabase, Database } from '../../shared/infrastructure/db/database.js';
+import { inTransaction } from '../../shared/infrastructure/db/kysely-unit-of-work.js';
 import type {
   HouseholdFilter,
   HouseholdListItem,
@@ -9,9 +10,6 @@ import type {
   NewHousehold,
 } from '../application/household-registry.js';
 import { householdCodeSequence, nextHouseholdCode } from '../domain/household-code.js';
-
-/** Key of the transaction-level advisory lock that serializes code generation. */
-const CODE_LOCK_KEY = 'ruta-limpia:household-code';
 
 function records(db: Kysely<Database>) {
   return db
@@ -55,22 +53,41 @@ function toRecord(row: RecordRow): HouseholdRecord {
 export class KyselyHouseholdStore implements HouseholdStore {
   constructor(private readonly db: AppDatabase) {}
 
+  /**
+   * The next code comes from `household_code_counter`, locked for the transaction (which
+   * serializes concurrent enrollments), and never from the codes still present: a deleted
+   * household's code is never handed out again. Codes inserted by other means are respected too.
+   */
   insertWithNextCode(household: NewHousehold): Promise<HouseholdRecord> {
-    return this.db.transaction().execute(async (trx) => {
-      await sql`SELECT pg_advisory_xact_lock(hashtext(${CODE_LOCK_KEY}))`.execute(trx);
+    return inTransaction(this.db, async (trx) => {
+      await trx
+        .insertInto('household_code_counter')
+        .values({ singleton: true, last_sequence: 0 })
+        .onConflict((oc) => oc.column('singleton').doNothing())
+        .execute();
+      const counter = await trx
+        .selectFrom('household_code_counter')
+        .select('last_sequence')
+        .forUpdate()
+        .executeTakeFirstOrThrow();
       const codes = await trx
         .selectFrom('households')
         .select('code')
         .where('code', '~', '^H-[0-9]{3,}$')
         .execute();
-      const highest = codes.reduce<number | null>((max, { code }) => {
-        const sequence = householdCodeSequence(code);
-        return sequence === null ? max : Math.max(max ?? 0, sequence);
-      }, null);
+      const highest = codes.reduce<number>(
+        (max, { code }) => Math.max(max, householdCodeSequence(code) ?? 0),
+        counter.last_sequence,
+      );
+      const code = nextHouseholdCode(highest);
+      await trx
+        .updateTable('household_code_counter')
+        .set({ last_sequence: householdCodeSequence(code) ?? highest + 1 })
+        .execute();
       const row = await trx
         .insertInto('households')
         .values({
-          code: nextHouseholdCode(highest),
+          code,
           route_id: household.routeId,
           point_id: household.pointId,
           enrolled_at: household.enrolledAt,
@@ -99,8 +116,8 @@ export class KyselyHouseholdStore implements HouseholdStore {
       readonly notes?: string | null;
     },
     at: Date,
-  ): Promise<HouseholdRecord> {
-    await this.db
+  ): Promise<HouseholdRecord | null> {
+    const updated = await this.db
       .updateTable('households')
       .set({
         updated_at: at,
@@ -109,12 +126,16 @@ export class KyselyHouseholdStore implements HouseholdStore {
         ...(changes.notes === undefined ? {} : { notes: changes.notes }),
       })
       .where('id', '=', id)
-      .execute();
-    return toRecord(await records(this.db).where('h.id', '=', id).executeTakeFirstOrThrow());
+      .executeTakeFirst();
+    // Deleted meanwhile: the caller answers "not found".
+    if (updated.numUpdatedRows === 0n) return null;
+    const row = await records(this.db).where('h.id', '=', id).executeTakeFirst();
+    return row === undefined ? null : toRecord(row);
   }
 
-  async delete(id: string): Promise<void> {
-    await this.db.deleteFrom('households').where('id', '=', id).execute();
+  async delete(id: string): Promise<boolean> {
+    const deleted = await this.db.deleteFrom('households').where('id', '=', id).executeTakeFirst();
+    return deleted.numDeletedRows > 0n;
   }
 
   async list(

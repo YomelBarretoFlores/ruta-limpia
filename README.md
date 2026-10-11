@@ -316,6 +316,10 @@ needs a session, every answer is `Cache-Control: no-store`, and errors are
 `{ items, page, pageSize, total }`. Dates are ISO 8601; calendar dates (`YYYY-MM-DD`) and times of
 day (`HH:MM`) are local to the pilot (America/Lima).
 
+Every audited change (users, trips, incidents, households, field records) commits in one database
+transaction with its audit event: if the audit write fails, the change is undone and the request
+answers `500`, so a retry neither duplicates a record nor leaves an unaudited one.
+
 ### Creating the first administrator
 
 ```bash
@@ -476,7 +480,9 @@ occurredAt }`. For live updates the panel listens to the public stream
 reportedByUserId, resolvedAt, resolvedByUserId, resolutionNote, createdAt, updatedAt }`.
 - `422 unknown_route`, `unknown_point`, `unknown_trip` or `trip_route_mismatch` (the trip runs on
   another route). `resolved: true` records the time, the user and the note; `resolved: false`
-  reopens. Audited as `incident.created`, `incident.updated`, `incident.resolved`.
+  reopens; a `resolutionNote` without `resolved: true` answers `400`. `from`/`to` are local dates
+  of `occurredAt` (America/Lima), inclusive. Audited as `incident.created`, `incident.updated`,
+  `incident.resolved` (`fields` lists the fields whose value changed).
 
 ### Household registry
 
@@ -490,8 +496,9 @@ reportedByUserId, resolvedAt, resolvedByUserId, resolutionNote, createdAt, updat
 | `GET /api/panel/households/:code/sticker` | `households:read`   | → `{ code, url }`                                                                     |
 
 - Up to 100 volunteer households are enrolled door to door. Each gets the next code `H-001`,
-  `H-002`, … (generated under a transaction-level advisory lock, so concurrent enrollments never
-  collide). No address, name or phone number is stored; `notes` (≤ 280 characters) must not hold
+  `H-002`, … from a counter (`household_code_counter`, migration `0011-household-code-counter`)
+  locked for the enrollment's transaction, so concurrent enrollments never collide and a deleted
+  household's code is never handed out again (its sticker may still be on the door). No address, name or phone number is stored; `notes` (≤ 280 characters) must not hold
   them either. `consentAt` defaults to now and `consentVersion` to `enrollment-2026-10`.
 - `household`: `{ id, code, routeId, routeCode, pointCode, enrolledAt, consentAt, consentVersion,
 active, notes, updatedAt }`; the list adds `activeSubscriptions`, `lastAlertReceivedAt` (the
@@ -502,7 +509,9 @@ active, notes, updatedAt }`; the list adds `activeSubscriptions`, `lastAlertRece
   link (migration `0007-household-registry`).
 - The sticker `url` is `${PUBLIC_ORIGIN}/?r=<route>&p=<point>&h=<code>` (the QR deep link of the
   citizen app); without `PUBLIC_ORIGIN` the request's own origin is used.
-- Audited as `household.created`, `household.updated`, `household.deleted` (entity id = code).
+- Audited as `household.created`, `household.updated` (`fields` lists what actually changed; a
+  request that changes nothing records nothing), `household.deleted` (entity id = code). A
+  household deleted while it is being changed answers `404`.
 
 ### Field observations (Instrument 2)
 
@@ -517,7 +526,7 @@ active, notes, updatedAt }`; the list adds `activeSubscriptions`, `lastAlertRece
 "Field read" is `field:read_own` or `field:read_all`; "field write" is `field:write_own` or
 `field:write_all`. Without the `_all` permission a user lists and reads only their own sheets
 (others answer `404`) and may change or delete them for 24 hours (`403 edit_window_closed`; another
-user's sheet: `403 not_owner`).
+user's sheet: `403 not_owner`). A sheet deleted while it is being edited answers `404`.
 
 The sheet, one per point and visit (unset fields may be omitted or `null`):
 
@@ -553,14 +562,16 @@ The sheet, one per point and visit (unset fields may be omitted or `null`):
 - `phase`: `baseline` | `intervention` | `post`. Times are `HH:MM` local; `observedOn` is a local
   date. `dispersion` (scattered waste within 5 m): `none` ("No") | `few` ("Pocos") | `many`
   ("Muchos"). `dispersionCauses`: `animals`, `wind`, `manipulation` (observed manipulation),
-  `undetermined`, `other` (then `dispersionCauseOther` is required).
+  `undetermined`, `other` (then `dispersionCauseOther` is required; a `dispersionCauseOther`
+  without the `other` cause is refused too).
 - The exposure of the first bag is computed (`exposureComputed: true`) from the placement and pass
   times when both are present; otherwise the observed `exposureMinutes` is kept.
 - `music` is accepted only at points with `observesMusic` (P04, P08, P12).
 - Photos are never uploaded: only whether one was taken and its archive code (avoid faces and
   plates when shooting).
 - Inconsistent sheets answer `422 invalid_observation` with `problems`: `pass_before_placement`,
-  `broken_bags_exceed_bags`, `causes_without_dispersion`, `other_cause_text_required`,
+  `broken_bags_exceed_bags`, `causes_without_dispersion`, `other_cause_text_required` (`other`
+  ticked without its text), `other_cause_text_without_other` (a text without `other`),
   `photo_code_without_photo`, `music_not_observed_at_point`, `music_window_invalid`,
   `music_seconds_exceed_window`. Unknown codes or trips: `422 unknown_route`, `unknown_point`,
   `unknown_trip`, `trip_route_mismatch`.

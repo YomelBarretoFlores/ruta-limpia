@@ -13,7 +13,8 @@ import {
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
-import { connectTestDatabase, resetData } from './database.js';
+import { KyselyBaselineLogStore } from '../../src/field/infrastructure/kysely-baseline-log-store.js';
+import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const T0 = Date.parse('2026-10-20T12:00:00Z');
 const URL = '/api/panel/baseline-logs';
@@ -109,6 +110,46 @@ describe('panel baseline route logs, manual Instrument 1 (PostGIS)', () => {
     });
     expect(repeated.json()).toMatchObject({ error: 'duplicate_point', pointCode: 'P01' });
     expect((await observer.post(URL, { ...LOG, actualStart: '25:00' })).statusCode).toBe(400);
+  });
+
+  it('saves no log when its audit event cannot be written, so a retry does not duplicate it', async () => {
+    const restore = await failAuditWritesOf(db, 'baseline_log.created');
+    try {
+      expect((await observer.post(URL, LOG)).statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    expect((await observer.post(URL, LOG)).statusCode).toBe(201);
+
+    expect((await supervisor.get(URL)).json()).toMatchObject({ total: 1 });
+    const passes = await db.selectFrom('baseline_point_passes').select('log_id').execute();
+    expect(new Set(passes.map((p) => p.log_id)).size).toBe(1);
+  });
+
+  it('reports a log deleted during an edit as missing, writing no pass for it', async () => {
+    const created = (await observer.post(URL, LOG)).json<{ log: { id: string } }>().log;
+    const store = new KyselyBaselineLogStore(db);
+    const point = await db.selectFrom('reference_points').select('id').executeTakeFirstOrThrow();
+    const route = await db.selectFrom('routes').select('id').executeTakeFirstOrThrow();
+    await db.deleteFrom('baseline_route_logs').execute();
+
+    const updated = await store.update(
+      created.id,
+      {
+        routeId: route.id,
+        serviceDate: '2026-10-13',
+        vehicleLabel: null,
+        plannedStart: null,
+        actualStart: null,
+        notes: null,
+        passes: [{ pointId: point.id, passedAt: '07:15' }],
+      },
+      new Date(T0),
+    );
+
+    expect(updated).toBeNull();
+    expect(await db.selectFrom('baseline_point_passes').selectAll().execute()).toEqual([]);
+    expect(await store.delete(created.id)).toBe(false);
   });
 
   it('applies the field ownership rules and replaces the passes on update', async () => {

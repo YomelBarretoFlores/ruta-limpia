@@ -3,6 +3,7 @@ import { can } from '../../auth/domain/role.js';
 import type { RoutePointResolver } from '../../routes/application/route-point-resolver.js';
 import type { AuditLog } from '../../shared/application/audit-log.js';
 import type { Clock } from '../../shared/application/clock.js';
+import type { UnitOfWork } from '../../shared/application/unit-of-work.js';
 import {
   canReadFieldRecord,
   fieldEditVerdict,
@@ -62,8 +63,14 @@ export interface FieldObservationStore {
     meta: { readonly createdByUserId: string; readonly at: Date },
   ): Promise<FieldObservationRecord>;
   findById(id: string): Promise<FieldObservationRecord | null>;
-  update(id: string, observation: StoredObservation, at: Date): Promise<FieldObservationRecord>;
-  delete(id: string): Promise<void>;
+  /** Null when the sheet no longer exists (deleted meanwhile). */
+  update(
+    id: string,
+    observation: StoredObservation,
+    at: Date,
+  ): Promise<FieldObservationRecord | null>;
+  /** False when the sheet no longer exists. */
+  delete(id: string): Promise<boolean>;
   list(
     filter: FieldObservationFilter,
     window: { readonly limit: number; readonly offset: number },
@@ -85,16 +92,25 @@ export type ObservationFailure =
 export type ObservationResult =
   { readonly status: 'ok'; readonly observation: FieldObservationRecord } | ObservationFailure;
 
-export interface FieldObservationDependencies {
+/** The ports a sheet change writes through, in one transaction with its audit event. */
+export interface FieldObservationTransaction {
   readonly store: FieldObservationStore;
-  readonly points: RoutePointResolver;
   readonly audit: AuditLog;
+}
+
+export interface FieldObservationDependencies {
+  /** Reads outside any transaction. */
+  readonly store: FieldObservationStore;
+  readonly transactions: UnitOfWork<FieldObservationTransaction>;
+  readonly points: RoutePointResolver;
   readonly clock: Clock;
 }
 
 /**
  * Instrument 2 sheets: create, read, edit and delete with the field ownership rules (observers
  * see their own sheets and may change them for 24 hours; supervisors and administrators, all).
+ * Every change commits together with its audit event; a sheet deleted while it was being edited
+ * answers `not_found`.
  */
 export class FieldObservationService {
   constructor(private readonly deps: FieldObservationDependencies) {}
@@ -119,12 +135,14 @@ export class FieldObservationService {
     const prepared = await this.prepare(command);
     if (prepared.status !== 'ok') return prepared;
     const now = this.deps.clock.now();
-    const observation = await this.deps.store.insert(prepared.stored, {
-      createdByUserId: actor.userId,
-      at: now,
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      const observation = await store.insert(prepared.stored, {
+        createdByUserId: actor.userId,
+        at: now,
+      });
+      await this.record(audit, 'field_observation.created', actor, observation);
+      return { status: 'ok', observation };
     });
-    await this.record('field_observation.created', actor, observation);
-    return { status: 'ok', observation };
   }
 
   /** Replaces the sheet's content (the client sends the whole edited sheet). */
@@ -137,17 +155,22 @@ export class FieldObservationService {
     if (access.status !== 'ok') return access;
     const prepared = await this.prepare(command);
     if (prepared.status !== 'ok') return prepared;
-    const observation = await this.deps.store.update(id, prepared.stored, this.deps.clock.now());
-    await this.record('field_observation.updated', actor, observation);
-    return { status: 'ok', observation };
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      const observation = await store.update(id, prepared.stored, this.deps.clock.now());
+      if (observation === null) return { status: 'not_found' };
+      await this.record(audit, 'field_observation.updated', actor, observation);
+      return { status: 'ok', observation };
+    });
   }
 
   async delete(id: string, actor: PanelActor): Promise<ObservationResult> {
     const access = await this.editable(id, actor);
     if (access.status !== 'ok') return access;
-    await this.deps.store.delete(id);
-    await this.record('field_observation.deleted', actor, access.observation);
-    return access;
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      if (!(await store.delete(id))) return { status: 'not_found' };
+      await this.record(audit, 'field_observation.deleted', actor, access.observation);
+      return access;
+    });
   }
 
   private async editable(id: string, actor: PanelActor): Promise<ObservationResult> {
@@ -200,11 +223,12 @@ export class FieldObservationService {
   }
 
   private async record(
+    audit: AuditLog,
     action: string,
     actor: PanelActor,
     observation: FieldObservationRecord,
   ): Promise<void> {
-    await this.deps.audit.record({
+    await audit.record({
       userId: actor.userId,
       action,
       entity: 'field_observation',

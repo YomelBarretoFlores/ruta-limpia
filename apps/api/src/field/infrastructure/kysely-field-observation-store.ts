@@ -2,6 +2,7 @@ import { sql, type Kysely } from 'kysely';
 
 import type { AppDatabase, Database } from '../../shared/infrastructure/db/database.js';
 import { isUuid } from '../../shared/infrastructure/db/uuid.js';
+import { hhmm } from './local-time.js';
 import type {
   FieldObservationFilter,
   FieldObservationRecord,
@@ -9,9 +10,6 @@ import type {
   StoredObservation,
 } from '../application/field-observation-service.js';
 import type { DispersionCause } from '../domain/point-observation.js';
-
-/** `HH:MM:SS` from PostgreSQL → `HH:MM`. */
-const hhmm = (time: string | null): string | null => (time === null ? null : time.slice(0, 5));
 
 function records(db: Kysely<Database>) {
   return db
@@ -129,17 +127,26 @@ export class KyselyFieldObservationStore implements FieldObservationStore {
     id: string,
     observation: StoredObservation,
     at: Date,
-  ): Promise<FieldObservationRecord> {
-    await this.db
+  ): Promise<FieldObservationRecord | null> {
+    if (!isUuid(id)) return null;
+    const updated = await this.db
       .updateTable('field_observations')
       .set({ ...columns(observation), updated_at: at })
       .where('id', '=', id)
-      .execute();
-    return toRecord(await records(this.db).where('o.id', '=', id).executeTakeFirstOrThrow());
+      .executeTakeFirst();
+    // Deleted meanwhile: the caller answers "not found".
+    if (updated.numUpdatedRows === 0n) return null;
+    const row = await records(this.db).where('o.id', '=', id).executeTakeFirst();
+    return row === undefined ? null : toRecord(row);
   }
 
-  async delete(id: string): Promise<void> {
-    await this.db.deleteFrom('field_observations').where('id', '=', id).execute();
+  async delete(id: string): Promise<boolean> {
+    if (!isUuid(id)) return false;
+    const deleted = await this.db
+      .deleteFrom('field_observations')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return deleted.numDeletedRows > 0n;
   }
 
   async list(

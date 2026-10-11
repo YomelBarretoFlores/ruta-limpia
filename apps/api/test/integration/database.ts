@@ -15,7 +15,7 @@ export async function connectTestDatabase(): Promise<AppDatabase> {
 /** Removes every row of the application tables (the schema and migrations stay). */
 export async function resetData(db: AppDatabase): Promise<void> {
   await sql`
-    TRUNCATE baseline_point_passes, baseline_route_logs, field_observations, audit_events, sessions, users, app_views, alert_deliveries, push_subscriptions, households, incidents, alerts, trip_point_passes, positions, trips, vehicles,
+    TRUNCATE household_code_counter, baseline_point_passes, baseline_route_logs, field_observations, audit_events, sessions, users, app_views, alert_deliveries, push_subscriptions, households, incidents, alerts, trip_point_passes, positions, trips, vehicles,
       reference_points, route_schedules, routes
     RESTART IDENTITY CASCADE`.execute(db);
 }

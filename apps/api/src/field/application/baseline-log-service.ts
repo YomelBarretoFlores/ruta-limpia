@@ -3,6 +3,7 @@ import { can } from '../../auth/domain/role.js';
 import type { RoutePointResolver } from '../../routes/application/route-point-resolver.js';
 import type { AuditLog } from '../../shared/application/audit-log.js';
 import type { Clock } from '../../shared/application/clock.js';
+import type { UnitOfWork } from '../../shared/application/unit-of-work.js';
 import {
   canReadFieldRecord,
   fieldEditVerdict,
@@ -54,9 +55,13 @@ export interface BaselineLogStore {
     meta: { readonly createdByUserId: string; readonly at: Date },
   ): Promise<BaselineLogRecord>;
   findById(id: string): Promise<BaselineLogRecord | null>;
-  /** Replaces the content and every pass, atomically. */
-  update(id: string, log: StoredBaselineLog, at: Date): Promise<BaselineLogRecord>;
-  delete(id: string): Promise<void>;
+  /**
+   * Replaces the content and every pass, atomically; null (and nothing written) when the log no
+   * longer exists.
+   */
+  update(id: string, log: StoredBaselineLog, at: Date): Promise<BaselineLogRecord | null>;
+  /** False when the log no longer exists. */
+  delete(id: string): Promise<boolean>;
   list(
     filter: BaselineLogFilter,
     window: { readonly limit: number; readonly offset: number },
@@ -81,14 +86,25 @@ export type BaselineLogResult =
       readonly pointCode?: string;
     };
 
-export interface BaselineLogDependencies {
+/** The ports a log change writes through, in one transaction with its audit event. */
+export interface BaselineLogTransaction {
   readonly store: BaselineLogStore;
-  readonly points: RoutePointResolver;
   readonly audit: AuditLog;
+}
+
+export interface BaselineLogDependencies {
+  /** Reads outside any transaction. */
+  readonly store: BaselineLogStore;
+  readonly transactions: UnitOfWork<BaselineLogTransaction>;
+  readonly points: RoutePointResolver;
   readonly clock: Clock;
 }
 
-/** Baseline Instrument 1 logs, with the same ownership rules as the observation sheets. */
+/**
+ * Baseline Instrument 1 logs, with the same ownership rules as the observation sheets. Every
+ * change commits together with its audit event; a log deleted while it was being edited answers
+ * `not_found`.
+ */
 export class BaselineLogService {
   constructor(private readonly deps: BaselineLogDependencies) {}
 
@@ -107,12 +123,12 @@ export class BaselineLogService {
   async create(command: BaselineLogCommand, actor: PanelActor): Promise<BaselineLogResult> {
     const prepared = await this.prepare(command);
     if (prepared.status !== 'ok') return prepared;
-    const log = await this.deps.store.insert(prepared.stored, {
-      createdByUserId: actor.userId,
-      at: this.deps.clock.now(),
+    const now = this.deps.clock.now();
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      const log = await store.insert(prepared.stored, { createdByUserId: actor.userId, at: now });
+      await this.record(audit, 'baseline_log.created', actor, log);
+      return { status: 'ok', log };
     });
-    await this.record('baseline_log.created', actor, log);
-    return { status: 'ok', log };
   }
 
   async update(
@@ -124,17 +140,22 @@ export class BaselineLogService {
     if (access.status !== 'ok') return access;
     const prepared = await this.prepare(command);
     if (prepared.status !== 'ok') return prepared;
-    const log = await this.deps.store.update(id, prepared.stored, this.deps.clock.now());
-    await this.record('baseline_log.updated', actor, log);
-    return { status: 'ok', log };
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      const log = await store.update(id, prepared.stored, this.deps.clock.now());
+      if (log === null) return { status: 'not_found' };
+      await this.record(audit, 'baseline_log.updated', actor, log);
+      return { status: 'ok', log };
+    });
   }
 
   async delete(id: string, actor: PanelActor): Promise<BaselineLogResult> {
     const access = await this.editable(id, actor);
     if (access.status !== 'ok') return access;
-    await this.deps.store.delete(id);
-    await this.record('baseline_log.deleted', actor, access.log);
-    return access;
+    return this.deps.transactions.run(async ({ store, audit }) => {
+      if (!(await store.delete(id))) return { status: 'not_found' };
+      await this.record(audit, 'baseline_log.deleted', actor, access.log);
+      return access;
+    });
   }
 
   private async editable(id: string, actor: PanelActor): Promise<BaselineLogResult> {
@@ -177,8 +198,13 @@ export class BaselineLogService {
     };
   }
 
-  private async record(action: string, actor: PanelActor, log: BaselineLogRecord): Promise<void> {
-    await this.deps.audit.record({
+  private async record(
+    audit: AuditLog,
+    action: string,
+    actor: PanelActor,
+    log: BaselineLogRecord,
+  ): Promise<void> {
+    await audit.record({
       userId: actor.userId,
       action,
       entity: 'baseline_log',

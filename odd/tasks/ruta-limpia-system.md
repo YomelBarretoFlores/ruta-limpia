@@ -420,6 +420,60 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   must set `PUBLIC_ORIGIN`. Follow-ups: the phantom lockout and the login rate limit are per
   process; `instrument1_export` has no HTTP endpoint yet (T8 exports).
 
+- 2026-10-11: T7a was reviewed in five slices, `cf4e353..39a0087`, `39a0087..a39e0a6`,
+  `a39e0a6..12a727e`, `12a727e..ff414e1` and `ff414e1..8526846`; all were approved and
+  acknowledged, with advisory findings (53, 27 of them warnings). The reviewed boundary is now
+  `8526846`. Every warning was then fixed in four hardening commits (changed lines, lockfile
+  excluded), each building and passing its tests on its own:
+  - `d120eda` `fix(auth): shed hashing load and stop lockout from revealing or locking out
+    accounts` (883): the scrypt queue is bounded (16 waiters, 5 s) and overload answers
+    `503 auth_busy` with `Retry-After: 5`; a failed dummy hash is retried, not cached; login input
+    is cut before normalization, lookup or hashing; the lockout counts failures per (account,
+    client network /24 or /64, 5 → 15 min) and per account (50 → 15 min), and a paused attempt
+    answers the generic `401 invalid_credentials` (the in-memory phantom lockout and `423` are
+    gone), so nothing enumerates usernames, across restarts too, and a stranger cannot lock the
+    owner out from another network; pauses are logged with the user id only; the failure and
+    weak-password messages derive from the policy constants; README documents the threadpool
+    bound and `UV_THREADPOOL_SIZE`.
+  - `2834928` `fix(auth): commit user changes, session revocation and their audit atomically`
+    (335): a `UnitOfWork` port (`KyselyUnitOfWork`, `inTransaction`); user changes, the sessions
+    they end and their audit event commit together; audit `fields` come from a real diff; HTTP
+    tests prove revocation on role change and password reset and the rollback when the audit write
+    fails (a test trigger makes the audit insert fail).
+  - `68087a1` `fix(panel): audit manual trip control atomically and upgrade legacy incidents`
+    (527): `TrackingTransaction.recordAudit` writes `trip.started`/`trip.ended` in the trip
+    transaction; `POST /trips/:id/end` takes `{ note }` (the end reason stays the typed `manual`);
+    the fleet view reads each last fix with a LATERAL index probe; migration `0006` adds the
+    incident constraints `NOT VALID` and the new `0010-incident-legacy-data` maps legacy rows
+    (unknown kind → `other`, a point of another route cleared, both noted in the description) and
+    validates them, tested on a database holding such rows; tests cover the trip detail's alert
+    and incident mapping.
+  - The last commit (the parent records the hash) `fix(field): commit field records with their
+    audit, never reuse household codes, and answer races with 404`: incidents, households,
+    observation sheets and baseline logs write through the unit of work; migration
+    `0011-household-code-counter` keeps household codes monotonic; a record deleted during an edit
+    answers `404`; `other_cause_text_without_other` is split from `other_cause_text_required`;
+    incident date-filter, reopen and note-validation tests; this entry.
+
+  Policy decisions: no answer reveals a pause (tradeoff: a paused user is not told so; the message
+  says sign-in pauses after repeated failures); per-network counts live in process memory (a
+  restart forgets them), the per-account count is stored with the user. Suggestions applied:
+  maxmem headroom and hashing limits named, relock race test, password transport bound named
+  (UTF-16 units), username rule built from constants, reset revocation atomic, trip status list
+  and end-note limit named, edit-window messages from the constant, shared field helpers,
+  open-incident tie-breaker, `windowSeconds`, migration notes in order. Suggestions skipped:
+  `R3-absolute-lifetime-coverage` (unit-tested in `AuthService`; the HTTP path is the same
+  code), `R3-afterall-undefined-api` and `R3-session-config-bounds` (test and config polish, no
+  behavior risk), `R3-user-cli-untested` (needs a TTY/stdin harness; the CLI only wraps the tested
+  use case), `R2-summary-field-rename` and `R2-duplicate-ordering` (API naming and sorting churn
+  better settled with the T7b UI), `R3-summary-counts-invalid-fixes` (needs a product decision on
+  what an outage gap is), `R3-service-date-boundary-untested` for trips (the same
+  `AT TIME ZONE` pattern is now proved for incidents), `R3-reresolve-overwrites` (needs a product
+  decision), `R4-sequential-pass-resolution` (at most 16 points per route; a batch resolver port
+  can come with T8), `R3-trip-mismatch-untested` (branch shared with incidents, which test
+  `unknown_trip`), `R2-empty-panel-routes` and `R2-unused-panel-http-exports` (no longer true:
+  the routes array and schemas are used).
+
 ## Next step
 
 T7b: the municipal panel UI at `/panel` (login, live route with the pass table and alert status,

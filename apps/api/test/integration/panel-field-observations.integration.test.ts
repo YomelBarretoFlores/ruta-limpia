@@ -12,7 +12,8 @@ import {
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
-import { connectTestDatabase, resetData } from './database.js';
+import { KyselyFieldObservationStore } from '../../src/field/infrastructure/kysely-field-observation-store.js';
+import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const T0 = Date.parse('2026-10-20T12:00:00Z');
 const URL = '/api/panel/field-observations';
@@ -142,6 +143,44 @@ describe('panel field observations, Instrument 2 (PostGIS)', () => {
     expect((await observer.post(URL, { ...SHEET, pointCode: 'P99' })).json()).toMatchObject({
       error: 'unknown_point',
     });
+  });
+
+  it('saves no sheet when its audit event cannot be written, so a retry does not duplicate it', async () => {
+    const restore = await failAuditWritesOf(db, 'field_observation.created');
+    try {
+      expect((await createSheet(observer)).response.statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    expect((await createSheet(observer)).response.statusCode).toBe(201);
+
+    expect((await supervisor.get(URL)).json()).toMatchObject({ total: 1 });
+  });
+
+  it('reports a sheet deleted during an edit as missing instead of failing', async () => {
+    const { observation } = await createSheet(observer);
+    const store = new KyselyFieldObservationStore(db);
+    const stored = await store.findById(observation.id);
+    const point = await db
+      .selectFrom('reference_points')
+      .select('id')
+      .where('code', '=', 'P08')
+      .executeTakeFirstOrThrow();
+    await db.deleteFrom('field_observations').execute();
+
+    expect(stored).not.toBeNull();
+    if (stored === null) return;
+    const edited = { ...stored, pointId: point.id, observers: 'L.R.' };
+    expect(await store.update(observation.id, edited, new Date(T0))).toBeNull();
+    expect(await store.delete(observation.id)).toBe(false);
+  });
+
+  it('names both directions of an inconsistent "other" cause', async () => {
+    const withoutText = await observer.post(URL, { ...SHEET, dispersionCauseOther: null });
+    const withoutCause = await observer.post(URL, { ...SHEET, dispersionCauses: ['animals'] });
+
+    expect(withoutText.json()).toMatchObject({ problems: ['other_cause_text_required'] });
+    expect(withoutCause.json()).toMatchObject({ problems: ['other_cause_text_without_other'] });
   });
 
   it('lets an observer see and change only their own sheets, for 24 hours', async () => {

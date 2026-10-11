@@ -103,8 +103,8 @@ routes/application       RoutePointResolver port (active route and point codes f
                          routes/infrastructure: KyselyRoutePointResolver
 field/application        HouseholdRegistryService (enroll with the next H-### code, list with
                          subscription status, move, deactivate, delete, sticker link) over the
-                         HouseholdStore port; field/infrastructure: KyselyHouseholdStore (advisory
-                         lock for codes), http/panel-household-routes
+                         HouseholdStore port; field/infrastructure: KyselyHouseholdStore (code
+                         counter row locked per enrollment), http/panel-household-routes
 field/domain             point-observation (Instrument 2 rules: exposure, consistency problems),
                          field-record-access (own records editable for 24 h), household-code
 field/application        FieldObservationService over the FieldObservationStore port;
@@ -244,16 +244,19 @@ point), unique Traccar position ids, unique push endpoints, one delivery per (al
 a household's point always belongs to its route. `app_views` (migrations `0003-app-views` and
 `0004-app-views-household-set-null`: deleting a household or a subscription keeps its views and clears
 the link) logs app views with the point, the subscription and household only when proven by the
-management token, and the time; never an IP address or a user agent. `0009-baseline-route-logs` stores the hand-written baseline logs and creates the `instrument1_export`
-view (system and baseline rows, `source` column). `0008-field-observations` stores the Instrument 2 sheets (`field_observations`, local dates and
-times, photo codes only). `0007-household-registry` makes `push_subscriptions.household_id` `ON DELETE SET NULL` and adds
-the enrolling user and `updated_at` to `households`. `0006-panel-operations` adds `trips.end_note` and incident tracking (closed list of kinds,
-reporting and resolving user, resolution; the point must belong to the route). Its incident constraints are added
-`NOT VALID`; `0010-incident-legacy-data` maps incidents recorded before them (a free-text kind
+management token, and the time; never an IP address or a user agent. `0005-panel-auth` adds `users` (unique lower-case username), `sessions` (SHA-256 token hash only)
+and `audit_events` (append-only; the user link is cleared when a user is deleted).
+`0006-panel-operations` adds `trips.end_note` and incident tracking (closed list of kinds, reporting
+and resolving user, resolution; the point must belong to the route). Its incident constraints are
+added `NOT VALID`; `0010-incident-legacy-data` maps incidents recorded before them (a free-text kind
 becomes `other`, a point of another route is cleared, both noted at the start of the description,
 which is cut to 1000 characters) and then validates the constraints, so older databases upgrade
-instead of failing. `0005-panel-auth` adds `users` (unique
-lower-case username), `sessions` (SHA-256 token hash only) and `audit_events` (append-only; the
-user link is cleared when a user is deleted). The `instrument1_route_log` view
+instead of failing. `0007-household-registry` makes `push_subscriptions.household_id`
+`ON DELETE SET NULL` and adds the enrolling user and `updated_at` to `households`.
+`0008-field-observations` stores the Instrument 2 sheets (`field_observations`, local dates and
+times, photo codes only). `0009-baseline-route-logs` stores the hand-written baseline logs and
+creates the `instrument1_export` view (system and baseline rows, `source` column).
+`0011-household-code-counter` keeps the last generated household code, so a code is never reused.
+The `instrument1_route_log` view
 produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null
 when no alert was sent.

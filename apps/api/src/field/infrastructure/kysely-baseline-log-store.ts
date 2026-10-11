@@ -1,15 +1,15 @@
-import { sql, type Kysely, type Transaction } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 
 import type { AppDatabase, Database } from '../../shared/infrastructure/db/database.js';
+import { inTransaction } from '../../shared/infrastructure/db/kysely-unit-of-work.js';
 import { isUuid } from '../../shared/infrastructure/db/uuid.js';
+import { hhmm } from './local-time.js';
 import type {
   BaselineLogFilter,
   BaselineLogRecord,
   BaselineLogStore,
   StoredBaselineLog,
 } from '../application/baseline-log-service.js';
-
-const hhmm = (time: string | null): string | null => (time === null ? null : time.slice(0, 5));
 
 function logs(db: Kysely<Database>) {
   return db
@@ -66,7 +66,7 @@ async function withPasses(
   }));
 }
 
-async function writePasses(trx: Transaction<Database>, logId: string, log: StoredBaselineLog) {
+async function writePasses(trx: Kysely<Database>, logId: string, log: StoredBaselineLog) {
   await trx.deleteFrom('baseline_point_passes').where('log_id', '=', logId).execute();
   if (log.passes.length === 0) return;
   await trx
@@ -106,7 +106,7 @@ export class KyselyBaselineLogStore implements BaselineLogStore {
     log: StoredBaselineLog,
     meta: { readonly createdByUserId: string; readonly at: Date },
   ): Promise<BaselineLogRecord> {
-    return this.db.transaction().execute(async (trx) => {
+    return inTransaction(this.db, async (trx) => {
       const row = await trx
         .insertInto('baseline_route_logs')
         .values({
@@ -131,20 +131,29 @@ export class KyselyBaselineLogStore implements BaselineLogStore {
     return record ?? null;
   }
 
-  update(id: string, log: StoredBaselineLog, at: Date): Promise<BaselineLogRecord> {
-    return this.db.transaction().execute(async (trx) => {
-      await trx
+  update(id: string, log: StoredBaselineLog, at: Date): Promise<BaselineLogRecord | null> {
+    if (!isUuid(id)) return Promise.resolve(null);
+    return inTransaction(this.db, async (trx) => {
+      // The UPDATE locks the row; zero rows means the log was deleted meanwhile, and no pass is
+      // written for it.
+      const updated = await trx
         .updateTable('baseline_route_logs')
         .set({ ...content(log), updated_at: at })
         .where('id', '=', id)
-        .execute();
+        .executeTakeFirst();
+      if (updated.numUpdatedRows === 0n) return null;
       await writePasses(trx, id, log);
       return this.one(trx, id);
     });
   }
 
-  async delete(id: string): Promise<void> {
-    await this.db.deleteFrom('baseline_route_logs').where('id', '=', id).execute();
+  async delete(id: string): Promise<boolean> {
+    if (!isUuid(id)) return false;
+    const deleted = await this.db
+      .deleteFrom('baseline_route_logs')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return deleted.numDeletedRows > 0n;
   }
 
   async list(

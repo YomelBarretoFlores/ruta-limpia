@@ -12,7 +12,8 @@ import {
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
-import { connectTestDatabase, resetData } from './database.js';
+import { KyselyHouseholdStore } from '../../src/field/infrastructure/kysely-household-store.js';
+import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
 
@@ -224,6 +225,72 @@ describe('panel household registry (PostGIS)', () => {
       .select('household_id')
       .execute();
     expect(subscriptions).toEqual([{ household_id: null }]);
+  });
+
+  it("never hands out a deleted household's code again (its sticker may still be on a door)", async () => {
+    await enroll('P08');
+    await enroll('P09');
+    expect((await admin.delete('/api/panel/households/H-002')).statusCode).toBe(204);
+
+    expect((await enroll('P10')).household.code).toBe('H-003');
+    expect((await admin.delete('/api/panel/households/H-003')).statusCode).toBe(204);
+    expect((await admin.delete('/api/panel/households/H-001')).statusCode).toBe(204);
+    expect((await enroll('P10')).household.code).toBe('H-004');
+  });
+
+  it('reports a household deleted during an update as missing instead of failing', async () => {
+    const { household } = await enroll('P08');
+    const store = new KyselyHouseholdStore(db);
+    const stored = await store.findByCode(household.code);
+    await db.deleteFrom('households').execute();
+
+    expect(await store.update(stored?.id ?? '', { active: false }, NOW)).toBeNull();
+    expect(await store.delete(stored?.id ?? '')).toBe(false);
+  });
+
+  it('enrolls, changes and deletes nothing when the audit event cannot be written', async () => {
+    let restore = await failAuditWritesOf(db, 'household.created');
+    try {
+      expect((await enroll('P08')).response.statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    expect((await supervisor.get('/api/panel/households')).json()).toMatchObject({ total: 0 });
+    expect((await enroll('P08')).household.code).toBe('H-001');
+
+    restore = await failAuditWritesOf(db, 'household.updated');
+    try {
+      const moved = await supervisor.patch('/api/panel/households/H-001', { pointCode: 'P10' });
+      expect(moved.statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    restore = await failAuditWritesOf(db, 'household.deleted');
+    try {
+      expect((await admin.delete('/api/panel/households/H-001')).statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    expect((await supervisor.get('/api/panel/households/H-001')).json()).toMatchObject({
+      household: { pointCode: 'P08' },
+    });
+  });
+
+  it('audits only the fields that actually changed', async () => {
+    await enroll('P08', { notes: 'Blue gate' });
+
+    await supervisor.patch('/api/panel/households/H-001', {
+      pointCode: 'P08',
+      notes: 'Blue gate',
+      active: false,
+    });
+
+    const [event] = await db
+      .selectFrom('audit_events')
+      .select('details')
+      .where('action', '=', 'household.updated')
+      .execute();
+    expect(event?.details).toEqual({ fields: ['active'], active: false });
   });
 
   it('keeps observers out of the registry', async () => {

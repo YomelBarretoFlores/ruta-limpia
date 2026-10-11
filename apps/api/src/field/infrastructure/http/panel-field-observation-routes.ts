@@ -1,11 +1,7 @@
 import type { FastifyPluginCallback, FastifyReply } from 'fastify';
 import { z } from 'zod';
 
-import {
-  actorOf,
-  panelRoute,
-  type PanelAccess,
-} from '../../../auth/infrastructure/http/panel-guard.js';
+import { actorOf, panelRoute } from '../../../auth/infrastructure/http/panel-guard.js';
 import {
   codeSchema,
   invalidRequest,
@@ -27,6 +23,7 @@ import {
   DISPERSION_LEVELS,
   OBSERVATION_PHASES,
 } from '../../domain/point-observation.js';
+import { blankToNull, editWindowClosedMessage, FIELD_READ, FIELD_WRITE } from './field-http.js';
 
 export interface PanelFieldObservationRoutesOptions {
   readonly observations: Pick<
@@ -34,9 +31,6 @@ export interface PanelFieldObservationRoutesOptions {
     'list' | 'get' | 'create' | 'update' | 'delete'
   >;
 }
-
-export const FIELD_READ: PanelAccess = { anyOf: ['field:read_own', 'field:read_all'] };
-export const FIELD_WRITE: PanelAccess = { anyOf: ['field:write_own', 'field:write_all'] };
 
 /** Photo archive codes only (never images): letters, digits, `_` and `-`. */
 export const photoSchema = z
@@ -103,7 +97,7 @@ const FAILURES: Record<Exclude<ObservationResult['status'], 'ok'>, [number, stri
   invalid_observation: [422, 'The sheet is inconsistent; see problems.'],
   not_found: [404, 'There is no such observation.'],
   not_owner: [403, 'Only the author or a supervisor may change this sheet.'],
-  edit_window_closed: [403, 'Sheets can be changed by their author for 24 hours only.'],
+  edit_window_closed: [403, editWindowClosedMessage('Sheets')],
 };
 
 function send(reply: FastifyReply, result: ObservationResult, okStatus: number) {
@@ -120,12 +114,14 @@ function send(reply: FastifyReply, result: ObservationResult, okStatus: number) 
 
 /** Normalizes blank optional texts to null. */
 function toCommand(body: z.infer<typeof observationBodySchema>): ObservationCommand {
-  const blank = (text: string | null) => (text === null || text === '' ? null : text);
   return {
     ...body,
-    notes: blank(body.notes),
-    dispersionCauseOther: blank(body.dispersionCauseOther),
-    music: body.music === null ? null : { ...body.music, conditions: blank(body.music.conditions) },
+    notes: blankToNull(body.notes),
+    dispersionCauseOther: blankToNull(body.dispersionCauseOther),
+    music:
+      body.music === null
+        ? null
+        : { ...body.music, conditions: blankToNull(body.music.conditions) },
   };
 }
 

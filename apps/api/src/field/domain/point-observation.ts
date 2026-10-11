@@ -59,7 +59,10 @@ export type ObservationProblem =
   | 'pass_before_placement'
   | 'broken_bags_exceed_bags'
   | 'causes_without_dispersion'
+  /** The "other" cause is ticked but its text is missing. */
   | 'other_cause_text_required'
+  /** A text for the "other" cause is given but "other" is not ticked. */
+  | 'other_cause_text_without_other'
   | 'photo_code_without_photo'
   | 'music_not_observed_at_point'
   | 'music_window_invalid'
@@ -109,10 +112,10 @@ export function observationProblems(
   ) {
     problems.push('causes_without_dispersion');
   }
-  const otherText = facts.dispersionCauseOther?.trim() ?? '';
-  if (facts.dispersionCauses.includes('other') !== (otherText !== '')) {
-    problems.push('other_cause_text_required');
-  }
+  const hasOtherText = (facts.dispersionCauseOther?.trim() ?? '') !== '';
+  const hasOtherCause = facts.dispersionCauses.includes('other');
+  if (hasOtherCause && !hasOtherText) problems.push('other_cause_text_required');
+  if (hasOtherText && !hasOtherCause) problems.push('other_cause_text_without_other');
   for (const photo of [facts.photoBefore, facts.photoAfter]) {
     if (!photo.taken && photo.code !== null) problems.push('photo_code_without_photo');
   }
@@ -120,10 +123,12 @@ export function observationProblems(
     if (!point.observesMusic) {
       problems.push('music_not_observed_at_point');
     } else {
-      const window =
+      const windowSeconds =
         (minutesOfDay(facts.music.windowEnd) - minutesOfDay(facts.music.windowStart)) * 60;
-      if (window <= 0) problems.push('music_window_invalid');
-      else if (facts.music.musicSeconds > window) problems.push('music_seconds_exceed_window');
+      if (windowSeconds <= 0) problems.push('music_window_invalid');
+      else if (facts.music.musicSeconds > windowSeconds) {
+        problems.push('music_seconds_exceed_window');
+      }
     }
   }
   return [...new Set(problems)];

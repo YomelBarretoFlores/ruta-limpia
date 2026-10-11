@@ -89,7 +89,7 @@ describe('observation consistency', () => {
       'pass_before_placement',
       'broken_bags_exceed_bags',
       'causes_without_dispersion',
-      'other_cause_text_required',
+      'other_cause_text_without_other',
       'photo_code_without_photo',
       'music_not_observed_at_point',
     ]);
@@ -102,6 +102,12 @@ describe('observation consistency', () => {
         PLAIN_POINT,
       ),
     ).toEqual(['other_cause_text_required']);
+    expect(
+      observationProblems(
+        { ...EMPTY, dispersion: 'few', dispersionCauses: ['wind'], dispersionCauseOther: 'dogs' },
+        PLAIN_POINT,
+      ),
+    ).toEqual(['other_cause_text_without_other']);
     const music = { windowStart: '07:30', windowEnd: '07:30', musicSeconds: 0, conditions: null };
     expect(observationProblems({ ...EMPTY, music }, MUSIC_POINT)).toEqual(['music_window_invalid']);
     expect(

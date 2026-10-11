@@ -17,13 +17,11 @@ import type {
   BaselineLogResult,
   BaselineLogService,
 } from '../../application/baseline-log-service.js';
-import { FIELD_READ, FIELD_WRITE } from './panel-field-observation-routes.js';
+import { blankToNull, editWindowClosedMessage, FIELD_READ, FIELD_WRITE } from './field-http.js';
 
 export interface PanelBaselineLogRoutesOptions {
   readonly logs: Pick<BaselineLogService, 'list' | 'get' | 'create' | 'update' | 'delete'>;
 }
-
-const blankToNull = (text: string | null) => (text === null || text === '' ? null : text);
 
 const logBodySchema = z.object({
   routeCode: codeSchema,
@@ -50,7 +48,7 @@ const FAILURES: Record<Exclude<BaselineLogResult['status'], 'ok'>, [number, stri
   duplicate_point: [422, 'A point appears twice in the passes.'],
   not_found: [404, 'There is no such baseline log.'],
   not_owner: [403, 'Only the author or a supervisor may change this log.'],
-  edit_window_closed: [403, 'Logs can be changed by their author for 24 hours only.'],
+  edit_window_closed: [403, editWindowClosedMessage('Logs')],
 };
 
 function send(reply: FastifyReply, result: BaselineLogResult, okStatus: number) {
