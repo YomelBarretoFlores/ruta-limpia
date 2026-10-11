@@ -9,13 +9,14 @@ import {
   PANEL_HEADERS,
   panelClient,
   sessionCookieOf,
+  type PanelClient,
   TEST_PASSWORD,
   TEST_PASSWORD_HASHER,
 } from '../support/panel-client.js';
 import { PasswordHasherBusyError } from '../../src/auth/application/auth-ports.js';
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
-import { connectTestDatabase, resetData } from './database.js';
+import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
 
@@ -336,6 +337,52 @@ describe('panel user administration (PostGIS)', () => {
 
     expect((await observer.get('/api/panel/auth/me')).statusCode).toBe(401);
     expect((await login(api.app, 'omar.obs')).statusCode).toBe(401);
+  });
+
+  async function userIdOf(admin: PanelClient, username: string): Promise<string> {
+    const { users } = (await admin.get('/api/panel/users')).json<{
+      users: { id: string; username: string }[];
+    }>();
+    return users.find((u) => u.username === username)?.id ?? '';
+  }
+
+  it('ends the sessions of a user whose role changes or whose password is reset', async () => {
+    const admin = await panelClient(api.app, 'ana.admin');
+    const supervisor = await panelClient(api.app, 'sara.super');
+    const sara = await userIdOf(admin, 'sara.super');
+
+    await admin.patch(`/api/panel/users/${sara}`, { role: 'observer' });
+    expect((await supervisor.get('/api/panel/auth/me')).statusCode).toBe(401);
+
+    const observer = await panelClient(api.app, 'sara.super');
+    expect((await observer.get('/api/panel/auth/me')).statusCode).toBe(200);
+    await admin.patch(`/api/panel/users/${sara}`, { password: 'a brand new passphrase' });
+    expect((await observer.get('/api/panel/auth/me')).statusCode).toBe(401);
+    expect((await login(api.app, 'sara.super')).statusCode).toBe(401);
+    expect((await login(api.app, 'sara.super', 'a brand new passphrase')).statusCode).toBe(200);
+  });
+
+  it('rolls back a password reset, and keeps the sessions, when its audit event fails', async () => {
+    const admin = await panelClient(api.app, 'ana.admin');
+    const supervisor = await panelClient(api.app, 'sara.super');
+    const sara = await userIdOf(admin, 'sara.super');
+
+    const restore = await failAuditWritesOf(db, 'user.updated');
+    try {
+      const reset = await admin.patch(`/api/panel/users/${sara}`, {
+        password: 'a brand new passphrase',
+        role: 'observer',
+      });
+      expect(reset.statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+
+    expect((await supervisor.get('/api/panel/auth/me')).json()).toMatchObject({
+      user: { role: 'supervisor' },
+    });
+    expect((await login(api.app, 'sara.super')).statusCode).toBe(200);
+    expect(await auditActions()).not.toContain('user.updated');
   });
 
   it('forbids user management to supervisors and observers', async () => {

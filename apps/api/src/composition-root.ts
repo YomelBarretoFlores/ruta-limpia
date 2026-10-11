@@ -12,7 +12,11 @@ import { UserAdminService } from './auth/application/user-admin-service.js';
 import { DEFAULT_LOCKOUT_POLICY } from './auth/domain/lockout-policy.js';
 import { CryptoSessionTokens } from './auth/infrastructure/crypto-session-tokens.js';
 import { InMemoryLoginSourceStore } from './auth/infrastructure/in-memory-login-source-store.js';
-import { KyselySessionStore, KyselyUserStore } from './auth/infrastructure/kysely-auth-stores.js';
+import {
+  kyselyUserAdminTransactions,
+  KyselySessionStore,
+  KyselyUserStore,
+} from './auth/infrastructure/kysely-auth-stores.js';
 import { ScryptPasswordHasher } from './auth/infrastructure/scrypt-password-hasher.js';
 import { KyselyHouseholdDirectory } from './field/infrastructure/kysely-household-directory.js';
 import type { AppConfig } from './config.js';
@@ -290,7 +294,12 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     },
     lockoutPolicy,
   });
-  const userAdmin = new UserAdminService({ users, sessions, hasher, audit, clock });
+  const userAdmin = new UserAdminService({
+    users,
+    transactions: kyselyUserAdminTransactions(db),
+    hasher,
+    clock,
+  });
   if (!config.sessionCookieSecure) {
     logger.warn('SESSION_COOKIE_SECURE=false: panel session cookies travel over plain HTTP');
   }

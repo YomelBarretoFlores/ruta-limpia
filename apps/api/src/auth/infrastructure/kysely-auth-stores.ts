@@ -1,6 +1,12 @@
 import type { Selectable } from 'kysely';
 
 import type { AppDatabase, UsersTable } from '../../shared/infrastructure/db/database.js';
+import type { UnitOfWork } from '../../shared/application/unit-of-work.js';
+import { KyselyAuditLog } from '../../shared/infrastructure/audit/kysely-audit-log.js';
+import {
+  inTransaction,
+  KyselyUnitOfWork,
+} from '../../shared/infrastructure/db/kysely-unit-of-work.js';
 import { isUuid } from '../../shared/infrastructure/db/uuid.js';
 import type {
   NewUser,
@@ -11,6 +17,7 @@ import type {
   UserCredentials,
   UserStore,
 } from '../application/auth-ports.js';
+import type { UserAdminTransaction } from '../application/user-admin-service.js';
 import type { LoginState } from '../domain/lockout-policy.js';
 import type { SessionTimes, UserAgentClass } from '../domain/session-policy.js';
 
@@ -116,7 +123,7 @@ export class KyselyUserStore implements UserStore {
     userId: string,
     change: (current: LoginState) => T,
   ): Promise<T> {
-    return this.db.transaction().execute(async (trx) => {
+    return inTransaction(this.db, async (trx) => {
       const row = await trx
         .selectFrom('users')
         .select(['failed_attempts', 'locked_until'])
@@ -236,4 +243,13 @@ export class KyselySessionStore implements SessionStore {
       .where((eb) => eb.or([eb('revoked_at', 'is not', null), eb('expires_at', '<=', before)]))
       .execute();
   }
+}
+
+/** User changes, the sessions they end and their audit events, in one transaction. */
+export function kyselyUserAdminTransactions(db: AppDatabase): UnitOfWork<UserAdminTransaction> {
+  return new KyselyUnitOfWork(db, (trx) => ({
+    users: new KyselyUserStore(trx),
+    sessions: new KyselySessionStore(trx),
+    audit: new KyselyAuditLog(trx),
+  }));
 }

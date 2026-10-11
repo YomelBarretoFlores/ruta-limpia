@@ -7,6 +7,7 @@ import {
   InMemoryUserStore,
 } from '../../../test/fakes/in-memory-auth.js';
 import { ManualClock } from '../../../test/fakes/in-memory-tracking-store.js';
+import { ImmediateUnitOfWork } from '../../../test/fakes/unit-of-work.js';
 import { openSession } from '../domain/session-policy.js';
 import { UserAdminService } from './user-admin-service.js';
 
@@ -25,9 +26,8 @@ beforeEach(() => {
   audit = new InMemoryAuditLog();
   admin = new UserAdminService({
     users,
-    sessions,
+    transactions: new ImmediateUnitOfWork({ users, sessions, audit }),
     hasher: new FakePasswordHasher(),
-    audit,
     clock,
   });
 });
@@ -120,21 +120,47 @@ describe('UserAdminService', () => {
     expect([...sessions.rows.values()][0]?.revokedAt).toBeNull();
   });
 
-  it('audits changed fields without the password', async () => {
+  it('audits the fields that actually changed, never the password', async () => {
     const user = await createUser();
 
     await admin.update(
       user.id,
-      { password: 'another long password', active: true },
+      { password: 'another long password', active: true, role: 'observer' },
+      { userId: 'admin-1' },
+    );
+    await admin.update(
+      user.id,
+      { displayName: 'Luis Rojas', role: 'supervisor' },
       { userId: 'admin-1' },
     );
 
-    const event = audit.events.at(-1);
-    expect(event).toMatchObject({
-      action: 'user.updated',
-      details: { fields: ['active'], passwordReset: true, active: true },
+    const [reset, promoted] = audit.events.slice(-2);
+    // Already active and already an observer: only the password changed.
+    expect(reset).toMatchObject({ action: 'user.updated' });
+    expect(reset?.details).toEqual({ fields: [], passwordReset: true });
+    // The display name was already "Luis Rojas".
+    expect(promoted?.details).toEqual({
+      fields: ['role'],
+      passwordReset: false,
+      role: 'supervisor',
     });
-    expect(JSON.stringify(event)).not.toContain('another long password');
+    expect(JSON.stringify(audit.events)).not.toContain('another long password');
+  });
+
+  it('changes and audits nothing, and keeps sessions, when the request changes nothing', async () => {
+    const user = await createUser();
+    await openSessionFor(user.id);
+    const before = audit.events.length;
+
+    const result = await admin.update(
+      user.id,
+      { role: 'observer', active: true, displayName: ' Luis Rojas ' },
+      { userId: 'admin-1' },
+    );
+
+    expect(result).toMatchObject({ status: 'ok', user: { role: 'observer', active: true } });
+    expect(audit.events).toHaveLength(before);
+    expect([...sessions.rows.values()][0]?.revokedAt).toBeNull();
   });
 
   it('prevents an administrator from demoting or deactivating themselves', async () => {

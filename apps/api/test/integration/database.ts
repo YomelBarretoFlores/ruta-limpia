@@ -19,3 +19,25 @@ export async function resetData(db: AppDatabase): Promise<void> {
       reference_points, route_schedules, routes
     RESTART IDENTITY CASCADE`.execute(db);
 }
+
+/**
+ * Makes every insert of an audit event with `action` fail (a trigger), to prove that the action it
+ * records rolls back with it. Call the returned function, in a `finally`, to remove the trigger.
+ */
+export async function failAuditWritesOf(
+  db: AppDatabase,
+  action: string,
+): Promise<() => Promise<void>> {
+  await sql`
+    CREATE OR REPLACE FUNCTION test_fail_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.action = TG_ARGV[0] THEN RAISE EXCEPTION 'audit write failed (test)'; END IF;
+      RETURN NEW;
+    END $$`.execute(db);
+  await sql`
+    CREATE TRIGGER test_fail_audit BEFORE INSERT ON audit_events
+    FOR EACH ROW EXECUTE FUNCTION test_fail_audit(${sql.lit(action)})`.execute(db);
+  return async () => {
+    await sql`DROP TRIGGER IF EXISTS test_fail_audit ON audit_events`.execute(db);
+  };
+}

@@ -415,6 +415,10 @@ The audit trail (`audit_events`) records logins (`auth.login_succeeded`, `auth.l
 `auth.account_locked` with `scope` `source` or `account` when a failure starts a pause,
 `auth.login_blocked` with `reason` `source_locked` or `account_locked`, `auth.logout`) and user
 changes (`user.created`, `user.updated`), with ids, codes, reasons and changed field names only.
+A user change, the sessions it ends and its audit event commit in one transaction: if the audit
+write fails, the change is undone and the request answers `500`. `user.updated` lists in `fields`
+only the fields whose value actually changed (plus `passwordReset`); a request that changes nothing
+changes and records nothing.
 
 ### Fleet and trips
 

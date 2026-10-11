@@ -14,11 +14,10 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 
 import { createDatabase } from '../../shared/infrastructure/db/database.js';
-import { KyselyAuditLog } from '../../shared/infrastructure/audit/kysely-audit-log.js';
 import { systemClock } from '../../shared/infrastructure/system-clock.js';
 import { UserAdminService } from '../application/user-admin-service.js';
 import { ROLES } from '../domain/role.js';
-import { KyselySessionStore, KyselyUserStore } from './kysely-auth-stores.js';
+import { kyselyUserAdminTransactions, KyselyUserStore } from './kysely-auth-stores.js';
 import { ScryptPasswordHasher } from './scrypt-password-hasher.js';
 
 const envSchema = z.object({ DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }) });
@@ -76,12 +75,10 @@ async function main(): Promise<void> {
 
   const db = createDatabase(env.DATABASE_URL, { poolMax: 2 });
   try {
-    const users = new KyselyUserStore(db);
     const service = new UserAdminService({
-      users,
-      sessions: new KyselySessionStore(db),
+      users: new KyselyUserStore(db),
+      transactions: kyselyUserAdminTransactions(db),
       hasher: new ScryptPasswordHasher(),
-      audit: new KyselyAuditLog(db),
       clock: systemClock,
     });
     const result = await service.create(

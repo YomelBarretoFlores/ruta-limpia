@@ -1,5 +1,6 @@
 import type { AuditLog } from '../../shared/application/audit-log.js';
 import type { Clock } from '../../shared/application/clock.js';
+import type { UnitOfWork } from '../../shared/application/unit-of-work.js';
 import {
   isValidUsername,
   normalizeUsername,
@@ -15,11 +16,18 @@ import type {
   UserStore,
 } from './auth-ports.js';
 
-export interface UserAdminDependencies {
+/** The ports a user change writes through, in one transaction with its audit event. */
+export interface UserAdminTransaction {
   readonly users: UserStore;
   readonly sessions: SessionStore;
-  readonly hasher: PasswordHasher;
   readonly audit: AuditLog;
+}
+
+export interface UserAdminDependencies {
+  /** Reads outside any transaction. */
+  readonly users: UserStore;
+  readonly transactions: UnitOfWork<UserAdminTransaction>;
+  readonly hasher: PasswordHasher;
   readonly clock: Clock;
 }
 
@@ -52,7 +60,11 @@ export type UserCommandResult =
 /** Who performs an administrative action: a panel user, or the command line (null). */
 export type AdminActor = { readonly userId: string } | null;
 
-/** Panel user management (administrators) and the `user:create` command line. */
+/**
+ * Panel user management (administrators) and the `user:create` command line. Each change, the
+ * sessions it ends and its audit event commit together; passwords are hashed before the
+ * transaction opens, so no transaction waits for scrypt.
+ */
 export class UserAdminService {
   constructor(private readonly deps: UserAdminDependencies) {}
 
@@ -65,16 +77,19 @@ export class UserAdminService {
     if (!isValidUsername(username)) return { status: 'invalid_username' };
     const problem = passwordProblem(command.password);
     if (problem !== null) return { status: 'weak_password', problem };
+    const passwordHash = await this.deps.hasher.hash(command.password);
 
-    const user = await this.deps.users.create({
-      username,
-      displayName: command.displayName.trim(),
-      role: command.role,
-      passwordHash: await this.deps.hasher.hash(command.password),
+    return this.deps.transactions.run(async ({ users, audit }) => {
+      const user = await users.create({
+        username,
+        displayName: command.displayName.trim(),
+        role: command.role,
+        passwordHash,
+      });
+      if (user === null) return { status: 'username_taken' };
+      await this.record(audit, 'user.created', actor, user.id, { role: user.role });
+      return { status: 'ok', user };
     });
-    if (user === null) return { status: 'username_taken' };
-    await this.record('user.created', actor, user.id, { role: user.role });
-    return { status: 'ok', user };
   }
 
   async update(
@@ -86,48 +101,48 @@ export class UserAdminService {
       const problem = passwordProblem(command.password);
       if (problem !== null) return { status: 'weak_password', problem };
     }
-    const current = await this.deps.users.findById(userId);
-    if (current === null) return { status: 'not_found' };
-    const demotesSelf =
-      actor?.userId === userId &&
-      ((command.role !== undefined && command.role !== current.role) || command.active === false);
-    if (demotesSelf) return { status: 'cannot_modify_self' };
+    if ((await this.deps.users.findById(userId)) === null) return { status: 'not_found' };
+    const passwordHash =
+      command.password === undefined ? undefined : await this.deps.hasher.hash(command.password);
 
-    const changes: UserChanges = {
-      ...(command.displayName === undefined ? {} : { displayName: command.displayName.trim() }),
-      ...(command.role === undefined ? {} : { role: command.role }),
-      ...(command.active === undefined ? {} : { active: command.active }),
-      ...(command.password === undefined
-        ? {}
-        : { passwordHash: await this.deps.hasher.hash(command.password) }),
-    };
-    const user = await this.deps.users.update(userId, changes);
-    if (user === null) return { status: 'not_found' };
+    return this.deps.transactions.run(async ({ users, sessions, audit }) => {
+      const current = await users.findById(userId);
+      if (current === null) return { status: 'not_found' };
+      const changes = changesOf(current, command, passwordHash);
+      const demotesSelf =
+        actor?.userId === userId && (changes.role !== undefined || changes.active === false);
+      if (demotesSelf) return { status: 'cannot_modify_self' };
 
-    // A changed role, a deactivation or a password reset ends every open session of the user.
-    const endsSessions =
-      (changes.role !== undefined && changes.role !== current.role) ||
-      changes.active === false ||
-      changes.passwordHash !== undefined;
-    if (endsSessions) await this.deps.sessions.revokeAllOf(userId, this.deps.clock.now());
+      const fields = (['displayName', 'role', 'active'] as const).filter(
+        (field) => changes[field] !== undefined,
+      );
+      if (fields.length === 0 && passwordHash === undefined) return { status: 'ok', user: current };
+      const user = await users.update(userId, changes);
+      if (user === null) return { status: 'not_found' };
 
-    const fields = Object.keys(command).filter((key) => key !== 'password');
-    await this.record('user.updated', actor, userId, {
-      fields,
-      passwordReset: command.password !== undefined,
-      ...(changes.role === undefined ? {} : { role: changes.role }),
-      ...(changes.active === undefined ? {} : { active: changes.active }),
+      // A changed role, a deactivation or a password reset ends every open session of the user.
+      const endsSessions =
+        changes.role !== undefined || changes.active === false || passwordHash !== undefined;
+      if (endsSessions) await sessions.revokeAllOf(userId, this.deps.clock.now());
+
+      await this.record(audit, 'user.updated', actor, userId, {
+        fields,
+        passwordReset: passwordHash !== undefined,
+        ...(changes.role === undefined ? {} : { role: changes.role }),
+        ...(changes.active === undefined ? {} : { active: changes.active }),
+      });
+      return { status: 'ok', user };
     });
-    return { status: 'ok', user };
   }
 
   private async record(
+    audit: AuditLog,
     action: string,
     actor: AdminActor,
     entityId: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    await this.deps.audit.record({
+    await audit.record({
       userId: actor?.userId ?? null,
       action,
       entity: 'user',
@@ -136,4 +151,21 @@ export class UserAdminService {
       details: actor === null ? { ...details, via: 'cli' } : details,
     });
   }
+}
+
+/** The fields of `command` that differ from `current` (a real diff), plus a new password hash. */
+function changesOf(
+  current: PanelUser,
+  command: UpdateUserCommand,
+  passwordHash: string | undefined,
+): UserChanges {
+  const displayName = command.displayName?.trim();
+  return {
+    ...(displayName === undefined || displayName === current.displayName ? {} : { displayName }),
+    ...(command.role === undefined || command.role === current.role ? {} : { role: command.role }),
+    ...(command.active === undefined || command.active === current.active
+      ? {}
+      : { active: command.active }),
+    ...(passwordHash === undefined ? {} : { passwordHash }),
+  };
 }

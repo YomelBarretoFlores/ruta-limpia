@@ -83,10 +83,13 @@ alerts/infrastructure    WebPushGateway (web-push, VAPID), LoggingAlertNotifier 
                          http/ (public subscription and receipt routes), vapid-keys-cli
 auth/application         AuthService (login, session validation, logout) and UserAdminService over
                          the UserStore, SessionStore, PasswordHasher and SessionTokens ports
-auth/infrastructure      ScryptPasswordHasher, CryptoSessionTokens, KyselyUserStore,
-                         KyselySessionStore, user-cli (user:create), http/ (panel guard: cookie,
+auth/infrastructure      ScryptPasswordHasher (bounded queue, load shedding), CryptoSessionTokens,
+                         KyselyUserStore, KyselySessionStore, InMemoryLoginSourceStore (per-network
+                         login failures), user-cli (user:create), http/ (panel guard: cookie,
                          CSRF and role checks; /api/panel/auth/*, /users, /audit-events)
-shared/application       AuditLog and AuditTrail ports; shared/infrastructure/audit: KyselyAuditLog
+shared/application       AuditLog and AuditTrail ports; UnitOfWork port (a change and its audit event
+                         in one transaction); shared/infrastructure: audit/KyselyAuditLog,
+                         db/KyselyUnitOfWork (and inTransaction for stores' own multi-statement writes)
 indicators/application   AppViewService (app views for the adoption indicator) over the AppViewStore
                          and SubscriberIdentification ports (SubscriptionService.identify provides it)
 indicators/infrastructure KyselyAppViewStore, http/ (POST /api/usage/views)
