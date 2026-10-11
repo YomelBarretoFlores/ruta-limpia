@@ -75,6 +75,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T7a | Municipal panel backend: auth/sessions/roles, audit, live panel, trips, incidents, households, field observations, baseline logs | delegated (writer: 2+ non-trivial files) | [x] |
 | T7b-1 | Design system + citizen PWA redesign + T6 PWA hardening (and the T7a-hardening residual findings) | delegated (writer: 2+ non-trivial files) | [x] |
 | T7b-2 | Municipal panel UI (`/panel`) on the design system | delegated (writer) | [x] |
+| T7c | T7b-2 review follow-ups: account throttle redesign, household point resolve, citizen refetch jitter, panel fixes, trip map, bundle and precache guards | delegated (writer: 2+ non-trivial files) | [x] |
 | T8 | Indicators and exports: KPI computation (Tabla 16), CSV exports for Instruments 1–3 | delegated (writer) | [ ] |
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer) | [ ] |
 | T10 | Production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5) | delegated (writer) | [ ] |
@@ -575,6 +576,78 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   throttled attempt answers faster than a checked one, so its timing shows the account exists and
   is under attack; the owner may wait up to a minute between tries during an attack. Pending:
   the Engram mirror of this document.
+
+- 2026-10-11: T7b-2 reviewed in five slices, all approved and acknowledged: `75d4944..5a822bb`
+  (four lenses), then `5a822bb..52bd863`, `52bd863..b1d395f`, `b1d395f..df29df6` and
+  `df29df6..d7af82e` (one lens each). The reviewed boundary is now `d7af82e`.
+
+- 2026-10-11: T7c (the T7b-2 review follow-ups) done in five work-unit commits (changed lines,
+  lockfile excluded), each building and passing its tests on its own. Route: delegated writer
+  (trigger: 2+ non-trivial files).
+  - `e5ebe91` `fix(auth): reserve throttled attempts under the row lock, hash them like any
+    failure and spare known networks` (672): a throttled attempt burns the dummy scrypt
+    verification through the bounded queue and answers the generic 401 (the README no longer
+    says it is faster); `reserveAttempt` checks the spacing and reserves the slot in one locked
+    read-modify-write before hashing (integration test: eight concurrent attempts at interval
+    expiry, one password check); attempts from a known network (a successful sign-in from that
+    /24 or /64 within 30 days) skip the spacing, while the per-network 5 / 15 min pause and the
+    100-in-24 h pause still apply (integration test: the attacker's network throttled, the
+    owner's known /24 signs in during the attack); a successful sign-in ends the spacing but keeps
+    the window's failure count (`window_failures`), so the owner's sign-in does not reset the
+    attacker's daily budget. Migration `0013-known-networks`: `last_failed_at` →
+    `last_attempt_at`, `window_failures`, `user_known_networks` (SHA-256 of user id and network,
+    pruned after 30 days at each sign-in, cleared by a password reset). Also
+    `R2-dead-window-fallback`.
+  - `9f221a5` `fix: resolve a household's new point outside the row lock and spread citizen trip
+    refetches` (148): the point is resolved before the transaction and the locked row's route is
+    checked (integration test: no resolve while the lock is held); refetch rounds wait a random
+    delay of up to 5, 10, 20 and 40 s, and a newer `trip.started` cancels the running chain (test:
+    two events in quick succession keep the five-round cap).
+  - `c1512a9` `fix(web): handle a failed sign-out, guard the user editor and the live forms, and
+    assert the panel stays out of the citizen bundle` (583): sign-out never rejects; the user
+    editor refuses a blank name and an empty save; the start-trip form defaults to a free vehicle;
+    the panel connection restarts at "Conectando…" per route; the incident form drops a trip that
+    ended; LivePage test titles fixed and the missing tests added; the bundle guard scans every
+    non-panel module (side-effect imports, `export … from`); `pnpm build` runs
+    `scripts/check-precache.mjs`, which fails when a panel-only file (chunk, CSS, a `qrcode`
+    chunk) is in the service worker precache; `TruckSignalStatus` in its own module;
+    `localToday` by parts from a module-level formatter; `safeReturnPath` table test.
+  - `33d52e5` `fix(web): stop silent data loss and stuck screens in the panel registries and field
+    records` (456): reopen guarded and its failure shown as an error; validated `tipo`/`estado`
+    links; the consent date says why it is refused; no empty route filter; baseline passes at
+    retired points stay visible and are sent; route load failures show a retry; field sheet
+    counts must be whole numbers; a sheet at a retired point keeps its music; failure-path tests.
+  - The last commit (the parent records the hash) `feat(web): set the trip's GPS track apart from
+    the planned route on the trip map`, with this entry: the map fits the route and the track
+    together; the track is a solid 3 px ink line with a 2 px dot per position; the planned route
+    steps back to 4 px accent at 35 % over a 7 px casing; caption updated; design-system rule.
+
+  Verification at the last commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0, `pnpm
+  format:check` clean, `pnpm test` 104 files / 769 tests passed, `pnpm --filter
+  @ruta-limpia/web build` exit 0 (precache 20 entries / 617.6 KiB, `check-precache`: none of the
+  3 panel-only files precached; citizen entry 347.9 kB, 110.4 kB gzip). The trip map styling was
+  not checked visually in a browser (Leaflet needs a real layout; unit tests cover the styles and
+  the bounds).
+
+  Findings → outcome. Fixed: `R1-throttle-timing-enumeration`, `R1-throttle-check-outside-lock`,
+  `R4-owner-throttle-starvation`, `R4-refetch-retry-sync`, `R3-refetch-round-race`,
+  `R3-resolve-inside-tx`, `R2-dead-window-fallback`, `R2-localToday-misnamed`,
+  `R2-truck-signal-in-connection-badge`, `R3-signout-unhandled-rejection`, `R3-editor-blank-name`,
+  `R3-safe-return-coverage`, `R3-bundle-guard-narrow`, `R3-start-trip-disabled-default`,
+  `R3-connection-not-reset-on-route-change`, `R3-livepage-test-titles-overclaim`,
+  `R3-polling-fallback-untested`, `R3-incident-stale-trip`, `R3-reopen-untested-and-unguarded`,
+  `R3-enroll-date-silent-reject`, `R3-trips-empty-route`, `R3-failure-paths-uncovered`,
+  `R3-baseline-route-load-failure-spins` (a failed route load; see below),
+  `R3-baseline-drops-passes-of-inactive-points`, `R3-field-sheet-music-dropped-without-route-point`,
+  `R3-field-sheet-invalid-numbers-silently-null`, `R3-precache-exclusion-unasserted`. Not changed:
+  `R3-incident-description-null-dropped` (the API takes `description` as a string and clears it
+  with `''`, which the web already sends; a test proves it); `R3-use-async-stale-untested`
+  (test-only suggestion, not in this task's list). Residual: when the route catalog itself never
+  loads on a first visit (no remembered route), the baseline editor still says "Cargando…"; the
+  shell does not expose the catalog's load state. Surface note: the migration needed the
+  registration in `migrator.ts` and the table types in `database.ts`, and the throttle docs in
+  `apps/api/src/README.md` (outside the listed surfaces, mechanical). Pending: the Engram mirror
+  of this document.
 
 ## Next step
 

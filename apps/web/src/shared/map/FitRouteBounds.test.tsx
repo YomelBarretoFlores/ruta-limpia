@@ -53,4 +53,19 @@ describe('FitRouteBounds', () => {
     rerender(<FitRouteBounds route={{ ...ROUTE, points: ROUTE.points.slice(1) }} />);
     expect(map.fitBounds).toHaveBeenCalledTimes(2);
   });
+
+  it('fits the route together with a GPS track that leaves it', () => {
+    const track = [
+      [-77.5286, -9.5232],
+      [-77.5301, -9.5262],
+    ] as const;
+    const { rerender } = render(<FitRouteBounds route={ROUTE} also={track} />);
+
+    const [bounds] = map.fitBounds.mock.calls[0]!;
+    expect(bounds.getSouthWest()).toMatchObject({ lat: -9.5262, lng: -77.5301 });
+    expect(bounds.getNorthEast()).toMatchObject({ lat: -9.5232, lng: -77.5271 });
+
+    rerender(<FitRouteBounds route={ROUTE} also={[...track]} />);
+    expect(map.fitBounds).toHaveBeenCalledOnce();
+  });
 });

@@ -132,6 +132,10 @@ State colors are always paired with words (and, in the panel, an 8 px square/dot
   2 px stroke and a permanent label ("Tu punto · P08").
 - Truck: 16 px `--ink` filled square-ish marker with a small heading notch (inline SVG), no emoji; when
   stale, render it hollow with a dashed outline and the label "Última posición 17:22".
+- A recorded trip's GPS track (panel trip detail): a solid 3 px `--ink` line with a 2 px `--ink` dot at
+  each valid position, drawn over the planned route, which then steps back to a 4 px `--accent` line
+  at 35 % opacity over a 7 px white casing. The map fits the route and the track together (the
+  track may leave the route). No dashes: a dashed line already means a stale truck.
 - Controls: zoom buttons flat, 1 px `--rule-strong`, 1 px shadow allowed.
 
 ## Layout

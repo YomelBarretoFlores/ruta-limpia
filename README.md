@@ -728,7 +728,8 @@ Spanish (Peru) on the same design system, at panel density.
   trip by hand and end one with a required reason; anyone with `incidents:create` registers an
   incident.
 - **Viajes** (filters in the address, paged) and the trip detail (summary, per-point pass and
-  alert with the communicated ETA and the target window, incidents, the GPS track on the map).
+  alert with the communicated ETA and the target window, incidents, and the GPS track on the map:
+  a solid ink line with a dot per position over a lighter planned route, fitted together).
 - **Incidencias**: list and filters, register, correct, resolve with a note, reopen.
 - **Hogares**: the registry with subscription and usage columns; enroll (the API gives `H-###`),
   move to another point, take out; **stickers** for the selected households

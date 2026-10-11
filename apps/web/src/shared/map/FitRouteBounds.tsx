@@ -15,12 +15,22 @@ function routeLatLngs(route: RouteShape): LatLngTuple[] {
 /**
  * Fits the map to the whole route once it is laid out, and again when the route changes. The
  * container's size is re-read first: the map may be created before its lazy styles apply, and
- * fitting a zero-sized map leaves the route as a speck in the middle.
+ * fitting a zero-sized map leaves the route as a speck in the middle. `also` adds positions
+ * (`[lon, lat]`) that must be in view too, such as a trip's GPS track that left the route.
  */
-export function FitRouteBounds({ route }: { readonly route: RouteShape }) {
+export function FitRouteBounds({
+  route,
+  also = null,
+}: {
+  readonly route: RouteShape;
+  readonly also?: readonly (readonly [number, number])[] | null;
+}) {
   const map = useMap();
   // Keyed by value: a new object for the same route (a refetch) keeps the reader's pan and zoom.
-  const key = JSON.stringify(routeLatLngs(route));
+  const key = JSON.stringify([
+    ...routeLatLngs(route),
+    ...(also ?? []).map(([lon, lat]): LatLngTuple => [lat, lon]),
+  ]);
 
   useEffect(() => {
     map.invalidateSize();

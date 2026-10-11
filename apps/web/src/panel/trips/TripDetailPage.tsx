@@ -75,8 +75,8 @@ export function TripDetailPage() {
           Recorrido del GPS
         </h2>
         <p className="panel-section__note">
-          La línea verde es la ruta planificada; la línea punteada negra, las posiciones válidas del
-          viaje.
+          La línea negra es el recorrido registrado por el GPS, con un punto en cada posición
+          válida; la línea verde clara debajo es la ruta planificada.
         </p>
         {route.data != null && (
           <ErrorBoundary

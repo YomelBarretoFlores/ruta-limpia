@@ -17,6 +17,7 @@ import { FitRouteBounds } from '../../shared/map/FitRouteBounds';
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_SNAP, type RouteShape } from '../../shared/map/map-view';
 import { MAP_COLORS, TRUCK_ICON_SIZE, truckIconSvg } from '../../shared/map/truck-icon';
 import { formatLocalTime } from '../../shared/time';
+import { plannedRouteStyle, TRACK_LINE, TRACK_VERTEX, TRACK_VERTEX_RADIUS } from './map-styles';
 
 export interface PanelMapTruck {
   readonly lat: number;
@@ -39,19 +40,20 @@ export interface PanelRouteMapProps {
     }[];
   };
   readonly truck?: PanelMapTruck | null;
-  /** A recorded trip's track (`[lon, lat]`), drawn in ink over the planned route. */
+  /**
+   * A recorded trip's track (`[lon, lat]`): a solid ink line with a dot at each position, over a
+   * lighter planned route; the map fits the route and the track together.
+   */
   readonly track?: readonly (readonly [number, number])[] | null;
   readonly label: string;
 }
 
-const CASING = { color: MAP_COLORS.surface, weight: 9, opacity: 1, lineCap: 'round' } as const;
-const LINE = { color: MAP_COLORS.accent, weight: 6, opacity: 1, lineCap: 'round' } as const;
-const TRACK = { color: MAP_COLORS.ink, weight: 2, opacity: 1, dashArray: '4 3' } as const;
 const POINT = { color: MAP_COLORS.ink, weight: 1.5, fillColor: MAP_COLORS.surface, fillOpacity: 1 };
 
 /**
  * The route on muted tiles for the panel: the planned line, its reference points (labelled on
- * hover), the truck (hollow when its signal is not live) and, for a past trip, its GPS track.
+ * hover), the truck (hollow when its signal is not live) and, for a past trip, its GPS track
+ * (the planned line then steps back, so the track reads as the trip).
  */
 export default function PanelRouteMap({
   route,
@@ -61,6 +63,8 @@ export default function PanelRouteMap({
 }: PanelRouteMapProps) {
   const line: LatLngTuple[] = route.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
   const trackLine: LatLngTuple[] = (track ?? []).map(([lon, lat]) => [lat, lon]);
+  const hasTrack = trackLine.length > 1;
+  const planned = plannedRouteStyle(hasTrack);
   const stale = truck?.stale ?? false;
   const course = truck?.course ?? null;
   const icon = useMemo(
@@ -93,11 +97,22 @@ export default function PanelRouteMap({
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={MAX_ZOOM}
         />
-        <FitRouteBounds route={route} />
-        <Polyline positions={line} pathOptions={CASING} interactive={false} />
-        <Polyline positions={line} pathOptions={LINE} interactive={false} />
-        {trackLine.length > 1 && (
-          <Polyline positions={trackLine} pathOptions={TRACK} interactive={false} />
+        <FitRouteBounds route={route} also={hasTrack ? track : null} />
+        <Polyline positions={line} pathOptions={planned.casing} interactive={false} />
+        <Polyline positions={line} pathOptions={planned.line} interactive={false} />
+        {hasTrack && (
+          <>
+            <Polyline positions={trackLine} pathOptions={TRACK_LINE} interactive={false} />
+            {trackLine.map((position, index) => (
+              <CircleMarker
+                key={index}
+                center={position}
+                radius={TRACK_VERTEX_RADIUS}
+                pathOptions={TRACK_VERTEX}
+                interactive={false}
+              />
+            ))}
+          </>
         )}
         {route.points.map((point) => (
           <CircleMarker
