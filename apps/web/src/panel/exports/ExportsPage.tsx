@@ -2,7 +2,7 @@ import { Field } from '../../shared/ui/Field';
 import { Notice } from '../../shared/ui/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { useFilters } from '../components/use-filters';
-import { PHASE_3, PILOT_PERIODS } from '../indicators/pilot-periods';
+import { chosenPeriod, PILOT_PERIODS } from '../indicators/pilot-periods';
 import { usePanelDeps } from '../panel-deps';
 import { useSelectedRoute } from '../shell/selected-route';
 
@@ -62,9 +62,7 @@ export function ExportsPage() {
   const { api } = usePanelDeps();
   const { routeCode } = useSelectedRoute();
   const { values, setFilter, setFilters } = useFilters(FILTERS);
-  const from = values.desde === '' ? PHASE_3.from : values.desde;
-  const to = values.hasta === '' ? PHASE_3.to : values.hasta;
-  const reversed = from > to;
+  const { from, to, message: periodProblem } = chosenPeriod(values);
 
   return (
     <>
@@ -124,9 +122,9 @@ export function ExportsPage() {
       </form>
       {routeCode === null ? (
         <p className="panel-loading">Cargando la ruta…</p>
-      ) : reversed ? (
+      ) : periodProblem !== null ? (
         <Notice tone="warn">
-          <p>La fecha «Desde» es posterior a «Hasta». Corrige el periodo.</p>
+          <p>{periodProblem}</p>
         </Notice>
       ) : (
         <ul className="export-list">

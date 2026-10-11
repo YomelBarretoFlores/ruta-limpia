@@ -153,6 +153,11 @@ export const SURVEY_PROBLEM_MESSAGES: Record<
   },
 };
 
+/** Whether every problem is one the form can show next to its question. */
+export function allSurveyProblemsKnown(problems: readonly string[]): boolean {
+  return problems.every((problem) => Object.hasOwn(SURVEY_PROBLEM_MESSAGES, problem));
+}
+
 export function surveyProblemsByField(
   problems: readonly string[],
 ): Partial<Record<keyof SurveyForm, string>> {

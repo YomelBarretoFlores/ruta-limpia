@@ -34,6 +34,8 @@ export interface SurveyFormProps {
   readonly initial: SurveyForm;
   /** Editing keeps the household and the wave (a survey is one household's answers in one wave). */
   readonly editing: boolean;
+  /** Shows the answers without any way to change them (no `surveys:write`). */
+  readonly readOnly?: boolean;
   /** API problems by field. */
   readonly problems: Partial<Record<keyof SurveyForm, string>>;
   readonly error: string | null;
@@ -53,6 +55,7 @@ const options = <T extends string>(values: readonly T[], labels: Record<T, strin
  */
 export function SurveyFormView(props: SurveyFormProps) {
   const { editing, problems, error, working } = props;
+  const readOnly = props.readOnly === true;
   const [form, setForm] = useState<SurveyForm>(props.initial);
   const [checked, setChecked] = useState(false);
   const set = <K extends keyof SurveyForm>(key: K, value: SurveyForm[K]) =>
@@ -85,180 +88,184 @@ export function SurveyFormView(props: SurveyFormProps) {
           <p>{error}</p>
         </Notice>
       )}
-      <Part title="Hogar y aplicación">
-        <Field
-          id="survey-household"
-          label="Código del hogar"
-          hint="Como en el sticker. Ejemplo: H-001"
-          error={messageOf('householdCode')}
-          control={(control: FieldControlProps) => (
-            <input
-              {...control}
-              className="input"
-              value={form.householdCode}
-              disabled={editing}
-              autoCapitalize="characters"
-              autoComplete="off"
-              onChange={(event) => set('householdCode', event.target.value)}
-            />
-          )}
-        />
-        <Field
-          id="survey-date"
-          label="Fecha"
-          error={messageOf('surveyedOn')}
-          control={(control) => (
-            <input
-              {...control}
-              className="input"
-              type="date"
-              value={form.surveyedOn}
-              onChange={(event) => set('surveyedOn', event.target.value)}
-            />
-          )}
-        />
-        <Choices
-          name="wave"
-          legend="Aplicación"
-          options={options(SURVEY_WAVES, WAVE_LABELS)}
-          value={form.wave}
-          error={messageOf('wave')}
-          disabled={editing}
-          onChange={(value) => set('wave', value as SurveyForm['wave'])}
-        />
-      </Part>
-
-      <Part title="Preguntas 1 a 5">
-        {choices('knowsSchedule', '1. ¿Conoce el horario de recolección de su calle?', [
-          { value: 'yes', label: 'Sí' },
-          { value: 'no', label: 'No' },
-        ])}
-        {choices(
-          'leadTime',
-          '2. Normalmente, ¿cuánto tiempo antes del paso del camión saca sus residuos?',
-          options(LEAD_TIMES, LEAD_TIME_LABELS),
-        )}
-        {choices(
-          'missedPickups',
-          '3. En el último mes, ¿cuántas veces perdió el paso del camión?',
-          options(MISSED_PICKUPS, MISSED_LABELS),
-        )}
-        {choices(
-          'litterSeen',
-          '4. ¿Ha visto bolsas rotas o basura dispersa en su cuadra en la última semana?',
-          options(LITTER_SEEN, LITTER_LABELS),
-        )}
-        {choices(
-          'separates',
-          '5. ¿Separa sus residuos (orgánicos, reciclables, otros)?',
-          options(SEPARATES, SEPARATES_LABELS),
-        )}
-      </Part>
-
-      {form.wave === 'post' && (
-        <Part title="Preguntas 6 a 11 (solo post)" note="Escala de 1 a 5.">
-          {POST_ONLY_QUESTIONS.map((question) => (
-            <Choices
-              key={question}
-              name={question}
-              legend={POST_ONLY_LABELS[question]}
-              options={question === 'satisfaction' ? SATISFACTION_OPTIONS : AGREEMENT_OPTIONS}
-              value={form[question]}
-              onChange={(value) => set(question, value)}
-            />
-          ))}
+      <fieldset className="sheet__fields" disabled={readOnly}>
+        <Part title="Hogar y aplicación">
+          <Field
+            id="survey-household"
+            label="Código del hogar"
+            hint="Como en el sticker. Ejemplo: H-001"
+            error={messageOf('householdCode')}
+            control={(control: FieldControlProps) => (
+              <input
+                {...control}
+                className="input"
+                value={form.householdCode}
+                disabled={editing}
+                autoCapitalize="characters"
+                autoComplete="off"
+                onChange={(event) => set('householdCode', event.target.value)}
+              />
+            )}
+          />
+          <Field
+            id="survey-date"
+            label="Fecha"
+            error={messageOf('surveyedOn')}
+            control={(control) => (
+              <input
+                {...control}
+                className="input"
+                type="date"
+                value={form.surveyedOn}
+                onChange={(event) => set('surveyedOn', event.target.value)}
+              />
+            )}
+          />
+          <Choices
+            name="wave"
+            legend="Aplicación"
+            options={options(SURVEY_WAVES, WAVE_LABELS)}
+            value={form.wave}
+            error={messageOf('wave')}
+            disabled={editing}
+            onChange={(value) => set('wave', value as SurveyForm['wave'])}
+          />
         </Part>
-      )}
 
-      <Part title="Preguntas 12 a 15">
-        {choices(
-          'annoyance',
-          '12. En los últimos 7 días, ¿cuánto le molestó la música usada por el camión?',
-          ANNOYANCE_OPTIONS,
-        )}
-        {choices(
-          'interrupted',
-          '13. En los últimos 7 días, ¿la música del camión interrumpió su descanso o sus actividades?',
-          options(INTERRUPTIONS, INTERRUPTION_LABELS),
-        )}
-        <fieldset className="choices form-wide">
-          <legend>
-            14. ¿Por qué medios se enteró del paso del camión en los últimos 7 días? (varias
-            respuestas)
-          </legend>
-          <div className="choice-row">
-            {CHANNELS.map((channel) => (
-              <label key={channel} className="choice">
-                <input
-                  type="checkbox"
-                  checked={form.channels.includes(channel)}
-                  onChange={(event) =>
-                    set(
-                      'channels',
-                      event.target.checked
-                        ? [...form.channels, channel]
-                        : form.channels.filter((c) => c !== channel),
-                    )
-                  }
-                />
-                <span>{CHANNEL_LABELS[channel]}</span>
-              </label>
+        <Part title="Preguntas 1 a 5">
+          {choices('knowsSchedule', '1. ¿Conoce el horario de recolección de su calle?', [
+            { value: 'yes', label: 'Sí' },
+            { value: 'no', label: 'No' },
+          ])}
+          {choices(
+            'leadTime',
+            '2. Normalmente, ¿cuánto tiempo antes del paso del camión saca sus residuos?',
+            options(LEAD_TIMES, LEAD_TIME_LABELS),
+          )}
+          {choices(
+            'missedPickups',
+            '3. En el último mes, ¿cuántas veces perdió el paso del camión?',
+            options(MISSED_PICKUPS, MISSED_LABELS),
+          )}
+          {choices(
+            'litterSeen',
+            '4. ¿Ha visto bolsas rotas o basura dispersa en su cuadra en la última semana?',
+            options(LITTER_SEEN, LITTER_LABELS),
+          )}
+          {choices(
+            'separates',
+            '5. ¿Separa sus residuos (orgánicos, reciclables, otros)?',
+            options(SEPARATES, SEPARATES_LABELS),
+          )}
+        </Part>
+
+        {form.wave === 'post' && (
+          <Part title="Preguntas 6 a 11 (solo post)" note="Escala de 1 a 5.">
+            {POST_ONLY_QUESTIONS.map((question) => (
+              <Choices
+                key={question}
+                name={question}
+                legend={POST_ONLY_LABELS[question]}
+                options={question === 'satisfaction' ? SATISFACTION_OPTIONS : AGREEMENT_OPTIONS}
+                value={form[question]}
+                onChange={(value) => set(question, value)}
+              />
             ))}
-          </div>
-        </fieldset>
-        {form.channels.includes('other') && (
-          <div className="form-wide">
-            <Field
-              id="survey-channel-other"
-              label="Otro medio"
-              error={messageOf('channelOther')}
-              control={(control) => (
-                <input
-                  {...control}
-                  className="input"
-                  maxLength={200}
-                  value={form.channelOther}
-                  onChange={(event) => set('channelOther', event.target.value)}
-                />
-              )}
-            />
-          </div>
+          </Part>
         )}
-        {choices(
-          'access',
-          '15. ¿Puede acceder a las alertas desde su hogar?',
-          options(ACCESS, ACCESS_LABELS),
-        )}
-        {form.access === 'no' && (
-          <div className="form-wide">
-            <Field
-              id="survey-alt-channel"
-              label="Medio alternativo requerido"
-              error={messageOf('altChannel')}
-              control={(control) => (
-                <input
-                  {...control}
-                  className="input"
-                  maxLength={200}
-                  value={form.altChannel}
-                  onChange={(event) => set('altChannel', event.target.value)}
-                />
-              )}
-            />
-          </div>
-        )}
-      </Part>
 
-      <div className="sheet__actions">
-        <Button type="submit" disabled={working}>
-          {working ? 'Guardando…' : 'Guardar encuesta'}
-        </Button>
-        {props.onDelete !== undefined && (
-          <Button variant="destructive" disabled={working} onClick={props.onDelete}>
-            Eliminar encuesta
+        <Part title="Preguntas 12 a 15">
+          {choices(
+            'annoyance',
+            '12. En los últimos 7 días, ¿cuánto le molestó la música usada por el camión?',
+            ANNOYANCE_OPTIONS,
+          )}
+          {choices(
+            'interrupted',
+            '13. En los últimos 7 días, ¿la música del camión interrumpió su descanso o sus actividades?',
+            options(INTERRUPTIONS, INTERRUPTION_LABELS),
+          )}
+          <fieldset className="choices form-wide">
+            <legend>
+              14. ¿Por qué medios se enteró del paso del camión en los últimos 7 días? (varias
+              respuestas)
+            </legend>
+            <div className="choice-row">
+              {CHANNELS.map((channel) => (
+                <label key={channel} className="choice">
+                  <input
+                    type="checkbox"
+                    checked={form.channels.includes(channel)}
+                    onChange={(event) =>
+                      set(
+                        'channels',
+                        event.target.checked
+                          ? [...form.channels, channel]
+                          : form.channels.filter((c) => c !== channel),
+                      )
+                    }
+                  />
+                  <span>{CHANNEL_LABELS[channel]}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {form.channels.includes('other') && (
+            <div className="form-wide">
+              <Field
+                id="survey-channel-other"
+                label="Otro medio"
+                error={messageOf('channelOther')}
+                control={(control) => (
+                  <input
+                    {...control}
+                    className="input"
+                    maxLength={200}
+                    value={form.channelOther}
+                    onChange={(event) => set('channelOther', event.target.value)}
+                  />
+                )}
+              />
+            </div>
+          )}
+          {choices(
+            'access',
+            '15. ¿Puede acceder a las alertas desde su hogar?',
+            options(ACCESS, ACCESS_LABELS),
+          )}
+          {form.access === 'no' && (
+            <div className="form-wide">
+              <Field
+                id="survey-alt-channel"
+                label="Medio alternativo requerido"
+                error={messageOf('altChannel')}
+                control={(control) => (
+                  <input
+                    {...control}
+                    className="input"
+                    maxLength={200}
+                    value={form.altChannel}
+                    onChange={(event) => set('altChannel', event.target.value)}
+                  />
+                )}
+              />
+            </div>
+          )}
+        </Part>
+      </fieldset>
+
+      {!readOnly && (
+        <div className="sheet__actions">
+          <Button type="submit" disabled={working}>
+            {working ? 'Guardando…' : 'Guardar encuesta'}
           </Button>
-        )}
-      </div>
+          {props.onDelete !== undefined && (
+            <Button variant="destructive" disabled={working} onClick={props.onDelete}>
+              Eliminar encuesta
+            </Button>
+          )}
+        </div>
+      )}
     </form>
   );
 }

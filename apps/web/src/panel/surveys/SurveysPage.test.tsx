@@ -95,6 +95,31 @@ describe('SurveysPage', () => {
     ]);
   });
 
+  it.each([
+    [
+      new PanelApiError(400, 'invalid_csv'),
+      'El archivo no tiene el formato de la plantilla. Revisa los problemas de la tabla.',
+    ],
+    [new PanelApiError(422, 'empty_file'), 'El archivo no tiene filas de encuestas.'],
+    [
+      new PanelApiError(422, 'too_many_rows'),
+      'El archivo tiene demasiadas filas. Divídelo en archivos de hasta 1000 filas.',
+    ],
+    [
+      new Error('network down'),
+      'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.',
+    ],
+  ])('explains a refused import (%s)', async (failure, message) => {
+    const api = fakePanelApi(panelUser('supervisor'));
+    api.importSurveys.mockRejectedValue(failure);
+    renderPanel('/panel/encuestas', fakePanelDeps(api));
+
+    await userEvent.upload(await screen.findByLabelText('Archivo CSV'), csvFile('x'));
+    await userEvent.click(screen.getByRole('button', { name: 'Importar archivo' }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+
   it('asks for a file before importing', async () => {
     const api = fakePanelApi(panelUser('supervisor'));
     renderPanel('/panel/encuestas', fakePanelDeps(api));

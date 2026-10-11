@@ -88,6 +88,38 @@ describe('FieldSheetEditorPage', () => {
     );
   });
 
+  it('clears the comparability with "Sin respuesta" and sends it as not answered', async () => {
+    const api = setup('supervisor', '/panel/fichas/o-1');
+    api.getObservation.mockResolvedValue(SAVED);
+    api.updateObservation.mockResolvedValue(SAVED);
+
+    await screen.findByRole('group', { name: /Mismo punto y ventana/ });
+    await userEvent.click(screen.getByRole('button', { name: 'Sin respuesta' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+    expect(api.updateObservation).toHaveBeenCalledWith(
+      'o-1',
+      expect.objectContaining({ comparableWindow: null }),
+    );
+  });
+
+  it('leaves the comparability unanswered when an older response lacks it', async () => {
+    const api = setup('supervisor', '/panel/fichas/o-1');
+    const older: Record<string, unknown> = { ...SAVED };
+    delete older['comparableWindow'];
+    api.getObservation.mockResolvedValue(older as unknown as Observation);
+    api.updateObservation.mockResolvedValue(SAVED);
+
+    const comparable = await screen.findByRole('group', { name: /Mismo punto y ventana/ });
+    expect(within(comparable).getByRole('radio', { name: 'No' })).not.toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+    expect(api.updateObservation).toHaveBeenCalledWith(
+      'o-1',
+      expect.objectContaining({ comparableWindow: null }),
+    );
+  });
+
   it('computes the exposure from the two times, and asks for it only when one is missing', async () => {
     setup();
     await userEvent.type(await screen.findByLabelText('Hora de primera colocación'), '06:40');

@@ -139,4 +139,22 @@ describe('IndicatorsPage', () => {
       expect.objectContaining({ to: '2026-10-01' }),
     );
   });
+
+  it('falls back to Fase 3 for a malformed date in the address, and refuses an over-long period', async () => {
+    const api = fakePanelApi(panelUser('supervisor'));
+    api.getIndicators.mockResolvedValue(REPORT);
+    renderPanel('/panel/indicadores?desde=2026-11-16&hasta=2026-12-31x', fakePanelDeps(api));
+
+    await screen.findByRole('table', { name: 'Indicadores de impacto (Tabla 16)' });
+    expect(api.getIndicators).toHaveBeenCalledWith({
+      route: 'RI-01',
+      from: '2026-11-16',
+      to: '2026-12-13',
+    });
+
+    api.getIndicators.mockClear();
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-01-05' } });
+    expect(await screen.findByText(/como máximo 120 días/)).toBeInTheDocument();
+    expect(api.getIndicators).not.toHaveBeenCalled();
+  });
 });

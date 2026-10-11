@@ -10,7 +10,7 @@ import { formatCalendarDate, formatDateTime } from '../format';
 import { usePanelDeps } from '../panel-deps';
 import { useSelectedRoute } from '../shell/selected-route';
 import { AdoptionWeeksTable, IndicatorsTable, PairedTestsTable } from './IndicatorsTable';
-import { PHASE_3, PILOT_PERIODS } from './pilot-periods';
+import { chosenPeriod, PILOT_PERIODS } from './pilot-periods';
 
 const FILTERS = ['desde', 'hasta'] as const;
 
@@ -22,15 +22,13 @@ export function IndicatorsPage() {
   const { api } = usePanelDeps();
   const { routeCode } = useSelectedRoute();
   const { values, setFilter, setFilters } = useFilters(FILTERS);
-  const from = values.desde === '' ? PHASE_3.from : values.desde;
-  const to = values.hasta === '' ? PHASE_3.to : values.hasta;
-  const reversed = from > to;
+  const { from, to, message: periodProblem } = chosenPeriod(values);
   const load = useCallback(
     () =>
-      routeCode === null || reversed
+      routeCode === null || periodProblem !== null
         ? Promise.resolve(undefined)
         : api.getIndicators({ route: routeCode, from, to }),
-    [api, routeCode, from, to, reversed],
+    [api, routeCode, from, to, periodProblem],
   );
   const report = useAsync(load);
 
@@ -91,9 +89,9 @@ export function IndicatorsPage() {
         Exposición, dispersión y aviso musical comparan las fichas de línea base y salida; las
         encuestas comparan pre y post.
       </p>
-      {reversed ? (
+      {periodProblem !== null ? (
         <Notice tone="warn">
-          <p>La fecha «Desde» es posterior a «Hasta». Corrige el periodo.</p>
+          <p>{periodProblem}</p>
         </Notice>
       ) : report.data === undefined ? (
         <LoadState

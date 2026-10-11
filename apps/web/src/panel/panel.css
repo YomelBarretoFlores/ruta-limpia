@@ -756,6 +756,14 @@ textarea.input {
   max-width: 60rem;
 }
 
+/* Groups a form's parts so a read-only view can disable them all at once. */
+.sheet__fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .sheet__part {
   margin: 0 0 var(--space-4);
   padding: var(--space-4) var(--space-5) var(--space-2);

@@ -99,8 +99,14 @@ export function sheetFromObservation(observation: Observation): SheetForm {
     musicWindowEnd: text(observation.music?.windowEnd),
     musicSeconds: text(observation.music?.musicSeconds),
     musicConditions: text(observation.music?.conditions),
+    // Only an explicit answer is shown: a missing field (an older response) stays unanswered
+    // instead of turning into "No", which would drop the sheet from the I3 and I8 comparisons.
     comparableWindow:
-      observation.comparableWindow === null ? '' : observation.comparableWindow ? 'yes' : 'no',
+      observation.comparableWindow === true
+        ? 'yes'
+        : observation.comparableWindow === false
+          ? 'no'
+          : '',
     notes: text(observation.notes),
   };
 }

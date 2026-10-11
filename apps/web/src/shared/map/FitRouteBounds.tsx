@@ -8,7 +8,7 @@ import { FIT_OPTIONS, type RouteShape } from './map-view';
 function extentOf(
   lonLats: readonly (readonly [number, number])[],
   points: readonly { readonly lat: number; readonly lon: number }[],
-): string {
+): readonly [south: number, west: number, north: number, east: number] {
   let [south, west, north, east] = [Infinity, Infinity, -Infinity, -Infinity];
   const add = (lat: number, lon: number) => {
     south = Math.min(south, lat);
@@ -18,7 +18,7 @@ function extentOf(
   };
   for (const [lon, lat] of lonLats) add(lat, lon);
   for (const point of points) add(point.lat, point.lon);
-  return [south, west, north, east].join(',');
+  return [south, west, north, east];
 }
 
 /**
@@ -39,17 +39,21 @@ export function FitRouteBounds({
   readonly also?: readonly (readonly [number, number])[] | null;
 }) {
   const map = useMap();
-  const extent = extentOf([...route.geometry.coordinates, ...(also ?? [])], route.points);
+  const [south, west, north, east] = extentOf(
+    [...route.geometry.coordinates, ...(also ?? [])],
+    route.points,
+  );
 
   useEffect(() => {
-    const [south = 0, west = 0, north = 0, east = 0] = extent.split(',').map(Number);
+    // Nothing to show yet (no positions): the edges are still infinite, so leave the view alone.
+    if (![south, west, north, east].every(Number.isFinite)) return;
     const corners: LatLngTuple[] = [
       [south, west],
       [north, east],
     ];
     map.invalidateSize();
     map.fitBounds(latLngBounds(corners), FIT_OPTIONS);
-  }, [map, extent]);
+  }, [map, south, west, north, east]);
 
   return null;
 }

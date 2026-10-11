@@ -8,7 +8,10 @@ import { PageHeader } from '../components/PageHeader';
 import { useAsync } from '../components/use-async';
 import { localToday } from '../format';
 import { usePanelDeps } from '../panel-deps';
+import { canAny } from '../session/permissions';
+import { useUser } from '../session/session-context';
 import {
+  allSurveyProblemsKnown,
   emptySurvey,
   surveyFromRecord,
   surveyProblemsByField,
@@ -22,6 +25,8 @@ const SURVEY_ERRORS = {
   unknown_household: 'No hay un hogar inscrito con ese código. Revisa el sticker.',
   duplicate_survey: 'Ese hogar ya tiene una encuesta de esta aplicación. Ábrela desde la lista.',
   not_found: 'No se encontró la encuesta. Es posible que la hayan eliminado.',
+  invalid_survey:
+    'La encuesta no se pudo guardar por una respuesta que el panel no reconoce. Revisa las respuestas o avisa al administrador.',
 } as const;
 
 /** `/panel/encuestas/nueva` and `/panel/encuestas/:id`: one Instrument 3 survey. */
@@ -29,6 +34,7 @@ export function SurveyEditorPage() {
   const deps = usePanelDeps();
   const { api } = deps;
   const navigate = useNavigate();
+  const user = useUser();
   const { id } = useParams();
   const existing = useAsync(
     useCallback(() => (id === undefined ? Promise.resolve(null) : api.getSurvey(id)), [api, id]),
@@ -37,6 +43,8 @@ export function SurveyEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const survey = existing.data ?? null;
+  // Opening a survey needs only `surveys:read`; changing it needs `surveys:write`.
+  const writable = canAny(user, ['surveys:write']);
 
   const run = async (action: () => Promise<void>) => {
     setWorking(true);
@@ -45,7 +53,12 @@ export function SurveyEditorPage() {
     try {
       await action();
     } catch (failure) {
-      if (failure instanceof PanelApiError && failure.problems.length > 0) {
+      // Problems the form cannot place (a newer API) get the general message instead.
+      if (
+        failure instanceof PanelApiError &&
+        failure.problems.length > 0 &&
+        allSurveyProblemsKnown(failure.problems)
+      ) {
         setProblems(failure.problems);
       } else {
         setError(errorMessage(failure, SURVEY_ERRORS));
@@ -107,6 +120,11 @@ export function SurveyEditorPage() {
   return (
     <>
       {header}
+      {!writable && (
+        <Notice tone="warn" title="Solo lectura" announce={false}>
+          <p>Tu rol permite ver las encuestas, no cambiarlas.</p>
+        </Notice>
+      )}
       {problems.length > 0 && (
         <Notice tone="danger" title="La encuesta tiene respuestas que no cuadran">
           <p>Revisa las preguntas marcadas.</p>
@@ -116,6 +134,7 @@ export function SurveyEditorPage() {
         key={survey?.id ?? 'new'}
         initial={survey === null ? emptySurvey(localToday(deps.now())) : surveyFromRecord(survey)}
         editing={survey !== null}
+        readOnly={!writable}
         problems={surveyProblemsByField(problems)}
         error={error}
         working={working}

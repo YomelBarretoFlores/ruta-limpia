@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -42,5 +42,15 @@ describe('ExportsPage', () => {
       'href',
       '/api/panel/exports/uso.csv?route=RI-01&from=2026-10-19&to=2026-12-20',
     );
+  });
+
+  it('hides the links and explains a reversed period', async () => {
+    setup();
+    await screen.findByRole('link', { name: 'Descargar uso.csv' });
+
+    fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '2026-11-01' } });
+
+    expect(await screen.findByText(/posterior a «Hasta»/)).toBeInTheDocument();
+    expect(screen.queryAllByRole('link', { name: /^Descargar / })).toHaveLength(0);
   });
 });
