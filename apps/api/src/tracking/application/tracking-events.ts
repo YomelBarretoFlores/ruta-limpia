@@ -57,6 +57,8 @@ export interface TrackingEvents {
     readonly routeId: string;
     readonly vehicleId: string;
     readonly computedAt: Date;
+    /** The trip's last fix: with `computedAt` it tells whether the telemetry is live or stale. */
+    readonly lastFixAt: Date | null;
     readonly etas: readonly PointEta[];
   };
   'alert.emitted': {

@@ -16,6 +16,7 @@ import type {
   StoredAlert,
   TrackingStore,
   TrackingTransaction,
+  TripReader,
   TripRecord,
   Vehicle,
   VehicleDirectory,
@@ -247,6 +248,32 @@ function deserializeRecentSpeed(stored: StoredRecentSpeed | null): RecentSpeed {
         ? null
         : { chainage: stored.lastSample.chainage, at: new Date(stored.lastSample.at) },
   };
+}
+
+/** Unlocked trip reads for the live views and the ETA refresh. */
+export class KyselyTripReader implements TripReader {
+  constructor(private readonly db: AppDatabase) {}
+
+  async activeTrips(): Promise<TripRecord[]> {
+    const rows = await this.db
+      .selectFrom('trips')
+      .selectAll()
+      .where('status', '=', 'active')
+      .orderBy('started_at')
+      .execute();
+    return Promise.all(rows.map((row) => loadTripRecord(this.db, row)));
+  }
+
+  async activeTripOf(vehicleId: string): Promise<TripRecord | null> {
+    if (!isUuid(vehicleId)) return null;
+    const row = await this.db
+      .selectFrom('trips')
+      .selectAll()
+      .where('vehicle_id', '=', vehicleId)
+      .where('status', '=', 'active')
+      .executeTakeFirst();
+    return row === undefined ? null : loadTripRecord(this.db, row);
+  }
 }
 
 /** Vehicle registry backed by the `vehicles` table. */

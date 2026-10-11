@@ -10,6 +10,7 @@ import type { LiveSnapshotResponse } from '../../src/live/infrastructure/http/li
 import type { RouteDetailResponse } from '../../src/routes/infrastructure/http/public-route-routes.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
+import type { TrackingEvents } from '../../src/tracking/application/tracking-events.js';
 import { connectTestDatabase, resetData } from './database.js';
 
 /** Tuesday 2026-10-20, 07:05 in Lima. */
@@ -184,5 +185,30 @@ describe('live route snapshot (PostGIS)', () => {
     expect(pending.every((e) => e.status === 'stale')).toBe(true);
     expect(response.body).not.toContain('"predictedPassAt"');
     expect(response.body).not.toContain('"window"');
+  });
+});
+
+describe('periodic ETA refresh (PostGIS)', () => {
+  it('republishes the ETAs between fixes and suspends them once the telemetry is stale', async () => {
+    await drive(300);
+    const events: TrackingEvents['eta.updated'][] = [];
+    const unsubscribe = api.events.subscribe('eta.updated', (payload) => events.push(payload));
+    const alerts = await db.selectFrom('alerts').select('id').execute();
+
+    clock.set(new Date(T0 + 315_000));
+    expect(await api.etaRefresh.refreshAll()).toBe(1);
+    clock.set(new Date(T0 + 361_000 + 1_000));
+    expect(await api.etaRefresh.refreshAll()).toBe(1);
+    unsubscribe();
+
+    expect(events.map((e) => e.lastFixAt)).toEqual([
+      new Date(T0 + 300_000),
+      new Date(T0 + 300_000),
+    ]);
+    expect(events[0]!.etas.some((e) => e.status === 'live')).toBe(true);
+    expect(
+      events[1]!.etas.filter((e) => e.status !== 'passed').every((e) => e.status === 'stale'),
+    ).toBe(true);
+    expect(await db.selectFrom('alerts').select('id').execute()).toHaveLength(alerts.length);
   });
 });

@@ -8,6 +8,7 @@ import type {
   StoredAlert,
   TrackingStore,
   TrackingTransaction,
+  TripReader,
   TripRecord,
   Vehicle,
   VehicleDirectory,
@@ -33,7 +34,7 @@ interface Data {
  * integrity rules are enforced: unique Traccar ids, one active trip per vehicle, one alert and one
  * pass per (trip, point).
  */
-export class InMemoryTrackingStore implements TrackingStore {
+export class InMemoryTrackingStore implements TrackingStore, TripReader {
   data: Data = { positions: [], trips: [], passes: [], alerts: [], nextId: 1 };
 
   async transaction<T>(work: (tx: TrackingTransaction) => Promise<T>): Promise<T> {
@@ -44,6 +45,16 @@ export class InMemoryTrackingStore implements TrackingStore {
       this.data = snapshot;
       throw error;
     }
+  }
+
+  activeTrips(): Promise<TripRecord[]> {
+    return Promise.resolve(this.data.trips.filter((t) => t.state.status === 'active'));
+  }
+
+  activeTripOf(vehicleId: string): Promise<TripRecord | null> {
+    return Promise.resolve(
+      this.data.trips.find((t) => t.vehicleId === vehicleId && t.state.status === 'active') ?? null,
+    );
   }
 
   get trips(): readonly TripRecord[] {

@@ -19,6 +19,7 @@ const configSchema = z
     TRIP_START_ZONE_METERS: positiveInt(150),
     TRIP_INACTIVITY_TIMEOUT_SEC: positiveInt(30 * 60),
     TRIP_INACTIVITY_CHECK_INTERVAL_SEC: positiveInt(60),
+    ETA_REFRESH_INTERVAL_SEC: positiveInt(15),
     SHUTDOWN_TIMEOUT_SEC: positiveInt(10),
     TRUST_PROXY: z.stringbool().default(false),
     PUBLIC_RATE_LIMIT_PER_MINUTE: positiveInt(20),
@@ -59,6 +60,8 @@ export interface AppConfig {
   /** An active trip without fixes for this long is aborted. */
   readonly tripInactivityTimeoutSec: number;
   readonly tripInactivityCheckIntervalSec: number;
+  /** How often the ETAs of active trips are recomputed and republished between fixes. */
+  readonly etaRefreshIntervalSec: number;
   /** Graceful-shutdown deadline before the process is forced to exit. */
   readonly shutdownTimeoutSec: number;
   /** Trust `X-Forwarded-*` from the reverse proxy (client IPs for rate limiting). */
@@ -118,6 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tripStartZoneMeters: raw.TRIP_START_ZONE_METERS,
     tripInactivityTimeoutSec: raw.TRIP_INACTIVITY_TIMEOUT_SEC,
     tripInactivityCheckIntervalSec: raw.TRIP_INACTIVITY_CHECK_INTERVAL_SEC,
+    etaRefreshIntervalSec: raw.ETA_REFRESH_INTERVAL_SEC,
     shutdownTimeoutSec: raw.SHUTDOWN_TIMEOUT_SEC,
     trustProxy: raw.TRUST_PROXY,
     publicRateLimitPerMinute: raw.PUBLIC_RATE_LIMIT_PER_MINUTE,

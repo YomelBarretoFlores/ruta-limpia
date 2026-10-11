@@ -23,6 +23,7 @@ async function main(): Promise<void> {
   const shutdown = createShutdown({
     steps: [
       { name: 'inactivity job', run: () => api.inactivityJob.stop() },
+      { name: 'eta refresh job', run: () => api.etaRefreshJob.stop() },
       { name: 'http server', run: () => api.app.close() },
       {
         // Pushes still in flight get what is left of the budget, minus a reserve for the pool.
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
 
   await api.app.listen({ host: config.host, port: config.port });
   api.inactivityJob.start();
+  api.etaRefreshJob.start();
 }
 
 main().catch((error: unknown) => {

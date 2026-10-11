@@ -99,6 +99,12 @@ export interface TrackingTransaction {
   recordAlerts(decisions: readonly AlertDecision[]): Promise<StoredAlert[]>;
 }
 
+/** Port: reads trips outside a tracking transaction, without locks (live views, ETA refresh). */
+export interface TripReader {
+  activeTrips(): Promise<TripRecord[]>;
+  activeTripOf(vehicleId: string): Promise<TripRecord | null>;
+}
+
 /** Port: runs tracking work atomically. */
 export interface TrackingStore {
   transaction<T>(work: (tx: TrackingTransaction) => Promise<T>): Promise<T>;

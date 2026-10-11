@@ -73,26 +73,27 @@ IMEI or simulator ID as the identifier.
 The API reads its configuration from the environment (the root `.env` in development) and fails fast on
 invalid values. An empty value (`PORT=`) counts as unset, so the default applies.
 
-| Variable                             | Default                | Description                                                       |
-| ------------------------------------ | ---------------------- | ----------------------------------------------------------------- |
-| `DATABASE_URL`                       | required               | PostgreSQL URL (`postgres://…`).                                  |
-| `INGEST_TOKEN`                       | required (≥ 32 chars)  | Shared secret Traccar sends in `X-Ingest-Token`.                  |
-| `HOST` / `PORT`                      | `0.0.0.0` / `3000`     | HTTP listener.                                                    |
-| `LOG_LEVEL`                          | `info`                 | Pino log level.                                                   |
-| `DATABASE_POOL_MAX`                  | `10`                   | Maximum pg pool connections.                                      |
-| `MIGRATE_ON_START`                   | `true`                 | Apply pending migrations when the API starts.                     |
-| `TRIP_START_ZONE_METERS`             | `150`                  | A trip auto-starts when a fix lies this close to the route start. |
-| `TRIP_INACTIVITY_TIMEOUT_SEC`        | `1800`                 | An active trip without fixes for this long is aborted.            |
-| `TRIP_INACTIVITY_CHECK_INTERVAL_SEC` | `60`                   | How often the inactivity job runs.                                |
-| `SHUTDOWN_TIMEOUT_SEC`               | `10`                   | Graceful-shutdown deadline before the process is forced to exit.  |
-| `SEED_VEHICLE_UNIQUE_ID`             | `ruta-limpia-unidad-a` | Traccar identifier given to UNIDAD-A by `db:seed`.                |
-| `TRUST_PROXY`                        | `false`                | Trust `X-Forwarded-*` from the reverse proxy (real client IPs).   |
-| `PUBLIC_RATE_LIMIT_PER_MINUTE`       | `20`                   | Requests per client IP and route on the public mutating routes.   |
-| `VAPID_PUBLIC_KEY`                   | unset                  | Web Push public key (87 chars). Set all three VAPID vars or none. |
-| `VAPID_PRIVATE_KEY`                  | unset                  | Web Push private key (43 chars). Keep it secret.                  |
-| `VAPID_SUBJECT`                      | unset                  | Contact for the push services: `mailto:…` or `https://…`.         |
-| `PUSH_CONCURRENCY`                   | `8`                    | Pushes sent at the same time for one alert.                       |
-| `PUSH_MAX_CONSECUTIVE_FAILURES`      | `5`                    | Failed pushes in a row before a subscription is revoked.          |
+| Variable                             | Default                | Description                                                                      |
+| ------------------------------------ | ---------------------- | -------------------------------------------------------------------------------- |
+| `DATABASE_URL`                       | required               | PostgreSQL URL (`postgres://…`).                                                 |
+| `INGEST_TOKEN`                       | required (≥ 32 chars)  | Shared secret Traccar sends in `X-Ingest-Token`.                                 |
+| `HOST` / `PORT`                      | `0.0.0.0` / `3000`     | HTTP listener.                                                                   |
+| `LOG_LEVEL`                          | `info`                 | Pino log level.                                                                  |
+| `DATABASE_POOL_MAX`                  | `10`                   | Maximum pg pool connections.                                                     |
+| `MIGRATE_ON_START`                   | `true`                 | Apply pending migrations when the API starts.                                    |
+| `TRIP_START_ZONE_METERS`             | `150`                  | A trip auto-starts when a fix lies this close to the route start.                |
+| `TRIP_INACTIVITY_TIMEOUT_SEC`        | `1800`                 | An active trip without fixes for this long is aborted.                           |
+| `TRIP_INACTIVITY_CHECK_INTERVAL_SEC` | `60`                   | How often the inactivity job runs.                                               |
+| `ETA_REFRESH_INTERVAL_SEC`           | `15`                   | How often the ETAs of active trips are recomputed and republished between fixes. |
+| `SHUTDOWN_TIMEOUT_SEC`               | `10`                   | Graceful-shutdown deadline before the process is forced to exit.                 |
+| `SEED_VEHICLE_UNIQUE_ID`             | `ruta-limpia-unidad-a` | Traccar identifier given to UNIDAD-A by `db:seed`.                               |
+| `TRUST_PROXY`                        | `false`                | Trust `X-Forwarded-*` from the reverse proxy (real client IPs).                  |
+| `PUBLIC_RATE_LIMIT_PER_MINUTE`       | `20`                   | Requests per client IP and route on the public mutating routes.                  |
+| `VAPID_PUBLIC_KEY`                   | unset                  | Web Push public key (87 chars). Set all three VAPID vars or none.                |
+| `VAPID_PRIVATE_KEY`                  | unset                  | Web Push private key (43 chars). Keep it secret.                                 |
+| `VAPID_SUBJECT`                      | unset                  | Contact for the push services: `mailto:…` or `https://…`.                        |
+| `PUSH_CONCURRENCY`                   | `8`                    | Pushes sent at the same time for one alert.                                      |
+| `PUSH_MAX_CONSECUTIVE_FAILURES`      | `5`                    | Failed pushes in a row before a subscription is revoked.                         |
 
 ### Position ingestion
 
@@ -244,7 +245,9 @@ printed schedule); it holds one entry per active trip otherwise:
 ```
 
 - ETAs are recomputed at request time from the persisted trip state, so a truck that stopped
-  reporting turns `stale` without a new fix. `status` is `live`, `stale`, `passed` or `not_started`
+  reporting turns `stale` without a new fix. A background job does the same every
+  `ETA_REFRESH_INTERVAL_SEC` for every active trip and publishes it as `eta.updated`; it never
+  emits alerts (alerts only fire on fresh fixes during ingestion). `status` is `live`, `stale`, `passed` or `not_started`
   (trip started, no on-route fix yet). Only `live` entries have `predictedPassAt`,
   `secondsRemaining` and `window`.
 - `window` is the arrival range shown to citizens ("Llegada estimada: 8 a 12 minutos"): the

@@ -32,9 +32,12 @@ import { IngestPositionService } from './tracking/application/ingest-position-se
 import type { TrackingEvents } from './tracking/application/tracking-events.js';
 import { TripLifecycleService } from './tracking/application/trip-lifecycle-service.js';
 import { DEFAULT_TRACKING_SETTINGS } from './tracking/domain/tracking-settings.js';
+import { EtaRefreshService } from './tracking/application/eta-refresh-service.js';
+import { EtaRefreshJob } from './tracking/infrastructure/eta-refresh-job.js';
 import { InactivityJob } from './tracking/infrastructure/inactivity-job.js';
 import {
   KyselyTrackingStore,
+  KyselyTripReader,
   KyselyVehicleDirectory,
 } from './tracking/infrastructure/kysely-tracking-store.js';
 
@@ -47,6 +50,7 @@ export type ApiConfig = Pick<
   | 'tripStartZoneMeters'
   | 'tripInactivityTimeoutSec'
   | 'tripInactivityCheckIntervalSec'
+  | 'etaRefreshIntervalSec'
   | 'trustProxy'
   | 'publicRateLimitPerMinute'
   | 'vapid'
@@ -76,6 +80,8 @@ export interface Api {
   readonly routes: RouteCatalog;
   readonly speedProfiles: SpeedProfileProvider;
   readonly inactivityJob: InactivityJob;
+  readonly etaRefresh: EtaRefreshService;
+  readonly etaRefreshJob: EtaRefreshJob;
   readonly subscriptions: SubscriptionService;
   readonly liveSnapshots: LiveSnapshotService;
 }
@@ -152,6 +158,22 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     logger: logger.child({ component: 'inactivity-job' }),
   });
 
+  const etaRefresh = new EtaRefreshService({
+    trips: new KyselyTripReader(db),
+    routes,
+    profiles: speedProfiles,
+    events,
+    clock,
+    logger: logger.child({ component: 'eta-refresh' }),
+    mutex,
+    settings: DEFAULT_ETA_SETTINGS,
+  });
+  const etaRefreshJob = new EtaRefreshJob({
+    refreshAll: () => etaRefresh.refreshAll(),
+    intervalMs: config.etaRefreshIntervalSec * 1000,
+    logger: logger.child({ component: 'eta-refresh-job' }),
+  });
+
   const subscriptions = new SubscriptionService({
     store: new KyselySubscriptionStore(db),
     points: new KyselyReferencePointLookup(db),
@@ -201,6 +223,8 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     routes,
     speedProfiles,
     inactivityJob,
+    etaRefresh,
+    etaRefreshJob,
     subscriptions,
     liveSnapshots,
   };

@@ -262,7 +262,14 @@ export class IngestPositionService {
     );
     events.push({
       name: 'eta.updated',
-      payload: { tripId, routeId: trip.routeId, vehicleId: trip.vehicleId, computedAt: now, etas },
+      payload: {
+        tripId,
+        routeId: trip.routeId,
+        vehicleId: trip.vehicleId,
+        computedAt: now,
+        lastFixAt: state.lastFixAt,
+        etas,
+      },
     });
 
     // Until the trip has a measured recent speed or the route a historical profile, the ETA rests

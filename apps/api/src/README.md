@@ -82,8 +82,10 @@ field/application        HouseholdDirectory port (household registry: codes, nev
 field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
                          IngestPositionService, TripLifecycleService
-tracking/infrastructure  KyselyTrackingStore, KyselyVehicleDirectory, http/ (Traccar ingest route,
-                         payload schema, token check), InactivityJob
+tracking/application     EtaRefreshService (republishes every active trip's ETAs at the current time)
+tracking/infrastructure  KyselyTrackingStore, KyselyVehicleDirectory, KyselyTripReader, http/ (Traccar
+                         ingest route, payload schema, token check), InactivityJob, EtaRefreshJob
+shared/infrastructure    PeriodicJob (non-overlapping interval runs, failures logged; both jobs use it)
 composition-root.ts      composeApi(): wires adapters to use cases (shared by main.ts and integration tests)
 shutdown.ts              createShutdown(): ordered graceful shutdown with a hard deadline (used by main.ts)
 ```
@@ -120,11 +122,17 @@ Degraded inputs never block a vehicle's positions:
 `TripLifecycleService` provides `startTrip` (manual), `endTrip` (recorded as aborted) and
 `closeInactiveTrips`, which the `InactivityJob` runs periodically.
 
+`EtaRefreshService` runs every `ETA_REFRESH_INTERVAL_SEC` (`EtaRefreshJob`): for each active trip,
+under the vehicle's `KeyedMutex` (so it never interleaves with a fix of that vehicle), it re-reads the
+trip, estimates the ETAs at the current time from the persisted state, the recent speed and the cached
+speed profile, and publishes `eta.updated`. Countdowns advance and stale telemetry suspends the
+predictions between fixes. It never writes and never emits alerts.
+
 ### Events (`TrackingEvents`, in-memory bus)
 
 `vehicle.position`, `trip.started`, `trip.updated`, `trip.completed` (carries `status` completed or
-aborted and `endReason`), `point.passed`, `eta.updated` (every point's `PointEta`; `stale` entries carry no
-prediction) and `alert.emitted`. They are published only after the transaction commits.
+aborted and `endReason`), `point.passed`, `eta.updated` (every point's `PointEta`, plus the trip's
+`lastFixAt`; `stale` entries carry no prediction) and `alert.emitted`. They are published only after the transaction commits.
 
 ### Subscriptions (`SubscriptionService`)
 
