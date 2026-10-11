@@ -34,7 +34,6 @@ import {
   sendOsmAnd,
   type PlannedFix,
 } from '../../../../tools/simulator/src/index.js';
-import { E2E_TIMEOUT_MS } from '../../vitest.e2e.config.js';
 import { ManualClock } from '../fakes/in-memory-tracking-store.js';
 import { TEST_API_CONFIG } from '../support/api-config.js';
 import { createPanelUser, panelClient } from '../support/panel-client.js';
@@ -71,6 +70,16 @@ let db: AppDatabase;
 let api: Api;
 let apiUrl: string;
 const clock = new ManualClock(T0);
+const traccarUrl = (port: number) => `http://${traccar.getHost()}:${traccar.getMappedPort(port)}`;
+/** What `bootstrapTraccar` needs; every test can run it again (it is idempotent). */
+const bootstrapOptions = () => ({
+  baseUrl: traccarUrl(8082),
+  ...ADMIN,
+  deviceUniqueId: DEVICE,
+  deviceName: 'Unidad A',
+});
+/** The first bootstrap, on the fresh Traccar: done once here so no test depends on another. */
+let firstBootstrap: Awaited<ReturnType<typeof bootstrapTraccar>>;
 
 beforeAll(async () => {
   network = await new Network().start();
@@ -125,17 +134,28 @@ beforeAll(async () => {
         stream.on('data', (line: string) => process.stdout.write(line));
     })
     .start();
-}, E2E_TIMEOUT_MS);
-
-afterAll(async () => {
-  await api?.app.close();
-  await db?.destroy();
-  await traccar?.stop();
-  await postgis?.stop();
-  await network?.stop();
+  firstBootstrap = await bootstrapTraccar(bootstrapOptions());
 });
 
-const traccarUrl = (port: number) => `http://${traccar.getHost()}:${traccar.getMappedPort(port)}`;
+afterAll(async () => {
+  // Every step runs even when an earlier one fails, so no container or network is left behind.
+  const steps = [
+    () => api?.app.close(),
+    () => db?.destroy(),
+    () => traccar?.stop(),
+    () => postgis?.stop(),
+    () => network?.stop(),
+  ];
+  const failures: unknown[] = [];
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) throw new AggregateError(failures, 'E2E teardown failed');
+});
 
 /** Every event the stream sent, in order, and a way to wait for the next one that matters. */
 function recorder(stream: SseConnection) {
@@ -156,18 +176,14 @@ const field = (message: SseMessage, key: string) => (message.data as Record<stri
 
 describe('RI-01 through Traccar, end to end', () => {
   it('bootstraps Traccar idempotently', async () => {
-    const options = {
-      baseUrl: traccarUrl(8082),
-      ...ADMIN,
-      deviceUniqueId: DEVICE,
-      deviceName: 'Unidad A',
-    };
+    const again = await bootstrapTraccar(bootstrapOptions());
 
-    const first = await bootstrapTraccar(options);
-    const again = await bootstrapTraccar(options);
-
-    expect(first).toMatchObject({ adminCreated: true, deviceCreated: true });
-    expect(again).toEqual({ adminCreated: false, deviceCreated: false, deviceId: first.deviceId });
+    expect(firstBootstrap).toMatchObject({ adminCreated: true, deviceCreated: true });
+    expect(again).toEqual({
+      adminCreated: false,
+      deviceCreated: false,
+      deviceId: firstBootstrap.deviceId,
+    });
   });
 
   it('streams the trip, the passes in order, the ETAs and one alert per point, and logs Instrument 1', async () => {
@@ -177,6 +193,11 @@ describe('RI-01 through Traccar, end to end', () => {
     const plan = planRi01Drive({ startAt: T0, gap: GAP });
     const send = (fix: PlannedFix) => sendOsmAnd(traccarUrl(5055), DEVICE, fix);
     const last = plan.fixes.at(-1)!;
+    // The last fix before the gap, and when the ETA is first older than 60 s without a new one.
+    const beforeGap = plan.fixes.findLast((fix) => fix.offsetSec < GAP.atSec)!;
+    const afterGap = plan.fixes.find((fix) => fix.offsetSec >= GAP.atSec)!;
+    const staleAtSec = beforeGap.offsetSec + 75;
+    expect(staleAtSec).toBeLessThan(afterGap.offsetSec);
 
     for (const fix of plan.fixes) {
       clock.set(new Date(fix.at.getTime() + 1000));
@@ -186,9 +207,9 @@ describe('RI-01 through Traccar, end to end', () => {
       // default) before forwarding it: wait for the API to stream it before the next one.
       const fixTime = fix.at.toISOString();
       await events.until((m) => m.event === 'vehicle.position' && field(m, 'fixTime') === fixTime);
-      if (fix.offsetSec === GAP.atSec - 20) {
+      if (fix === beforeGap) {
         // No fix for 75 s: the next refresh suspends the ETA.
-        clock.set(new Date(T0.getTime() + (GAP.atSec + 55) * 1000));
+        clock.set(new Date(T0.getTime() + staleAtSec * 1000));
         await api.etaRefresh.refreshAll();
         await events.until((m) => m.event === 'eta.updated' && field(m, 'signal') === 'stale');
       }
@@ -215,6 +236,7 @@ describe('RI-01 through Traccar, end to end', () => {
       RI01_STOPS.map((stop) => stop.code),
     );
     expect(named('eta.updated').some((m) => field(m, 'signal') === 'live')).toBe(true);
+    expect(named('eta.updated').some((m) => field(m, 'signal') === 'stale')).toBe(true);
     expect(named('trip.completed')).toHaveLength(1);
 
     // One alert per eligible point: the stream and the log agree, and no point has two.

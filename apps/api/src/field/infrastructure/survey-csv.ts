@@ -120,7 +120,8 @@ function readRow(
     return null;
   };
   const text = (column: Column): string | null => {
-    // The export neutralized formula-like text with an apostrophe: read it back unchanged.
+    // The export neutralized formula-like text with one more apostrophe: drop it, so export →
+    // import is lossless (see `restoreNeutralized` for a file edited by hand).
     const value = restoreNeutralized(raw.get(column) ?? '');
     if (value === '') return null;
     return value.length > TEXT_MAX ? fail(column, 'invalid_value') : value;

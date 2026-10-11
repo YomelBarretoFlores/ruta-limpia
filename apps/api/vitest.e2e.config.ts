@@ -1,7 +1,7 @@
 import { defineProject } from 'vitest/config';
 
 /** The longest the whole smoke may take: container starts (PostGIS emulated on Apple Silicon). */
-export const E2E_TIMEOUT_MS = 300_000;
+const E2E_TIMEOUT_MS = 300_000;
 
 /**
  * The end-to-end smoke test (`pnpm test:e2e`): PostGIS and Traccar 6.16 in Testcontainers, the API

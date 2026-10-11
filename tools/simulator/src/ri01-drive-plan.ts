@@ -43,7 +43,10 @@ export interface DrivePlanOptions {
   readonly noiseMeters?: number;
   /** Seed of the noise, so a run can be repeated. Default 1. */
   readonly seed?: number;
-  /** No fix is sent from `atSec` for `durationSec` (a signal gap: over 60 s turns the ETA stale). */
+  /**
+   * No fix is sent from `atSec` for `durationSec` (a signal gap: over 60 s turns the ETA stale).
+   * The fix at the route end is always sent, so the trip completes.
+   */
   readonly gap?: { readonly atSec: number; readonly durationSec: number } | null;
 }
 
@@ -140,10 +143,14 @@ export function planRi01Drive(options: DrivePlanOptions): DrivePlan {
   if (!(cruise > 0) || !(dwell >= 0) || !(noise >= 0)) {
     throw new RangeError('The speed must be positive, and the dwell and the noise not negative.');
   }
+  const gap = options.gap ?? null;
+  const seconds = (value: number) => Number.isFinite(value) && value >= 0;
+  if (gap !== null && !(seconds(gap.atSec) && seconds(gap.durationSec))) {
+    throw new RangeError('The signal gap start and length must be finite, non-negative seconds.');
+  }
   const phases = phasesOf(cruise, dwell);
   const durationSec = Math.ceil(phases.at(-1)!.end);
   const random = seededRandom(options.seed ?? 1);
-  const gap = options.gap ?? null;
 
   const offsets: number[] = [];
   for (let t = 0; t < durationSec; t += interval) offsets.push(t);
@@ -156,7 +163,9 @@ export function planRi01Drive(options: DrivePlanOptions): DrivePlan {
     const exact = positionAtChainage(GEOMETRY, chainage);
     const angle = 2 * Math.PI * random();
     const distance = noise * Math.sqrt(random());
-    if (gap !== null && offsetSec >= gap.atSec && offsetSec < gap.atSec + gap.durationSec) {
+    // The fix at the route end is always sent: without it the trip could never complete.
+    const inGap = gap !== null && offsetSec >= gap.atSec && offsetSec < gap.atSec + gap.durationSec;
+    if (inGap && offsetSec < durationSec) {
       skipped += 1;
       continue;
     }

@@ -5,5 +5,11 @@
     "moduleResolution": "nodenext",
     "types": ["node"]
   },
-  "include": ["src", "test", "vitest.config.ts", "vitest.integration.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "vitest.config.ts",
+    "vitest.integration.config.ts",
+    "vitest.e2e.config.ts"
+  ]
 }

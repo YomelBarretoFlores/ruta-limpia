@@ -311,6 +311,13 @@ when no alert was sent.
 - **`0014-indicator-inputs` is additive.** It adds two columns with defaults to
   `field_observations` and creates `household_surveys`, so it can run while an earlier build is
   still serving; that build simply ignores the new columns and table.
-- **`0015-positions-without-traccar-id`** deletes repeated rows of one vehicle and fix time (replays
-  of one fix; the first stored stays) before adding the unique index. An earlier build keeps
-  working against it, but rejects `id: 0` forwards with 400, which Traccar retries.
+- **`0015-positions-without-traccar-id`: stop the old API first, outside collection hours.**
+  It deletes repeated rows of one vehicle and fix time (replays of one fix; the first stored
+  stays) before adding the unique index. An earlier build must not keep serving after it: that
+  build inserts with `ON CONFLICT` on the Traccar id only, so a replay of a fix under a new
+  Traccar id hits the new unique index and answers `5xx`, and it rejects `id: 0` forwards with
+  `400`; Traccar retries both until the new build runs. The `DELETE` and the plain (not
+  `CONCURRENTLY`) index build also block inserts into `positions` until the migration commits, so
+  forwards wait (and are retried, idempotently) for as long as it runs. With the pilot's volume
+  (one truck, a fix every 15–30 s) that is well under a second, but run it in a maintenance window
+  outside the collection schedule. Order: stop the API, migrate, start the new build.

@@ -42,7 +42,9 @@ speed in knots, timestamp in epoch seconds) in real time:
 
 The drive starts about 30 m before P01 (inside the trip start zone) and ends about 30 m after P15
 (the trip completes). With the defaults it lasts about 16 minutes and sends 50 fixes. Use
-`--dry-run` to see them.
+`--dry-run` to see them. The fix at the route end is always sent, even inside a signal gap, so the
+trip can complete. A gap start or length that is not a non-negative number stops the drive before
+it sends anything, and a fix Traccar does not answer within 10 s stops it with an error.
 
 ## 3. End-to-end smoke test
 
@@ -51,11 +53,13 @@ The drive starts about 30 m before P01 (inside the trip start zone) and ends abo
 1. Starts PostGIS (network alias `db`, plus a `traccar` database) and Traccar 6.16 with the
    repository's own `infra/traccar/traccar.xml` and entrypoint: `forward.type=json` to the API in
    the test process (`host.testcontainers.internal`), with the `X-Ingest-Token` header.
-2. Runs `bootstrapTraccar` twice (the second run changes nothing).
+2. Runs `bootstrapTraccar` before the tests, and again in the first test (the second run changes
+   nothing). Each test can run alone (`-t`).
 3. Drives RI-01 through Traccar's OsmAnd port, with a 100 s signal gap.
 4. Asserts on the live stream (SSE) and the database:
    - one `trip.started`, the 15 `point.passed` in route order, live `eta.updated`, a `stale` one
-     during the gap, one `trip.completed`;
+     during the gap (always checked: the test finds the last fix before the gap), one
+     `trip.completed`;
    - one `alert.emitted` per alerted point, matching the `alerts` rows (unique per trip and point);
    - every fix stored once;
    - the 15 Instrument 1 rows of the trip in `instrumento1.csv`.

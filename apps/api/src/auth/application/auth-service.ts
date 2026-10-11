@@ -304,9 +304,18 @@ export class AuthService {
     }
   }
 
-  private settle(attempt: HeldAttempt, now: Date, outcome: 'failed' | 'succeeded' | 'abandoned') {
+  /**
+   * Settles the attempt's place. The flag is set only once the store has done it: if the store
+   * call rejects, the place is still held and `giveBack` settles it as abandoned.
+   */
+  private async settle(
+    attempt: HeldAttempt,
+    now: Date,
+    outcome: 'failed' | 'succeeded' | 'abandoned',
+  ) {
+    const settled = await this.settleSource(attempt.source, now, outcome);
     attempt.settled = true;
-    return this.settleSource(attempt.source, now, outcome);
+    return settled;
   }
 
   private settleSource(source: string, now: Date, outcome: 'failed' | 'succeeded' | 'abandoned') {

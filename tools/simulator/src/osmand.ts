@@ -22,14 +22,29 @@ export function osmAndUrl(baseUrl: string, deviceId: string, fix: PlannedFix): s
   return url.toString();
 }
 
-/** Sends one fix to Traccar's OsmAnd port; throws unless Traccar accepts it (200). */
+/** How long to wait for Traccar's answer to one fix before giving up. */
+export const OSMAND_TIMEOUT_MS = 10_000;
+
+/** Sends one fix to Traccar's OsmAnd port; throws unless Traccar accepts it (200) in time. */
 export async function sendOsmAnd(
   baseUrl: string,
   deviceId: string,
   fix: PlannedFix,
   fetchImpl: Fetch = fetch,
+  timeoutMs = OSMAND_TIMEOUT_MS,
 ): Promise<void> {
-  const response = await fetchImpl(osmAndUrl(baseUrl, deviceId, fix), { method: 'GET' });
+  const signal = AbortSignal.timeout(timeoutMs);
+  let response: Response;
+  try {
+    response = await fetchImpl(osmAndUrl(baseUrl, deviceId, fix), { method: 'GET', signal });
+  } catch (error) {
+    if (signal.aborted) {
+      throw new Error(`Traccar did not answer an OsmAnd fix within ${timeoutMs} ms.`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
   await response.body?.cancel();
   if (response.status === 400) {
     throw new Error(

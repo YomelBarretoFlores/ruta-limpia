@@ -10,6 +10,12 @@ import { sql, type Kysely } from 'kysely';
  * - one position per vehicle and fix time (`positions_vehicle_fix_time_key`, which also replaces
  *   the plain index on those columns). Rows already repeating a vehicle and fix time are replays
  *   of the same fix: the first one stored is kept. Nothing references positions by id.
+ *
+ * Deploy: stop the old API first. An earlier build inserts with `ON CONFLICT` on the Traccar id
+ * only, so a replay under a new Traccar id hits the new unique index and answers 5xx (Traccar keeps
+ * retrying). The DELETE and the plain (not CONCURRENTLY) index build hold a lock that blocks
+ * inserts into `positions` until the migration commits: run it outside collection hours (see the
+ * deploy notes in `src/README.md`).
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`ALTER TABLE positions ALTER COLUMN traccar_position_id DROP NOT NULL`.execute(db);

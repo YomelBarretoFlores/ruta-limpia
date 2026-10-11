@@ -55,6 +55,27 @@ describe('planRi01Drive', () => {
     expect(gapped.skipped).toBe(5);
   });
 
+  it('always keeps the fix at the route end, even inside a gap, so the trip can complete', () => {
+    const gapped = planRi01Drive({
+      startAt: START,
+      gap: { atSec: plan.durationSec - 60, durationSec: 600 },
+    });
+
+    expect(gapped.fixes.at(-1)).toMatchObject({ offsetSec: plan.durationSec });
+    expect(gapped.fixes.at(-2)!.offsetSec).toBeLessThan(plan.durationSec - 60);
+  });
+
+  it('refuses a gap that is not a finite, non-negative number of seconds', () => {
+    for (const gap of [
+      { atSec: Number.NaN, durationSec: 90 },
+      { atSec: 200, durationSec: Number.NaN },
+      { atSec: -1, durationSec: 90 },
+      { atSec: 200, durationSec: Number.POSITIVE_INFINITY },
+    ]) {
+      expect(() => planRi01Drive({ startAt: START, gap })).toThrow(/gap/);
+    }
+  });
+
   it('adds repeatable GPS noise within the radius, and reports it as the accuracy', () => {
     const noisy = planRi01Drive({ startAt: START, noiseMeters: 8, seed: 7 });
     const again = planRi01Drive({ startAt: START, noiseMeters: 8, seed: 7 });

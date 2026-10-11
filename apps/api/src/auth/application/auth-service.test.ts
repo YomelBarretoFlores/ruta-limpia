@@ -273,6 +273,32 @@ describe('AuthService.login', () => {
       expect(await sourceOf(OFFICE)).toMatchObject({ inFlight: 0, failedAttempts: 0 });
     });
 
+    describe('when settling the place itself fails once', () => {
+      // The first `sources.modify` admits the attempt; the second settles it.
+      const failSecondSettle = () => {
+        const modify = sources.modify.bind(sources);
+        let calls = 0;
+        sources.modify = (source, change) => {
+          calls += 1;
+          return calls === 2 ? databaseDown() : modify(source, change);
+        };
+      };
+
+      it('after a wrong password', async () => {
+        failSecondSettle();
+
+        await expect(attempt('wrong password!')).rejects.toThrow('connection terminated');
+        expect(await sourceOf(OFFICE)).toMatchObject({ inFlight: 0 });
+      });
+
+      it('after a correct password', async () => {
+        failSecondSettle();
+
+        await expect(attempt(PASSWORD)).rejects.toThrow('connection terminated');
+        expect(await sourceOf(OFFICE)).toMatchObject({ inFlight: 0 });
+      });
+    });
+
     it('so repeated outages never lock the owner out of their network', async () => {
       const isKnown = knownNetworks.isKnown.bind(knownNetworks);
       knownNetworks.isKnown = databaseDown;

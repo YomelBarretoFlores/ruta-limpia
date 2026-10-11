@@ -43,6 +43,17 @@ describe('sendOsmAnd', () => {
     expect(calls[0]).toMatch(/^http:\/\/traccar:5055\/\?id=dev-1&/);
   });
 
+  it('gives up on a Traccar that accepts the connection but never answers', async () => {
+    const hang = (_input: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+
+    await expect(sendOsmAnd('http://traccar:5055', 'dev-1', FIX, hang, 20)).rejects.toThrow(
+      /did not answer.*20 ms/,
+    );
+  });
+
   it('explains a 400: Traccar does not know the device yet', async () => {
     const refuse = () => Promise.resolve(new Response('', { status: 400 }));
 

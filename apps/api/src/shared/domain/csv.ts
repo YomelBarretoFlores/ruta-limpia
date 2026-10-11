@@ -97,21 +97,29 @@ export function parseCsv(text: string): CsvRecord[] {
 
 export type CsvValue = string | number | boolean | null;
 
+/** Text a spreadsheet would run as a formula: `=`, `+`, `-`, `@`, a tab or a carriage return first. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+/** The same, behind any number of apostrophes (text `toCsv` neutralized, or authored that way). */
+const BEHIND_APOSTROPHES = /^'+[=+\-@\t\r]/;
+
 /**
- * A cell that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`, a tab or a carriage
- * return first) gets a leading apostrophe (OWASP, CSV injection). Numbers are written as numbers.
+ * A cell that a spreadsheet would run as a formula gets a leading apostrophe (OWASP, CSV
+ * injection). Text that already starts with apostrophes before a formula character gets one more,
+ * so `restoreNeutralized` can always drop exactly one. Numbers are written as numbers.
  */
 function neutralized(text: string): string {
-  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return FORMULA_START.test(text) || BEHIND_APOSTROPHES.test(text) ? `'${text}` : text;
 }
 
 /**
- * Undoes `toCsv`'s formula neutralization when reading a file back: an apostrophe followed by a
- * formula character is dropped, so export → import keeps free text unchanged. Any other leading
- * apostrophe is the author's own text and stays.
+ * Undoes `toCsv`'s formula neutralization when reading a file back: one apostrophe before a
+ * formula character (after any further apostrophes) is dropped. Export → import is lossless for
+ * every text, including text the author started with `'=`. A leading apostrophe before anything
+ * else (`'90s`) is the author's own and stays. A file edited by hand is read the same way: a typed
+ * `'=x` becomes `=x`.
  */
 export function restoreNeutralized(text: string): string {
-  return /^'[=+\-@\t\r]/.test(text) ? text.slice(1) : text;
+  return BEHIND_APOSTROPHES.test(text) ? text.slice(1) : text;
 }
 
 function cell(value: CsvValue): string {

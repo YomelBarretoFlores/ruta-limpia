@@ -68,6 +68,18 @@ describe('toCsv', () => {
     expect(restoreNeutralized('plain')).toBe('plain');
   });
 
+  it('round-trips text that already starts with apostrophes before a formula character', () => {
+    const authored = ["'=junta", "''+1", "'90s", '=x'];
+    const [, ...records] = parseCsv(
+      toCsv(
+        ['v'],
+        authored.map((t) => [t]),
+      ),
+    );
+
+    expect(records.map((r) => restoreNeutralized(r.fields[0] ?? ''))).toEqual(authored);
+  });
+
   it('round-trips through the parser', () => {
     const rows = [['H-001', 'línea 1\nlínea 2, "citada"', '']];
     const parsed = parseCsv(toCsv(['a', 'b', 'c'], rows));
