@@ -68,7 +68,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 |----|------|-------|--------|
 | T1 | Monorepo scaffold, tooling, docker compose (PostGIS + Traccar) and README | delegated (writer: 2+ non-trivial files) | [x] |
 | T2 | Pure domain: route geometry, trip lifecycle, pass detection, ETA engine, staleness, alert policy (test-first) | delegated (writer) | [x] |
-| T3 | Persistence + ingestion: schema/migrations, Traccar forward endpoint, tracking pipeline, Instrument 1 log | delegated (writer) | [ ] |
+| T3 | Persistence + ingestion: schema/migrations, Traccar forward endpoint, tracking pipeline, Instrument 1 log | delegated (writer) | [x] |
 | T4 | Notifications: Web Push (VAPID), point subscriptions with consent/cancel, alert dispatch and delivery log | delegated (writer) | [ ] |
 | T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [ ] |
 | T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [ ] |
@@ -134,6 +134,36 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   2.1k (950 source+docs, 1,140 tests), well above the 400-line heuristic. The domain contracts are cohesive, and
   the scenario test needs all five contexts; strategy `exception-ok`.
 
+- 2026-10-11: T3 done in two work-unit commits. Commit A `d1c65a1`
+  `fix(domain): pass points at their exact chainage and never strand them at trip completion` (T2 review
+  items). Test-first: 3 new tests went RED against the old code (early pass 10 m before P01, pass time
+  taken from the stop, point 3 m before the route end stranded at completion), then GREEN after removing
+  `passToleranceMeters` and passing every remaining point (`upper_bound`) before `trip_completed`. The
+  off-route + `jump_rejected` behavior was already correct (stays off route, keeps progress, no
+  `route_rejoined`); it is now documented and covered by a characterization test. The scenario's
+  out-of-order assertion moved into an `it()`. Points near the route end stay valid in
+  `locateReferencePoints` (P15 sits 0.03 m before the completion threshold; completion covers it).
+  Commit B `feat(tracking): ...` (the parent records the hash): Kysely 0.29 + pg 8.23 + PostGIS schema
+  (migration `0001-initial-schema`, view `instrument1_route_log`), idempotent seed, `POST
+  /ingest/traccar/positions`, `IngestPositionService`, `TripLifecycleService`, `InactivityJob`, typed
+  in-memory event bus, logging `AlertNotifier`, graceful shutdown with a deadline, new env vars, and
+  Testcontainers integration tests (`postgis/postgis:16-3.5` with `withPlatform('linux/amd64')`).
+  Verification: `pnpm typecheck` exit 0, `pnpm lint` exit 0, `pnpm format:check` clean, `pnpm test`
+  26 files / 161 tests passed (projects `api`, `api-integration` with 12 PostGIS tests, `web`; about 10 s
+  including the container). Smoke: `db:migrate` applied `0001-initial-schema`, `db:seed` twice returned the
+  same ids, the built API answered 401 without a token, 200 processed (auto-started trip), 200 duplicate,
+  202 unknown device and 400 malformed; SIGTERM exited cleanly; compose containers removed again, volumes
+  kept. Decisions: alerts wait for a speed basis (a measured recent speed or a historical profile), because
+  on the first fix the default speed alone fired alerts for every point within 10 min; per-vehicle
+  serialization locks the vehicle row and the active trip (`FOR UPDATE`), which also serializes auto-start
+  across processes; manual and inactivity ends are recorded as `aborted` and published as `trip.completed`
+  with `status`/`endReason`; the Instrument 1 view uses America/Lima dates; ETA "now" is the server clock.
+  Pending: `.env.example` could not be edited (the writer's permission settings deny reading `.env*`
+  files), so its INGEST_TOKEN placeholder is unverified; the parent must make it a short `change-me`
+  value that fails validation. Authored lines: about 4.0k (2.4k source+docs, 1.55k tests), above the
+  400-line heuristic because schema, pipeline, adapters and their integration tests form one deliverable;
+  strategy `exception-ok`.
+
 ## Next step
 
-T3.
+T4 (and the pending `.env.example` placeholder from T3).

@@ -48,3 +48,59 @@ layer can override.
 The RI-01 fixture (`routes/domain/ri01.fixture.ts`) holds the route and the P01–P15 coordinates
 from the proposal. Tests, seed data and the simulator share it so they all use the same geometry.
 `alerts/domain/ri01-drive.scenario.test.ts` drives the whole pipeline over a stop-and-go run.
+
+A point is passed when progress reaches its exact chainage (no tolerance, so a truck stopping just short
+of a point does not pass it early). Trip completion passes every remaining point first (`upper_bound`
+for the final stretch the truck never reached).
+
+## Application and infrastructure
+
+```text
+shared/application       Clock, Logger, EventBus<T> ports; KeyedMutex (per-key serialization)
+shared/infrastructure    system clock, InMemoryEventBus, db/ (Kysely types, migrations, migrator, seed, CLI)
+routes/application       RouteCatalog (cached) over the RouteRepository port
+routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot)
+eta/application          SpeedProfileProvider (cached per route) over CompletedTripSamplesSource
+eta/infrastructure       KyselyCompletedTripSamples (accepted positions of recent completed trips)
+alerts/application       AlertNotifier port (Web Push adapter in T4)
+alerts/infrastructure    LoggingAlertNotifier (placeholder)
+tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
+                         IngestPositionService, TripLifecycleService
+tracking/infrastructure  KyselyTrackingStore, KyselyVehicleDirectory, http/ (Traccar ingest route,
+                         payload schema, token check), InactivityJob
+composition-root.ts      composeApi(): wires adapters to use cases (shared by main.ts and integration tests)
+```
+
+### Tracking pipeline (`IngestPositionService`)
+
+Per forwarded position, serialized per vehicle by an in-process `KeyedMutex` and, inside one transaction,
+by `SELECT … FOR UPDATE` on the vehicle and its active trip (which also covers several API processes):
+
+1. Store the position (`ON CONFLICT (traccar_position_id) DO NOTHING`: a replay is a no-op).
+2. Lock the active trip, or auto-start one when the vehicle has a default route and the fix lies on it
+   (offset ≤ off-route threshold) within the start zone.
+3. `advanceTrip` → record passes, trip state and the position outcome (`chainage_m`, `off_route`);
+   `observeProgress` updates the persisted recent speed.
+4. Unless the trip completed: `estimateEtas` with the route's historical speed profile, then
+   `decideAlerts` with the already-alerted points. Alerts wait for a speed basis (a measured recent speed
+   or a profile): an ETA resting on the default speed alone is published but never alerted on. Alerts are
+   inserted with `ON CONFLICT (trip_id, point_id) DO NOTHING`; the database is the final guard.
+5. After commit: publish events, call the `AlertNotifier` for newly inserted alerts, and invalidate the
+   route's speed profile when the trip completed.
+
+`TripLifecycleService` provides `startTrip` (manual), `endTrip` (recorded as aborted) and
+`closeInactiveTrips`, which the `InactivityJob` runs periodically.
+
+### Events (`TrackingEvents`, in-memory bus)
+
+`vehicle.position`, `trip.started`, `trip.updated`, `trip.completed` (carries `status` completed or
+aborted and `endReason`), `point.passed`, `eta.updated` (every point's `PointEta`; `stale` entries carry no
+prediction) and `alert.emitted`. They are published only after the transaction commits.
+
+### Persistence
+
+PostgreSQL 16 + PostGIS through Kysely. Migrations are registered in code
+(`shared/infrastructure/db/migrations`) and run by `db:migrate` or on API start. Integrity rules live in
+the database: one active trip per vehicle (partial unique index), one pass and one alert per (trip, point),
+and unique Traccar position ids. The `instrument1_route_log` view produces the Instrument 1 rows (dates in
+America/Lima); the alert columns and the ETA error stay null when no alert was sent.
