@@ -221,22 +221,23 @@ export class KyselyTripHistoryQueries implements TripHistoryQueries {
     const rows = await this.db
       .selectFrom('vehicles as v')
       .leftJoin('routes as r', 'r.id', 'v.default_route_id')
-      .leftJoin(
+      // One index probe per vehicle (positions_vehicle_fix_time_idx), not a scan of the whole
+      // position history: the fleet view's cost stays flat as positions accumulate.
+      .leftJoinLateral(
         (eb) =>
           eb
-            .selectFrom('positions')
-            .distinctOn('vehicle_id')
+            .selectFrom('positions as lp')
             .select([
-              'vehicle_id',
-              'fix_time',
-              'speed_kmh',
-              sql<number>`ST_Y(location::geometry)`.as('lat'),
-              sql<number>`ST_X(location::geometry)`.as('lon'),
+              'lp.fix_time',
+              'lp.speed_kmh',
+              sql<number>`ST_Y(lp.location::geometry)`.as('lat'),
+              sql<number>`ST_X(lp.location::geometry)`.as('lon'),
             ])
-            .orderBy('vehicle_id')
-            .orderBy('fix_time', 'desc')
+            .whereRef('lp.vehicle_id', '=', 'v.id')
+            .orderBy('lp.fix_time', 'desc')
+            .limit(1)
             .as('last'),
-        (join) => join.onRef('last.vehicle_id', '=', 'v.id'),
+        (join) => join.onTrue(),
       )
       .leftJoin('trips as t', (join) =>
         join.onRef('t.vehicle_id', '=', 'v.id').on('t.status', '=', 'active'),

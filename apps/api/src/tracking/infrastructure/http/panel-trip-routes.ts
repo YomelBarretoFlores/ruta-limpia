@@ -13,6 +13,7 @@ import {
   uuidParamsSchema,
 } from '../../../shared/infrastructure/http/panel-http.js';
 import type { PanelTripService } from '../../application/panel-trip-service.js';
+import { TRIP_END_NOTE_MAX_LENGTH, TRIP_STATUSES } from '../../application/trip-history.js';
 
 export interface PanelTripRoutesOptions {
   readonly trips: Pick<PanelTripService, 'vehicles' | 'list' | 'detail' | 'start' | 'end'>;
@@ -22,11 +23,12 @@ const listQuerySchema = pageQuerySchema.extend({
   route: codeSchema.optional(),
   from: localDateSchema.optional(),
   to: localDateSchema.optional(),
-  status: z.enum(['active', 'completed', 'aborted']).optional(),
+  status: z.enum(TRIP_STATUSES).optional(),
 });
 
 const startBodySchema = z.object({ vehicleCode: codeSchema, routeCode: codeSchema });
-const endBodySchema = z.object({ reason: z.string().trim().min(1).max(500) });
+/** The operator's note on a manual end (stored as `endNote`; the end reason is `manual`). */
+const endBodySchema = z.object({ note: z.string().trim().min(1).max(TRIP_END_NOTE_MAX_LENGTH) });
 
 const NOT_FOUND = { error: 'trip_not_found', message: 'There is no such trip.' } as const;
 
@@ -44,7 +46,8 @@ const START_FAILURES = {
  *   (`from`/`to` are service dates in America/Lima, inclusive);
  * - `GET /trips/:id` → `{ trip, summary, points, incidents, track }`;
  * - `POST /trips` `{ vehicleCode, routeCode }` → 201 `{ trip }` (manual start);
- * - `POST /trips/:id/end` `{ reason }` → 200 `{ trip }` (recorded as aborted, end reason `manual`).
+ * - `POST /trips/:id/end` `{ note }` → 200 `{ trip }` (recorded as aborted with the end reason
+ *   `manual` and the operator's note as `endNote`).
  */
 export const panelTripRoutes: FastifyPluginCallback<PanelTripRoutesOptions> = (
   app,
@@ -95,7 +98,7 @@ export const panelTripRoutes: FastifyPluginCallback<PanelTripRoutesOptions> = (
     if (!params.success) return reply.code(404).send(NOT_FOUND);
     const body = endBodySchema.safeParse(request.body);
     if (!body.success) return invalidRequest(reply, body.error);
-    const result = await trips.end(params.data.id, body.data.reason, actorOf(request));
+    const result = await trips.end(params.data.id, body.data.note, actorOf(request));
     if (result.status === 'ended') return reply.send({ trip: result.trip });
     if (result.status === 'trip_not_found') return reply.code(404).send(NOT_FOUND);
     return sendError(reply, 409, 'trip_not_active', 'The trip has already ended.');

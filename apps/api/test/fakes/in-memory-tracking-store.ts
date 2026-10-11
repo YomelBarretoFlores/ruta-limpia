@@ -1,4 +1,5 @@
 import type { AlertDecision } from '../../src/alerts/domain/alert-policy.js';
+import type { AuditEvent } from '../../src/shared/application/audit-log.js';
 import { INITIAL_RECENT_SPEED } from '../../src/eta/domain/recent-speed.js';
 import { startTrip } from '../../src/tracking/domain/trip.js';
 import type {
@@ -26,6 +27,7 @@ interface Data {
   trips: TripRecord[];
   passes: (RecordedPass & { tripId: string })[];
   alerts: StoredAlert[];
+  audit: AuditEvent[];
   nextId: number;
 }
 
@@ -35,7 +37,7 @@ interface Data {
  * pass per (trip, point).
  */
 export class InMemoryTrackingStore implements TrackingStore, TripReader {
-  data: Data = { positions: [], trips: [], passes: [], alerts: [], nextId: 1 };
+  data: Data = { positions: [], trips: [], passes: [], alerts: [], audit: [], nextId: 1 };
 
   async transaction<T>(work: (tx: TrackingTransaction) => Promise<T>): Promise<T> {
     const snapshot = structuredClone(this.data);
@@ -67,6 +69,10 @@ export class InMemoryTrackingStore implements TrackingStore, TripReader {
 
   get alerts(): readonly StoredAlert[] {
     return this.data.alerts;
+  }
+
+  get auditEvents(): readonly AuditEvent[] {
+    return this.data.audit;
   }
 
   passesOf(tripId: string): RecordedPass[] {
@@ -169,6 +175,11 @@ class InMemoryTransaction implements TrackingTransaction {
       inserted.push(alert);
     }
     return Promise.resolve(inserted);
+  }
+
+  recordAudit(event: AuditEvent): Promise<void> {
+    this.data.audit.push(event);
+    return Promise.resolve();
   }
 }
 

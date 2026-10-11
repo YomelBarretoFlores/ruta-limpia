@@ -308,7 +308,6 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
   const panelTrips = new PanelTripService({
     queries: new KyselyTripHistoryQueries(db),
     lifecycle: tripLifecycle,
-    audit,
     clock,
     maxFixAgeSec: DEFAULT_ETA_SETTINGS.maxFixAgeSec,
   });

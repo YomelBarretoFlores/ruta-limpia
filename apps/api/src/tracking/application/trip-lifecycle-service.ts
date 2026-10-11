@@ -1,4 +1,5 @@
 import type { RouteCatalog } from '../../routes/application/route-catalog.js';
+import type { AuditEvent } from '../../shared/application/audit-log.js';
 import type { Clock } from '../../shared/application/clock.js';
 import type { EventBus } from '../../shared/application/event-bus.js';
 import type { KeyedMutex } from '../../shared/application/keyed-mutex.js';
@@ -40,16 +41,30 @@ export interface TripLifecycleDependencies {
   readonly inactivityTimeoutSec: number;
 }
 
+/** Builds the audit event of a lifecycle change from the resulting trip (written in its transaction). */
+export type TripAudit = (trip: TripRecord) => AuditEvent;
+
+export interface EndTripOptions {
+  /** Why the trip ended (a closed set); a manual end by default. */
+  readonly reason?: TripEndReason;
+  /** The operator's free-text note, stored as `endNote`. */
+  readonly note?: string;
+  readonly audit?: TripAudit;
+}
+
 /** Operator and housekeeping use cases around trips: manual start, manual end, inactivity. */
 export class TripLifecycleService {
   constructor(private readonly deps: TripLifecycleDependencies) {}
 
   /** Starts a trip by hand (for example when the truck starts away from the route start). */
-  async startTrip(input: {
-    readonly vehicleId: string;
-    readonly routeId: string;
-    readonly mode: 'manual';
-  }): Promise<TripRecord> {
+  async startTrip(
+    input: {
+      readonly vehicleId: string;
+      readonly routeId: string;
+      readonly mode: 'manual';
+    },
+    options: { readonly audit?: TripAudit } = {},
+  ): Promise<TripRecord> {
     const vehicle = await this.deps.vehicles.findById(input.vehicleId);
     if (vehicle === null) {
       throw new TripLifecycleError('vehicle_not_found', `Vehicle ${input.vehicleId} not found`);
@@ -68,12 +83,14 @@ export class TripLifecycleService {
             `Vehicle ${vehicle.code} already has active trip ${active.state.tripId}`,
           );
         }
-        return tx.createTrip({
+        const created = await tx.createTrip({
           routeId: route.id,
           vehicleId: vehicle.id,
           startMode: input.mode,
           startedAt: this.deps.clock.now(),
         });
+        if (options.audit !== undefined) await tx.recordAudit(options.audit(created));
+        return created;
       }),
     );
     publishAll(this.deps.events, [{ name: 'trip.started', payload: tripStarted(trip) }]);
@@ -81,14 +98,11 @@ export class TripLifecycleService {
   }
 
   /**
-   * Ends an active trip by hand; it is recorded as aborted with the given reason and, optionally,
-   * the operator's note (for example "truck breakdown at P07").
+   * Ends an active trip by hand; it is recorded as aborted with the given end reason and,
+   * optionally, the operator's note (for example "truck breakdown at P07").
    */
-  async endTrip(
-    tripId: string,
-    reason: TripEndReason = 'manual',
-    note?: string,
-  ): Promise<TripRecord> {
+  async endTrip(tripId: string, options: EndTripOptions = {}): Promise<TripRecord> {
+    const { reason = 'manual', note, audit } = options;
     const ended = await this.deps.store.transaction(async (tx) => {
       const trip = await tx.lockTrip(tripId);
       if (trip === null) throw new TripLifecycleError('trip_not_found', `Trip ${tripId} not found`);
@@ -102,6 +116,7 @@ export class TripLifecycleService {
         ...(note === undefined ? {} : { endNote: note }),
       };
       await tx.saveTrip(next);
+      if (audit !== undefined) await tx.recordAudit(audit(next));
       return next;
     });
     publishAll(this.deps.events, [{ name: 'trip.completed', payload: tripEnded(ended) }]);

@@ -78,6 +78,68 @@ describe('migrations', () => {
   });
 });
 
+describe('incident migrations over legacy data', () => {
+  it('upgrade legacy incidents instead of failing, keeping every one mapped onto the new rules', async () => {
+    const seed = await seedDatabase(db, { vehicleUniqueId: 'imei-legacy' });
+    const migrator = createMigrator(db);
+    expect((await migrator.migrateTo('0005-panel-auth')).error).toBeUndefined();
+    const point = await sql<{ id: string }>`
+      SELECT id FROM reference_points WHERE route_id = ${seed.routeId} AND code = 'P03'`.execute(
+      db,
+    );
+    const pointId = point.rows[0]?.id ?? '';
+    try {
+      const other = await sql<{ id: string }>`
+        INSERT INTO routes (code, name, district, geometry, length_m)
+        VALUES ('XX-01', 'Other route', 'Huaraz',
+          ST_GeogFromText('LINESTRING(-77.50 -9.50, -77.51 -9.51)'), 1500)
+        RETURNING id`.execute(db);
+      await sql`
+        INSERT INTO incidents (route_id, point_id, kind, description, occurred_at, reported_by)
+        VALUES
+          (${seed.routeId}, NULL, 'blocked_street', 'Street closed by a market', now(), 'Ana'),
+          (${other.rows[0]?.id ?? ''}, ${pointId}, 'weather', 'Heavy rain', now(), 'Ana'),
+          (${seed.routeId}, NULL, 'gps_failure', ${'x'.repeat(1200)}, now(), 'Ana'),
+          (${seed.routeId}, ${pointId}, 'truck_breakdown', 'Flat tyre', now(), 'Ana')`.execute(db);
+      await migrateToLatest(db, SILENT_LOGGER);
+
+      const rows = await db
+        .selectFrom('incidents')
+        .select(['kind', 'description', 'point_id'])
+        .orderBy('kind')
+        .orderBy('description')
+        .execute();
+      expect(rows).toEqual([
+        { kind: 'gps_failure', description: 'x'.repeat(1000), point_id: null },
+        {
+          kind: 'other',
+          description: '[legacy kind: blocked_street] Street closed by a market',
+          point_id: null,
+        },
+        { kind: 'truck_breakdown', description: 'Flat tyre', point_id: pointId },
+        {
+          kind: 'weather',
+          description: '[point P03 is not on this route] Heavy rain',
+          point_id: null,
+        },
+      ]);
+      const constraints = await sql<{ conname: string; convalidated: boolean }>`
+        SELECT conname, convalidated FROM pg_constraint
+        WHERE conname IN ('incidents_kind_check', 'incidents_description_length',
+          'incidents_point_route_fkey')
+        ORDER BY conname`.execute(db);
+      expect(constraints.rows.map((c) => [c.conname, c.convalidated])).toEqual([
+        ['incidents_description_length', true],
+        ['incidents_kind_check', true],
+        ['incidents_point_route_fkey', true],
+      ]);
+    } finally {
+      await sql`DELETE FROM incidents`.execute(db);
+      await migrateToLatest(db, SILENT_LOGGER);
+    }
+  });
+});
+
 describe('seed', () => {
   it('loads RI-01, its points, the truck and a schedule, idempotently', async () => {
     await seedDatabase(db, { vehicleUniqueId: 'imei-1' });

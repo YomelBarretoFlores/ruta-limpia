@@ -77,6 +77,56 @@ describe('TripLifecycleService', () => {
     ).rejects.toMatchObject({ code: 'route_not_found' });
   });
 
+  const auditOf = (action: string) => (trip: { state: { tripId: string } }) => ({
+    userId: 'user-1',
+    action,
+    entity: 'trip',
+    entityId: trip.state.tripId,
+    at: new Date(T0),
+  });
+  const failingAudit = () => {
+    throw new Error('audit write failed');
+  };
+
+  it('records the audit event in the trip transaction', async () => {
+    const { service, store } = setup();
+
+    const trip = await service.startTrip(
+      { vehicleId: 'a', routeId: RI01_SNAPSHOT.id, mode: 'manual' },
+      { audit: auditOf('trip.started') },
+    );
+    await service.endTrip(trip.state.tripId, { reason: 'manual', audit: auditOf('trip.ended') });
+
+    expect(store.auditEvents.map((e) => [e.action, e.entityId])).toEqual([
+      ['trip.started', trip.state.tripId],
+      ['trip.ended', trip.state.tripId],
+    ]);
+  });
+
+  it('starts no trip, and ends none, when the audit event cannot be written', async () => {
+    const { service, store, started, ended } = setup();
+
+    await expect(
+      service.startTrip(
+        { vehicleId: 'a', routeId: RI01_SNAPSHOT.id, mode: 'manual' },
+        { audit: failingAudit },
+      ),
+    ).rejects.toThrow('audit write failed');
+    expect(store.trips).toEqual([]);
+    expect(started).toEqual([]);
+
+    const trip = await service.startTrip({
+      vehicleId: 'a',
+      routeId: RI01_SNAPSHOT.id,
+      mode: 'manual',
+    });
+    await expect(
+      service.endTrip(trip.state.tripId, { reason: 'manual', audit: failingAudit }),
+    ).rejects.toThrow('audit write failed');
+    expect(store.trips[0]?.state.status).toBe('active');
+    expect(ended).toEqual([]);
+  });
+
   it('ends an active trip by hand as aborted, once', async () => {
     const { service, clock, ended } = setup();
     const trip = await service.startTrip({
@@ -86,7 +136,10 @@ describe('TripLifecycleService', () => {
     });
     clock.set(new Date(T0 + 5 * MINUTE));
 
-    const closed = await service.endTrip(trip.state.tripId, 'manual', 'Truck breakdown');
+    const closed = await service.endTrip(trip.state.tripId, {
+      reason: 'manual',
+      note: 'Truck breakdown',
+    });
 
     expect(closed.state).toMatchObject({ status: 'aborted', endedAt: new Date(T0 + 5 * MINUTE) });
     expect(closed.endReason).toBe('manual');

@@ -2,6 +2,8 @@ import { sql, type Kysely, type Selectable, type Transaction } from 'kysely';
 
 import type { AlertDecision } from '../../alerts/domain/alert-policy.js';
 import { INITIAL_RECENT_SPEED, type RecentSpeed } from '../../eta/domain/recent-speed.js';
+import type { AuditEvent } from '../../shared/application/audit-log.js';
+import { KyselyAuditLog } from '../../shared/infrastructure/audit/kysely-audit-log.js';
 import type {
   AppDatabase,
   Database,
@@ -193,6 +195,10 @@ class KyselyTrackingTransaction implements TrackingTransaction {
       const alertId = idByPoint.get(d.pointId);
       return alertId === undefined ? [] : [{ ...d, alertId }];
     });
+  }
+
+  recordAudit(event: AuditEvent): Promise<void> {
+    return new KyselyAuditLog(this.trx).record(event);
   }
 
   private toRecord(row: TripRow): Promise<TripRecord> {

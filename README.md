@@ -428,7 +428,7 @@ changes and records nothing.
 | `GET /api/panel/trips`          | `trips:read`    | `?route=&from=&to=&status=&page=&pageSize=` → paged `[trip]`, newest first |
 | `GET /api/panel/trips/:id`      | `trips:read`    | → `{ trip, summary, points, incidents, track }`; `404 trip_not_found`      |
 | `POST /api/panel/trips`         | `trips:write`   | `{ vehicleCode, routeCode }` → `201 { trip }`                              |
-| `POST /api/panel/trips/:id/end` | `trips:write`   | `{ reason }` → `200 { trip }`                                              |
+| `POST /api/panel/trips/:id/end` | `trips:write`   | `{ note }` → `200 { trip }`                                                |
 
 - `vehicle`: `{ code, label, active, defaultRoute: { code, name } | null, signal, lastFix: { at,
 lat, lon, speedKmh } | null, activeTrip: { id, routeCode, startedAt } | null }`; `signal` is
@@ -445,8 +445,10 @@ secondsRemainingAtEmission, insideTargetWindow, recipients, delivered, receiptsR
   GeoJSON `LineString` of the valid fixes (`[lon, lat]`).
 - A manual start answers `404 vehicle_not_found` / `404 route_not_found` or
   `409 trip_already_active`. A manual end is recorded as `aborted` with `endReason: "manual"` and
-  the reason as `endNote`; an ended trip answers `409 trip_not_active`. Both are audited
-  (`trip.started`, `trip.ended`).
+  the operator's `note` (why it was ended, at most 500 characters) as `endNote`; an ended trip
+  answers `409 trip_not_active`. Both are audited (`trip.started`, `trip.ended` with the `note`) in
+  the same transaction as the start or end: if the audit write fails, nothing changes, the request
+  answers `500`, and a retry is safe.
 
 ### Live route and incidents
 

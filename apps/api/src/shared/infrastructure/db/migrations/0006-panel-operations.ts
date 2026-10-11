@@ -3,6 +3,12 @@ import { sql, type Kysely } from 'kysely';
 /**
  * Panel operations: the operator's note when a trip is ended by hand, and incident tracking
  * (closed list of kinds, reporting user, resolution). An incident's point must belong to its route.
+ *
+ * The incident constraints are added `NOT VALID`: they hold for every new or changed row at once,
+ * and `0010-incident-legacy-data` maps rows recorded before them (free-text kinds, long
+ * descriptions, points of another route) and then validates them. Without that, a database with
+ * such rows could not be upgraded. Databases that applied the earlier, validating version of this
+ * migration end in the same state.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`ALTER TABLE trips ADD COLUMN end_note text CHECK (length(end_note) <= 500)`.execute(db);
@@ -11,10 +17,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     ALTER TABLE incidents
       ADD CONSTRAINT incidents_kind_check CHECK (kind IN (
         'truck_breakdown', 'route_change', 'gps_failure', 'alert_failure', 'missed_collection',
-        'weather', 'other')),
-      ADD CONSTRAINT incidents_description_length CHECK (length(description) <= 1000),
+        'weather', 'other')) NOT VALID,
+      ADD CONSTRAINT incidents_description_length CHECK (length(description) <= 1000) NOT VALID,
       ADD CONSTRAINT incidents_point_route_fkey
-        FOREIGN KEY (point_id, route_id) REFERENCES reference_points (id, route_id),
+        FOREIGN KEY (point_id, route_id) REFERENCES reference_points (id, route_id) NOT VALID,
       ADD COLUMN reported_by_user_id uuid REFERENCES users (id) ON DELETE SET NULL,
       ADD COLUMN resolved_at timestamptz,
       ADD COLUMN resolved_by_user_id uuid REFERENCES users (id) ON DELETE SET NULL,

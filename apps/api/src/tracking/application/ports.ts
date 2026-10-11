@@ -1,5 +1,6 @@
 import type { AlertDecision } from '../../alerts/domain/alert-policy.js';
 import type { RecentSpeed } from '../../eta/domain/recent-speed.js';
+import type { AuditEvent } from '../../shared/application/audit-log.js';
 import type { TripState } from '../domain/trip.js';
 
 export interface Vehicle {
@@ -99,6 +100,8 @@ export interface TrackingTransaction {
    * only those inserted now.
    */
   recordAlerts(decisions: readonly AlertDecision[]): Promise<StoredAlert[]>;
+  /** Appends an audit event in this transaction, so it commits or rolls back with the change. */
+  recordAudit(event: AuditEvent): Promise<void>;
 }
 
 /** Port: reads trips outside a tracking transaction, without locks (live views, ETA refresh). */

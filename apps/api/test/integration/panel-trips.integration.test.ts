@@ -13,7 +13,7 @@ import {
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
-import { connectTestDatabase, resetData } from './database.js';
+import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const T0 = Date.parse('2026-10-20T12:00:00Z');
 
@@ -139,7 +139,123 @@ describe('panel trips (PostGIS)', () => {
     ).toMatchObject({ error: 'trip_not_found' });
   });
 
-  it('starts a trip by hand, refuses a second one, and ends it with a reason', async () => {
+  it("details each point's alert with its delivery counts, and the trip's incidents", async () => {
+    await driveRi01(api.app, clock, T0, DRIVE);
+    const [trip] = (await supervisor.get('/api/panel/trips')).json<{ items: TripSummaryJson[] }>()
+      .items;
+    const tripId = trip?.id ?? '';
+    const points = await db
+      .selectFrom('reference_points')
+      .select(['id', 'code', 'route_id'])
+      .where('code', 'in', ['P03', 'P05'])
+      .orderBy('code')
+      .execute();
+    const [p03, p05] = points;
+    // Replace whatever the drive emitted with one alert of known content.
+    await db.deleteFrom('alerts').where('trip_id', '=', tripId).execute();
+    const alert = await db
+      .insertInto('alerts')
+      .values({
+        trip_id: tripId,
+        point_id: p03?.id ?? '',
+        emitted_at: new Date(T0 + 60_000),
+        communicated_predicted_pass_at: new Date(T0 + 480_000),
+        seconds_remaining_at_emission: 419.6,
+        inside_target_window: true,
+        recipients_count: 3,
+        delivered_count: 2,
+        failed_count: 1,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const subscriptions = await db
+      .insertInto('push_subscriptions')
+      .values(
+        ['a', 'b', 'c'].map((device) => ({
+          endpoint: `https://fcm.googleapis.com/fcm/send/${device}`,
+          p256dh: 'key',
+          auth: 'auth',
+          point_id: p03?.id ?? '',
+          consent_at: new Date(T0),
+          consent_version: 'v1',
+          management_token_hash: `hash-${device}`,
+        })),
+      )
+      .returning('id')
+      .execute();
+    await db
+      .insertInto('alert_deliveries')
+      .values(
+        subscriptions.map((sub, index) => ({
+          alert_id: alert.id,
+          subscription_id: sub.id,
+          status: index < 2 ? 'sent' : 'failed',
+          sent_at: new Date(T0 + 61_000),
+          received_at: index === 0 ? new Date(T0 + 62_000) : null,
+        })),
+      )
+      .execute();
+    await db
+      .insertInto('incidents')
+      .values([
+        {
+          trip_id: tripId,
+          route_id: p05?.route_id ?? '',
+          point_id: p05?.id ?? '',
+          kind: 'route_change',
+          description: 'Market on the street',
+          occurred_at: new Date(T0 + 90_000),
+          reported_by: 'Sara',
+        },
+        {
+          trip_id: tripId,
+          route_id: p05?.route_id ?? '',
+          point_id: null,
+          kind: 'gps_failure',
+          description: '',
+          occurred_at: new Date(T0 + 30_000),
+          reported_by: 'Sara',
+        },
+      ])
+      .execute();
+
+    const body = (await supervisor.get(`/api/panel/trips/${tripId}`)).json<{
+      points: { pointCode: string; alert: object | null }[];
+      incidents: object[];
+    }>();
+
+    expect(body.points.find((p) => p.pointCode === 'P03')?.alert).toEqual({
+      emittedAt: new Date(T0 + 60_000).toISOString(),
+      communicatedPredictedPassAt: new Date(T0 + 480_000).toISOString(),
+      secondsRemainingAtEmission: 420,
+      insideTargetWindow: true,
+      recipients: 3,
+      delivered: 2,
+      receiptsReceived: 1,
+      failed: 1,
+    });
+    expect(body.points.filter((p) => p.alert !== null).map((p) => p.pointCode)).toEqual(['P03']);
+    expect(body.incidents).toEqual([
+      {
+        id: expect.any(String) as string,
+        kind: 'gps_failure',
+        pointCode: null,
+        description: '',
+        occurredAt: new Date(T0 + 30_000).toISOString(),
+        resolvedAt: null,
+      },
+      {
+        id: expect.any(String) as string,
+        kind: 'route_change',
+        pointCode: 'P05',
+        description: 'Market on the street',
+        occurredAt: new Date(T0 + 90_000).toISOString(),
+        resolvedAt: null,
+      },
+    ]);
+  });
+
+  it('starts a trip by hand, refuses a second one, and ends it with a note', async () => {
     const started = await supervisor.post('/api/panel/trips', {
       vehicleCode: 'unidad-a',
       routeCode: 'RI-01',
@@ -156,14 +272,14 @@ describe('panel trips (PostGIS)', () => {
     expect(again.json()).toMatchObject({ error: 'trip_already_active' });
 
     const ended = await supervisor.post(`/api/panel/trips/${trip.id}/end`, {
-      reason: 'Truck breakdown at P07',
+      note: 'Truck breakdown at P07',
     });
     expect(ended.statusCode).toBe(200);
     expect(ended.json()).toMatchObject({
       trip: { status: 'aborted', endReason: 'manual', endNote: 'Truck breakdown at P07' },
     });
     expect(
-      (await supervisor.post(`/api/panel/trips/${trip.id}/end`, { reason: 'x' })).json(),
+      (await supervisor.post(`/api/panel/trips/${trip.id}/end`, { note: 'x' })).json(),
     ).toMatchObject({ error: 'trip_not_active' });
 
     const audit = await db
@@ -178,11 +294,45 @@ describe('panel trips (PostGIS)', () => {
         entity_id: trip.id,
         details: { vehicleCode: 'UNIDAD-A', routeCode: 'RI-01' },
       },
-      { action: 'trip.ended', entity_id: trip.id, details: { reason: 'Truck breakdown at P07' } },
+      { action: 'trip.ended', entity_id: trip.id, details: { note: 'Truck breakdown at P07' } },
     ]);
   });
 
-  it('answers 404 for unknown vehicles and routes and 400 without a reason', async () => {
+  it('starts and ends nothing when the audit event cannot be written, so a retry works', async () => {
+    const start = { vehicleCode: 'UNIDAD-A', routeCode: 'RI-01' };
+    let restore = await failAuditWritesOf(db, 'trip.started');
+    try {
+      expect((await supervisor.post('/api/panel/trips', start)).statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    expect((await supervisor.get('/api/panel/trips')).json()).toMatchObject({ total: 0 });
+    const started = await supervisor.post('/api/panel/trips', start);
+    expect(started.statusCode).toBe(201);
+    const trip = started.json<{ trip: TripSummaryJson }>().trip;
+
+    restore = await failAuditWritesOf(db, 'trip.ended');
+    try {
+      const failed = await supervisor.post(`/api/panel/trips/${trip.id}/end`, {
+        note: 'Breakdown',
+      });
+      expect(failed.statusCode).toBe(500);
+    } finally {
+      await restore();
+    }
+    const retried = await supervisor.post(`/api/panel/trips/${trip.id}/end`, { note: 'Breakdown' });
+    expect(retried.json()).toMatchObject({ trip: { status: 'aborted', endNote: 'Breakdown' } });
+
+    const audit = await db
+      .selectFrom('audit_events')
+      .select('action')
+      .where('entity', '=', 'trip')
+      .orderBy('id')
+      .execute();
+    expect(audit.map((e) => e.action)).toEqual(['trip.started', 'trip.ended']);
+  });
+
+  it('answers 404 for unknown vehicles and routes and 400 without a note', async () => {
     expect(
       (
         await supervisor.post('/api/panel/trips', { vehicleCode: 'X-1', routeCode: 'RI-01' })
@@ -195,7 +345,7 @@ describe('panel trips (PostGIS)', () => {
     expect(
       (
         await supervisor.post('/api/panel/trips/00000000-0000-4000-8000-000000000000/end', {
-          reason: '',
+          note: '',
         })
       ).statusCode,
     ).toBe(400);
@@ -229,7 +379,7 @@ describe('panel trips (PostGIS)', () => {
     });
     const trip = started.json<{ trip: TripSummaryJson }>().trip;
 
-    const end = await observer.post(`/api/panel/trips/${trip.id}/end`, { reason: 'test' });
+    const end = await observer.post(`/api/panel/trips/${trip.id}/end`, { note: 'test' });
     expect(end.statusCode).toBe(403);
     expect(end.json()).toMatchObject({ error: 'forbidden' });
     expect((await observer.post('/api/panel/trips', {})).statusCode).toBe(403);

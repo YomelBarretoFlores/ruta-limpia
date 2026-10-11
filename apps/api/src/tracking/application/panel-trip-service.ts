@@ -1,10 +1,10 @@
 import type { PanelActor } from '../../auth/application/panel-actor.js';
 import { telemetrySignal, type TelemetrySignal } from '../../eta/domain/staleness.js';
-import type { AuditLog } from '../../shared/application/audit-log.js';
+import type { AuditEvent } from '../../shared/application/audit-log.js';
 import type { Clock } from '../../shared/application/clock.js';
 import { summarizeTrack, type TrackSummary } from '../domain/track-summary.js';
-import type { TripRecord } from './ports.js';
-import { TripLifecycleError } from './trip-lifecycle-service.js';
+import type { TripEndReason, TripRecord } from './ports.js';
+import { TripLifecycleError, type TripAudit } from './trip-lifecycle-service.js';
 import type {
   TripDetailRows,
   TripFilter,
@@ -13,16 +13,24 @@ import type {
   VehicleRow,
 } from './trip-history.js';
 
-/** The trip lifecycle use cases the panel drives. */
+/**
+ * The trip lifecycle use cases the panel drives. The audit event is written in the trip's own
+ * transaction, so a manual start or end and its audit event commit or roll back together.
+ */
 export interface TripLifecycle {
-  startTrip(input: { vehicleId: string; routeId: string; mode: 'manual' }): Promise<TripRecord>;
-  endTrip(tripId: string, reason?: string, note?: string): Promise<TripRecord>;
+  startTrip(
+    input: { vehicleId: string; routeId: string; mode: 'manual' },
+    options: { readonly audit: TripAudit },
+  ): Promise<TripRecord>;
+  endTrip(
+    tripId: string,
+    options: { readonly reason: TripEndReason; readonly note: string; readonly audit: TripAudit },
+  ): Promise<TripRecord>;
 }
 
 export interface PanelTripDependencies {
   readonly queries: TripHistoryQueries;
   readonly lifecycle: TripLifecycle;
-  readonly audit: AuditLog;
   readonly clock: Clock;
   /** Telemetry older than this is stale. */
   readonly maxFixAgeSec: number;
@@ -97,7 +105,16 @@ export class PanelTripService {
 
     let record: TripRecord;
     try {
-      record = await lifecycle.startTrip({ vehicleId, routeId, mode: 'manual' });
+      record = await lifecycle.startTrip(
+        { vehicleId, routeId, mode: 'manual' },
+        {
+          audit: (trip) =>
+            this.auditEvent('trip.started', actor, trip, {
+              vehicleCode: input.vehicleCode,
+              routeCode: input.routeCode,
+            }),
+        },
+      );
     } catch (error) {
       const code = error instanceof TripLifecycleError ? error.code : null;
       if (
@@ -109,23 +126,25 @@ export class PanelTripService {
       }
       throw error;
     }
-    const tripId = record.state.tripId;
-    await this.record('trip.started', actor, tripId, {
-      vehicleCode: input.vehicleCode,
-      routeCode: input.routeCode,
-    });
-    return { status: 'started', trip: await this.summaryOf(tripId) };
+    return { status: 'started', trip: await this.summaryOf(record.state.tripId) };
   }
 
-  async end(tripId: string, reason: string, actor: PanelActor): Promise<EndTripResult> {
+  /**
+   * Ends an active trip by hand. It is stored as aborted with the end reason `manual`; `note` is
+   * the operator's free text (why it was ended), stored as the trip's `endNote`.
+   */
+  async end(tripId: string, note: string, actor: PanelActor): Promise<EndTripResult> {
     try {
-      await this.deps.lifecycle.endTrip(tripId, 'manual', reason);
+      await this.deps.lifecycle.endTrip(tripId, {
+        reason: 'manual',
+        note,
+        audit: (trip) => this.auditEvent('trip.ended', actor, trip, { note }),
+      });
     } catch (error) {
       const code = error instanceof TripLifecycleError ? error.code : null;
       if (code === 'trip_not_found' || code === 'trip_not_active') return { status: code };
       throw error;
     }
-    await this.record('trip.ended', actor, tripId, { reason });
     return { status: 'ended', trip: await this.summaryOf(tripId) };
   }
 
@@ -135,19 +154,19 @@ export class PanelTripService {
     return trip;
   }
 
-  private async record(
+  private auditEvent(
     action: string,
     actor: PanelActor,
-    tripId: string,
+    trip: TripRecord,
     details: Record<string, unknown>,
-  ): Promise<void> {
-    await this.deps.audit.record({
+  ): AuditEvent {
+    return {
       userId: actor.userId,
       action,
       entity: 'trip',
-      entityId: tripId,
+      entityId: trip.state.tripId,
       at: this.deps.clock.now(),
       details,
-    });
+    };
   }
 }

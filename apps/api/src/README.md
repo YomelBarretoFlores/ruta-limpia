@@ -248,7 +248,11 @@ management token, and the time; never an IP address or a user agent. `0009-basel
 view (system and baseline rows, `source` column). `0008-field-observations` stores the Instrument 2 sheets (`field_observations`, local dates and
 times, photo codes only). `0007-household-registry` makes `push_subscriptions.household_id` `ON DELETE SET NULL` and adds
 the enrolling user and `updated_at` to `households`. `0006-panel-operations` adds `trips.end_note` and incident tracking (closed list of kinds,
-reporting and resolving user, resolution; the point must belong to the route). `0005-panel-auth` adds `users` (unique
+reporting and resolving user, resolution; the point must belong to the route). Its incident constraints are added
+`NOT VALID`; `0010-incident-legacy-data` maps incidents recorded before them (a free-text kind
+becomes `other`, a point of another route is cleared, both noted at the start of the description,
+which is cut to 1000 characters) and then validates the constraints, so older databases upgrade
+instead of failing. `0005-panel-auth` adds `users` (unique
 lower-case username), `sessions` (SHA-256 token hash only) and `audit_events` (append-only; the
 user link is cleared when a user is deleted). The `instrument1_route_log` view
 produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null

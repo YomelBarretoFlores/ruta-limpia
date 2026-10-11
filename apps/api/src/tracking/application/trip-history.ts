@@ -1,7 +1,11 @@
 import type { TrackFix } from '../domain/track-summary.js';
 import type { TripStartMode } from './ports.js';
 
-export type TripStatus = 'active' | 'completed' | 'aborted';
+export const TRIP_STATUSES = ['active', 'completed', 'aborted'] as const;
+export type TripStatus = (typeof TRIP_STATUSES)[number];
+
+/** The longest operator note on a manual end (the `trips.end_note` CHECK has the same limit). */
+export const TRIP_END_NOTE_MAX_LENGTH = 500;
 
 export interface TripFilter {
   readonly routeCode?: string;
