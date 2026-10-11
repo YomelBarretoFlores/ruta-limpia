@@ -47,6 +47,9 @@ import { EtaRefreshJob } from './tracking/infrastructure/eta-refresh-job.js';
 import { InactivityJob } from './tracking/infrastructure/inactivity-job.js';
 import { PanelTripService } from './tracking/application/panel-trip-service.js';
 import { IncidentService } from './field/application/incident-service.js';
+import { HouseholdRegistryService } from './field/application/household-registry.js';
+import { panelHouseholdRoutes } from './field/infrastructure/http/panel-household-routes.js';
+import { KyselyHouseholdStore } from './field/infrastructure/kysely-household-store.js';
 import { panelIncidentRoutes } from './field/infrastructure/http/panel-incident-routes.js';
 import { KyselyIncidentStore } from './field/infrastructure/kysely-incident-store.js';
 import { PanelLiveService } from './live/application/panel-live-service.js';
@@ -299,6 +302,16 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelIncidentRoutes, { incidents }));
+
+  const households = new HouseholdRegistryService({
+    store: new KyselyHouseholdStore(db),
+    points: routePoints,
+    audit,
+    clock,
+  });
+  panelRoutes.push((scope) =>
+    scope.register(panelHouseholdRoutes, { households, publicOrigin: config.publicOrigin }),
+  );
 
   const panelLive = new PanelLiveService({
     snapshots: liveSnapshots,

@@ -8,6 +8,7 @@ import * as appViews from './migrations/0003-app-views.js';
 import * as appViewsHouseholdSetNull from './migrations/0004-app-views-household-set-null.js';
 import * as panelAuth from './migrations/0005-panel-auth.js';
 import * as panelOperations from './migrations/0006-panel-operations.js';
+import * as householdRegistry from './migrations/0007-household-registry.js';
 
 /**
  * Migrations are registered in code (not discovered on disk) so they work the same from `src` with
@@ -20,6 +21,7 @@ const MIGRATIONS: Record<string, Migration> = {
   '0004-app-views-household-set-null': appViewsHouseholdSetNull,
   '0005-panel-auth': panelAuth,
   '0006-panel-operations': panelOperations,
+  '0007-household-registry': householdRegistry,
 };
 
 export function createMigrator<DB>(db: Kysely<DB>): Migrator {

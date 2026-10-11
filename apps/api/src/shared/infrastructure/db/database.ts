@@ -150,6 +150,9 @@ export interface HouseholdsTable {
   consent_version: string;
   active: Generated<boolean>;
   notes: string | null;
+  /** Migration 0007-household-registry. */
+  created_by_user_id: string | null;
+  updated_at: Generated<Date>;
 }
 
 export type RevokeReasonColumn = 'user_cancelled' | 'expired' | 'too_many_failures';

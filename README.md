@@ -446,6 +446,32 @@ reportedByUserId, resolvedAt, resolvedByUserId, resolutionNote, createdAt, updat
   another route). `resolved: true` records the time, the user and the note; `resolved: false`
   reopens. Audited as `incident.created`, `incident.updated`, `incident.resolved`.
 
+### Household registry
+
+| Route                                     | Access              | Request → response                                                                    |
+| ----------------------------------------- | ------------------- | ------------------------------------------------------------------------------------- |
+| `POST /api/panel/households`              | `households:write`  | `{ routeCode, pointCode, consentAt?, consentVersion?, notes? }` → `201 { household }` |
+| `GET /api/panel/households`               | `households:read`   | `?route=&point=&active=true\|false&page=&pageSize=` → paged `[household]` + usage     |
+| `GET /api/panel/households/:code`         | `households:read`   | → `{ household }`                                                                     |
+| `PATCH /api/panel/households/:code`       | `households:write`  | `{ pointCode?, active?, notes? }` → `{ household }`                                   |
+| `DELETE /api/panel/households/:code`      | `households:delete` | → `204` (administrators only)                                                         |
+| `GET /api/panel/households/:code/sticker` | `households:read`   | → `{ code, url }`                                                                     |
+
+- Up to 100 volunteer households are enrolled door to door. Each gets the next code `H-001`,
+  `H-002`, … (generated under a transaction-level advisory lock, so concurrent enrollments never
+  collide). No address, name or phone number is stored; `notes` (≤ 280 characters) must not hold
+  them either. `consentAt` defaults to now and `consentVersion` to `enrollment-2026-10`.
+- `household`: `{ id, code, routeId, routeCode, pointCode, enrolledAt, consentAt, consentVersion,
+active, notes, updatedAt }`; the list adds `activeSubscriptions`, `lastAlertReceivedAt` (the
+  latest receipt confirmed by one of its browsers) and `lastAppViewAt`.
+- A household stays on its route: a new `pointCode` must belong to it (`422 unknown_point`).
+  Deactivation (`active: false`) is the normal way out: the citizen app then refuses the code for
+  new subscriptions. Deleting keeps the household's push subscriptions and app views without the
+  link (migration `0007-household-registry`).
+- The sticker `url` is `${PUBLIC_ORIGIN}/?r=<route>&p=<point>&h=<code>` (the QR deep link of the
+  citizen app); without `PUBLIC_ORIGIN` the request's own origin is used.
+- Audited as `household.created`, `household.updated`, `household.deleted` (entity id = code).
+
 ## Citizen PWA (`apps/web`, `/`)
 
 The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an

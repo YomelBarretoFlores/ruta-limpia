@@ -98,6 +98,10 @@ live/application         PanelLiveService (public snapshot + pass table with ale
                          http/panel-live-routes (/api/panel/live/routes/:code)
 routes/application       RoutePointResolver port (active route and point codes for the panel);
                          routes/infrastructure: KyselyRoutePointResolver
+field/application        HouseholdRegistryService (enroll with the next H-### code, list with
+                         subscription status, move, deactivate, delete, sticker link) over the
+                         HouseholdStore port; field/infrastructure: KyselyHouseholdStore (advisory
+                         lock for codes), http/panel-household-routes
 field/application        HouseholdDirectory port (household registry: codes, never addresses)
 field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
@@ -229,7 +233,8 @@ point), unique Traccar position ids, unique push endpoints, one delivery per (al
 a household's point always belongs to its route. `app_views` (migrations `0003-app-views` and
 `0004-app-views-household-set-null`: deleting a household or a subscription keeps its views and clears
 the link) logs app views with the point, the subscription and household only when proven by the
-management token, and the time; never an IP address or a user agent. `0006-panel-operations` adds `trips.end_note` and incident tracking (closed list of kinds,
+management token, and the time; never an IP address or a user agent. `0007-household-registry` makes `push_subscriptions.household_id` `ON DELETE SET NULL` and adds
+the enrolling user and `updated_at` to `households`. `0006-panel-operations` adds `trips.end_note` and incident tracking (closed list of kinds,
 reporting and resolving user, resolution; the point must belong to the route). `0005-panel-auth` adds `users` (unique
 lower-case username), `sessions` (SHA-256 token hash only) and `audit_events` (append-only; the
 user link is cleared when a user is deleted). The `instrument1_route_log` view
