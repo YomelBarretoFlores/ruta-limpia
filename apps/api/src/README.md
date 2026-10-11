@@ -137,7 +137,8 @@ keep a trip `live` and delay the inactivity abort.
 Per forwarded position, serialized per vehicle by an in-process `KeyedMutex` and, inside one transaction,
 by `SELECT … FOR UPDATE` on the vehicle and its active trip (which also covers several API processes):
 
-1. Store the position (`ON CONFLICT (traccar_position_id) DO NOTHING`: a replay is a no-op).
+1. Store the position (`ON CONFLICT DO NOTHING` on the Traccar id and on the vehicle and fix time: a
+   replay is a no-op, including a position Traccar forwarded before storing it, with `id: 0`).
 2. Lock the active trip, or auto-start one when the vehicle has a default route and the fix lies on it
    (offset ≤ off-route threshold) within the start zone.
 3. `advanceTrip` → record passes, trip state and the position outcome (`chainage_m`, `off_route`);
@@ -291,7 +292,9 @@ creates the `instrument1_export` view (system and baseline rows, `source` column
 the deploy note below) and the networks of recent successful sign-ins (`user_known_networks`,
 SHA-256 of the user id and the network). `0014-indicator-inputs` (`migrations/0014-indicator-inputs.ts`) adds the Instrument 2 flags `exposure_incomplete` and `comparable_window`
 and the Instrument 3 table `household_surveys` (one row per household and wave; questions 6–11
-only in the post wave; deleted with its household).
+only in the post wave; deleted with its household). `0015-positions-without-traccar-id` makes
+`positions.traccar_position_id` nullable (Traccar 6.16 forwards before storing, `id: 0`) and makes
+the vehicle and fix time unique (earlier replays of one fix keep their first row).
 The `instrument1_route_log` view
 produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null
 when no alert was sent.
@@ -308,3 +311,6 @@ when no alert was sent.
 - **`0014-indicator-inputs` is additive.** It adds two columns with defaults to
   `field_observations` and creates `household_surveys`, so it can run while an earlier build is
   still serving; that build simply ignores the new columns and table.
+- **`0015-positions-without-traccar-id`** deletes repeated rows of one vehicle and fix time (replays
+  of one fix; the first stored stays) before adding the unique index. An earlier build keeps
+  working against it, but rejects `id: 0` forwards with 400, which Traccar retries.

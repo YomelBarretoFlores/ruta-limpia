@@ -27,7 +27,8 @@ import type { TrackingPipelineSettings } from './tracking-pipeline-settings.js';
 
 /** One position forwarded by Traccar, already validated and normalized (speed in km/h). */
 export interface IngestPositionCommand {
-  readonly traccarPositionId: number;
+  /** Null when Traccar forwarded the position before storing it (it sends `id: 0`). */
+  readonly traccarPositionId: number | null;
   readonly deviceUniqueId: string;
   readonly fixTime: Date;
   readonly serverTime: Date | null;

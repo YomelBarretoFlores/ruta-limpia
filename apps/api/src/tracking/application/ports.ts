@@ -22,7 +22,8 @@ export interface VehicleDirectory {
 /** A raw position as received from Traccar, normalized (speed in km/h). */
 export interface NewPosition {
   readonly vehicleId: string;
-  readonly traccarPositionId: number;
+  /** Null when Traccar forwarded the position before storing it (it sends `id: 0`). */
+  readonly traccarPositionId: number | null;
   readonly fixTime: Date;
   readonly serverTime: Date | null;
   readonly receivedAt: Date;

@@ -20,7 +20,8 @@ const timestamp = z.union([z.string().min(1), z.number()]).transform((value, ctx
  */
 export const traccarForwardSchema = z.object({
   position: z.object({
-    id: z.number().int().positive(),
+    // Traccar 6.16 forwards before storing, so a position may still have id 0 (no id yet).
+    id: z.number().int().nonnegative(),
     deviceId: z.number().int(),
     fixTime: timestamp,
     serverTime: timestamp.nullish(),
@@ -42,7 +43,7 @@ export type TraccarForward = z.infer<typeof traccarForwardSchema>;
 export function toIngestCommand(payload: TraccarForward): IngestPositionCommand {
   const { position, device } = payload;
   return {
-    traccarPositionId: position.id,
+    traccarPositionId: position.id === 0 ? null : position.id,
     deviceUniqueId: device.uniqueId,
     fixTime: position.fixTime,
     serverTime: position.serverTime ?? null,

@@ -38,6 +38,11 @@ export type TripRow = Selectable<TripsTable>;
 class KyselyTrackingTransaction implements TrackingTransaction {
   constructor(private readonly trx: Transaction<Database>) {}
 
+  /**
+   * Stores a position once. A replay is the same Traccar id or, since a position Traccar forwards
+   * before storing it has no id (and its retry may have one), the same vehicle and fix time: both
+   * are unique in the table, so concurrent replays through several API instances store one row.
+   */
   async insertPosition(position: NewPosition): Promise<string | null> {
     const row = await this.trx
       .insertInto('positions')
@@ -53,7 +58,7 @@ class KyselyTrackingTransaction implements TrackingTransaction {
         valid: position.valid,
         accuracy: position.accuracy,
       })
-      .onConflict((oc) => oc.column('traccar_position_id').doNothing())
+      .onConflict((oc) => oc.doNothing())
       .returning('id')
       .executeTakeFirst();
     return row?.id ?? null;

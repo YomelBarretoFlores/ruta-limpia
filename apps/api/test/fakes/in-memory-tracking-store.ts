@@ -84,7 +84,10 @@ class InMemoryTransaction implements TrackingTransaction {
   constructor(private readonly data: Data) {}
 
   insertPosition(position: NewPosition): Promise<string | null> {
-    if (this.data.positions.some((p) => p.traccarPositionId === position.traccarPositionId)) {
+    const replay = (p: NewPosition) =>
+      (p.traccarPositionId !== null && p.traccarPositionId === position.traccarPositionId) ||
+      (p.vehicleId === position.vehicleId && p.fixTime.getTime() === position.fixTime.getTime());
+    if (this.data.positions.some(replay)) {
       return Promise.resolve(null);
     }
     const id = String(this.data.nextId++);

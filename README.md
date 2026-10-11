@@ -112,8 +112,12 @@ invalid values. An empty value (`PORT=`) counts as unset, so the default applies
 | `400`    | The payload is malformed.                                                                                                                     |
 | `202`    | The device `uniqueId` is not a registered vehicle: accepted and logged, never retried.                                                        |
 | `202`    | The fix is dated more than `MAX_FIX_FUTURE_SKEW_SEC` ahead of the server clock: logged, never stored, never retried (`reason: "future_fix"`). |
-| `200`    | Processed, or a replay of an already stored Traccar position (idempotent no-op).                                                              |
+| `200`    | Processed, or a replay of an already stored position, by Traccar id or by vehicle and fix time (idempotent no-op).                            |
 | `5xx`    | Processing failed; Traccar retries the forward.                                                                                               |
+
+Traccar 6.16 forwards a position before storing it, so the forward may carry `id: 0`: such a position is
+stored without a Traccar id, and a replay is recognized by the vehicle and the fix time (migration
+`0015-positions-without-traccar-id`).
 
 Each accepted position runs the tracking pipeline: it is stored, the vehicle's trip is found or auto-started
 (on its default route, within the start zone), passes and completion are detected, ETAs are estimated, and

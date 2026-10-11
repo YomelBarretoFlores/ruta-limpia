@@ -55,7 +55,8 @@ export interface PositionsTable {
   id: Generated<string>;
   vehicle_id: string;
   trip_id: string | null;
-  traccar_position_id: ColumnType<string, number | string, never>;
+  /** Null when Traccar forwarded the position before storing it (`id: 0`). */
+  traccar_position_id: ColumnType<string | null, number | string | null, never>;
   fix_time: Date;
   server_time: Date | null;
   received_at: Date;

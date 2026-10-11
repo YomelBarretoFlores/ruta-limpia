@@ -21,6 +21,12 @@ describe('traccarForwardSchema', () => {
     });
   });
 
+  it('accepts a position not stored by Traccar yet (id 0), without a Traccar id', () => {
+    const payload = { ...sampleForward, position: { ...sampleForward.position, id: 0 } };
+
+    expect(toIngestCommand(traccarForwardSchema.parse(payload)).traccarPositionId).toBeNull();
+  });
+
   it('accepts epoch-millisecond dates and missing optional fields', () => {
     const position: Record<string, unknown> = { ...sampleForward.position };
     delete position['serverTime'];
@@ -45,8 +51,8 @@ describe('traccarForwardSchema', () => {
       { ...sampleForward, position: { ...sampleForward.position, latitude: 91 } },
     ],
     [
-      'a non-positive position id',
-      { ...sampleForward, position: { ...sampleForward.position, id: 0 } },
+      'a negative position id',
+      { ...sampleForward, position: { ...sampleForward.position, id: -1 } },
     ],
     ['an empty device uniqueId', { ...sampleForward, device: { uniqueId: '' } }],
   ])('rejects %s', (_label, payload) => {

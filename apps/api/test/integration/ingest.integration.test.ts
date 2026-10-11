@@ -108,6 +108,23 @@ describe('POST /ingest/traccar/positions (PostGIS)', () => {
     expect(await db.selectFrom('positions').selectAll().execute()).toHaveLength(1);
   });
 
+  it('accepts a position Traccar forwards before storing it (id 0), and stores it once', async () => {
+    // Traccar 6.16 forwards before its database handler runs, so a position can arrive with id 0;
+    // when the answer is lost, its retry may then carry the stored id.
+    const unstored = await post(api.app, forward(0, 0, 0));
+    const replay = await post(api.app, forward(0, 0, 0));
+    const retried = await post(api.app, forward(41, 0, 0));
+
+    expect([unstored.statusCode, replay.statusCode, retried.statusCode]).toEqual([200, 200, 200]);
+    expect([replay.json(), retried.json()]).toEqual([
+      { status: 'duplicate' },
+      { status: 'duplicate' },
+    ]);
+    const rows = await db.selectFrom('positions').select('traccar_position_id').execute();
+    expect(rows).toEqual([{ traccar_position_id: null }]);
+    expect((await post(api.app, forward(-3, 20, 30))).statusCode).toBe(400);
+  });
+
   it('aborts a manual trip after inactivity', async () => {
     const trip = await api.tripLifecycle.startTrip({
       vehicleId: seeded.vehicleId,
@@ -143,10 +160,11 @@ describe('RI-01 stop-and-go drive through the HTTP endpoint', () => {
       clock.set(new Date(T0 + s * 1000 + 1000));
       if (s === 400 || s === 800) {
         // Concurrent replays through two API instances (separate in-process locks): the same
-        // Traccar position twice, plus the same fix under a new Traccar id.
+        // Traccar position twice, plus the same fix under a new Traccar id (a replay too: one row).
         const id = nextId++;
         const twin = nextId++;
         await Promise.all([send(apiA.app, id, s), send(apiB.app, id, s), send(apiB.app, twin, s)]);
+        ids.delete(twin);
       } else {
         await send(apiA.app, nextId++, s);
       }
