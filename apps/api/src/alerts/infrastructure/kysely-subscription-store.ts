@@ -48,14 +48,25 @@ export class KyselySubscriptionStore implements SubscriptionStore {
       : { id: row.id, managementTokenHash: row.management_token_hash, revokedAt: row.revoked_at };
   }
 
-  async revoke(subscriptionId: string, reason: RevokeReason, at: Date): Promise<void> {
-    if (!isUuid(subscriptionId)) return;
-    await this.db
+  async revokeWithToken(
+    subscriptionId: string,
+    managementTokenHash: string,
+    reason: RevokeReason,
+    at: Date,
+  ): Promise<boolean> {
+    if (!isUuid(subscriptionId)) return false;
+    // One statement: the row lock taken by the UPDATE orders it with a concurrent upsert, and the
+    // hash condition is re-checked on the latest row version.
+    const result = await this.db
       .updateTable('push_subscriptions')
-      .set({ revoked_at: at, revoke_reason: reason })
+      .set((eb) => ({
+        revoked_at: eb.fn.coalesce('revoked_at', eb.val(at)),
+        revoke_reason: eb.fn.coalesce('revoke_reason', eb.val(reason)),
+      }))
       .where('id', '=', subscriptionId)
-      .where('revoked_at', 'is', null)
-      .execute();
+      .where('management_token_hash', '=', managementTokenHash)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
   }
 
   async confirmReceipt(alertId: string, subscriptionId: string, at: Date): Promise<boolean> {

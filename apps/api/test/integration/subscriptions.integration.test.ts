@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
+import { sql } from 'kysely';
 import { pino } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { ManualClock } from '../fakes/in-memory-tracking-store.js';
 import { TEST_API_CONFIG, browserSubscription } from '../support/api-config.js';
+import { KyselySubscriptionStore } from '../../src/alerts/infrastructure/kysely-subscription-store.js';
 import { composeApi, type Api, type ApiConfig } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase, type SeedResult } from '../../src/shared/infrastructure/db/seed.js';
@@ -178,6 +180,91 @@ describe('public push subscription API (PostGIS)', () => {
       .executeTakeFirstOrThrow();
     expect(rows[0]?.point_id).toBe(p09.id);
     expect((await cancel(app, first.subscriptionId, first.managementToken)).statusCode).toBe(403);
+  });
+
+  it('revokes only while the verified token hash is still the current one', async () => {
+    const { subscriptionId } = (await subscribe(app, subscribeBody())).json<{
+      subscriptionId: string;
+    }>();
+    const [before] = await subscriptionRows();
+    // A re-subscription rotates the token between a cancel's token check and its revocation.
+    await subscribe(app, subscribeBody({ pointCode: 'P09' }));
+    const [rotated] = await subscriptionRows();
+    const store = new KyselySubscriptionStore(db);
+
+    const stale = await store.revokeWithToken(
+      subscriptionId,
+      before!.management_token_hash,
+      'user_cancelled',
+      NOW,
+    );
+    expect(stale).toBe(false);
+    expect((await subscriptionRows())[0]?.revoked_at).toBeNull();
+
+    const later = new Date(NOW.getTime() + 60_000);
+    const hash = rotated!.management_token_hash;
+    expect(await store.revokeWithToken(subscriptionId, hash, 'user_cancelled', NOW)).toBe(true);
+    expect(await store.revokeWithToken(subscriptionId, hash, 'expired', later)).toBe(true);
+    expect((await subscriptionRows())[0]).toMatchObject({
+      revoked_at: NOW,
+      revoke_reason: 'user_cancelled',
+    });
+  });
+
+  it('rejects a household subscribing to a point of another route', async () => {
+    const other = await db
+      .insertInto('routes')
+      .values({
+        code: 'RH-01',
+        name: 'Huaraz',
+        district: 'Huaraz',
+        geometry: sql`ST_GeogFromText('SRID=4326;LINESTRING(-77.53 -9.53, -77.531 -9.531)')`,
+        length_m: 150,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const point = await db
+      .insertInto('reference_points')
+      .values({
+        route_id: other.id,
+        code: 'P01',
+        name: 'Plaza',
+        sequence: 1,
+        location: sql`ST_GeogFromText('SRID=4326;POINT(-77.53 -9.53)')`,
+        chainage_m: 0,
+        offset_m: 0,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const p08 = await db
+      .selectFrom('reference_points')
+      .select('id')
+      .where('code', '=', 'P08')
+      .executeTakeFirstOrThrow();
+    await db
+      .insertInto('households')
+      .values({
+        code: 'H-001',
+        route_id: seeded.routeId,
+        point_id: p08.id,
+        enrolled_at: NOW,
+        consent_at: NOW,
+        consent_version: '2026-10',
+      })
+      .execute();
+
+    const mismatch = await subscribe(
+      app,
+      subscribeBody({ pointCode: undefined, pointId: point.id, householdCode: 'H-001' }),
+    );
+    const sameRoute = await subscribe(
+      app,
+      subscribeBody({ pointCode: 'P09', householdCode: 'H-001' }),
+    );
+
+    expect(mismatch.statusCode).toBe(422);
+    expect(mismatch.json()).toMatchObject({ error: 'household_route_mismatch' });
+    expect(sameRoute.statusCode).toBe(201);
   });
 
   it('cancels only with the management token, as a soft delete', async () => {

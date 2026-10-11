@@ -30,8 +30,19 @@ export interface SubscriptionStore {
    */
   upsert(subscription: NewSubscription): Promise<{ readonly id: string }>;
   findManaged(subscriptionId: string): Promise<ManagedSubscription | null>;
-  /** Revokes an active subscription (soft delete); an already revoked one keeps its reason. */
-  revoke(subscriptionId: string, reason: RevokeReason, at: Date): Promise<void>;
+  /**
+   * Revokes the subscription (soft delete) only while its management token hash is still
+   * `managementTokenHash`, in one atomic step: a concurrent re-subscription of the same endpoint
+   * rotates the token and reactivates the row, and the old token must not revoke it then. An
+   * already revoked subscription keeps its time and reason. Returns false when the hash no longer
+   * matches (nothing changed).
+   */
+  revokeWithToken(
+    subscriptionId: string,
+    managementTokenHash: string,
+    reason: RevokeReason,
+    at: Date,
+  ): Promise<boolean>;
   /**
    * Sets `received_at` on the (alert, subscription) delivery unless already set. Returns false when
    * there is no such delivery.

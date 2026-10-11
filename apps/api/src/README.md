@@ -103,6 +103,8 @@ Degraded inputs never block a vehicle's positions:
 - When the route of the active trip is missing or cannot be loaded, the position is stored and linked to
   the trip without advancing it, and an error is logged with the trip and vehicle ids. The inactivity job
   ends the trip if the route stays unavailable.
+- Without an active trip, a missing or inactive default route only prevents auto-start: it is warned
+  once per vehicle and process. A failure to load it is logged as a skipped auto-start on each fix.
 - The route and profile caches drop a failed load only while it is still the current entry, so a late
   failure never evicts a newer load that followed an invalidation.
 
@@ -121,15 +123,20 @@ A citizen subscribes one browser to one public reference point with explicit con
 rejects requests without `consent: true`. The service accepts only endpoints of the browser push
 services (`alerts/domain/push-endpoint.ts`), so the API never posts to arbitrary hosts. It resolves the
 point by id or by code (plus the route code when a code repeats across routes) and the optional household
-code. It issues a random management token and stores only its SHA-256 hash. Upserting by endpoint keeps
-the subscription id, moves it to the new point and rotates the token. `cancel` compares the token in
-constant time and soft-deletes the subscription.
+code; a household may follow any point of its own route, never one of another route
+(`household_route_mismatch`). It issues a random management token and stores only its SHA-256 hash.
+Upserting by endpoint keeps the subscription id, moves it to the new point and rotates the token.
+`cancel` compares the token in constant time and soft-deletes the subscription with one conditional
+UPDATE on the verified hash, so a re-subscription racing the cancel is never revoked by the old token.
 
 ### Alert dispatch (`PushAlertNotifier`)
 
 `IngestPositionService` hands newly inserted alerts to the `AlertNotifier` after the commit, in the
 background: the ingest response never waits for push services, and `whenNotificationsSettled()` lets
-shutdown and tests wait for them. The composition root uses `PushAlertNotifier` with `WebPushGateway`
+shutdown and tests wait for them. Each background run ends with a logging error handler, so it can
+never become an unhandled rejection, and `whenNotificationsSettled()` never rejects. On shutdown this
+wait is best-effort: it gets the remaining budget minus a 1 s reserve, so the database pool always
+closes (`WebPushGateway` uses a 5 s per-push timeout). The composition root uses `PushAlertNotifier` with `WebPushGateway`
 when VAPID is configured, and `LoggingAlertNotifier` (with a startup warning) otherwise.
 
 Per alert, `PushAlertNotifier` loads the active subscriptions of the point and sends the payload built by

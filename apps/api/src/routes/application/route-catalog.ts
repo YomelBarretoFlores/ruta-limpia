@@ -9,6 +9,11 @@ export interface RouteSnapshot {
   readonly id: string;
   readonly code: string;
   readonly name: string;
+  /**
+   * False once the route is withdrawn from service: trips no longer auto-start on it, and it is
+   * hidden from the public catalog. Trips already running on it keep their route.
+   */
+  readonly active: boolean;
   readonly geometry: RouteGeometry;
   readonly points: readonly LocatedReferencePoint[];
 }

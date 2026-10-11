@@ -139,8 +139,10 @@ consent: true, consentVersion }`, where `subscription` is the browser's `PushSub
   version of the consent text.
 - An unknown point or household, a point code that exists on several routes without `routeCode`, or an
   endpoint outside the browser push services (FCM, Mozilla, Apple, Windows) answers `422`.
+- With `householdCode`, the point must be on the household's route (`422 household_route_mismatch`
+  otherwise). Another point of the same route is allowed, for example one on the way to work.
 - Subscribing the same browser endpoint again moves it to the new point, reactivates it, and issues a new
-  management token. The old token stops working.
+  management token. The old token stops working, also for a cancel that raced the re-subscription.
 - The mutating routes are rate-limited per client IP (`PUBLIC_RATE_LIMIT_PER_MINUTE`, `429` beyond).
 
 Each new proximity alert is pushed, after the tracking transaction commits and in the background (it

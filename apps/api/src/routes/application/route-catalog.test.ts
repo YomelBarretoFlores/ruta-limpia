@@ -10,6 +10,7 @@ const snapshot: RouteSnapshot = {
   id: 'route-1',
   code: 'RI-01',
   name: RI01_ROUTE.name,
+  active: true,
   geometry,
   points: locateReferencePoints(geometry, RI01_REFERENCE_POINTS),
 };

@@ -81,12 +81,17 @@ interface Outcome {
 export class IngestPositionService {
   /** Alert notifications still running in the background. */
   private readonly notifications = new Set<Promise<void>>();
+  /** Vehicles already warned about an unusable default route (once per vehicle per process). */
+  private readonly warnedDefaultRoutes = new Set<string>();
 
   constructor(private readonly deps: IngestPositionDependencies) {}
 
-  /** Resolves when every background alert notification started so far has finished. */
+  /**
+   * Resolves when every background alert notification started so far has finished. Never rejects:
+   * each notification run ends with its own error handler.
+   */
   async whenNotificationsSettled(): Promise<void> {
-    while (this.notifications.size > 0) await Promise.all(this.notifications);
+    while (this.notifications.size > 0) await Promise.allSettled(this.notifications);
   }
 
   async ingest(command: IngestPositionCommand): Promise<IngestResult> {
@@ -300,7 +305,7 @@ export class IngestPositionService {
    */
   private async loadRoute(
     routeId: string,
-    context: { readonly tripId: string | null; readonly vehicleId: string },
+    context: { readonly tripId: string; readonly vehicleId: string },
   ): Promise<RouteSnapshot | null> {
     let route: RouteSnapshot | null = null;
     let failure: unknown;
@@ -337,10 +342,7 @@ export class IngestPositionService {
   /** The vehicle's default route when this fix is a plausible start of it (on route, near its start). */
   private async autoStartRoute(vehicle: Vehicle, fix: PositionFix): Promise<RouteSnapshot | null> {
     if (vehicle.defaultRouteId === null || !fix.valid) return null;
-    const route = await this.loadRoute(vehicle.defaultRouteId, {
-      tripId: null,
-      vehicleId: vehicle.id,
-    });
+    const route = await this.loadDefaultRoute(vehicle.id, vehicle.defaultRouteId);
     if (route === null) return null;
     const match = projectOntoRoute(route.geometry, fix);
     const { tracking, startZoneMeters } = this.deps.settings;
@@ -351,8 +353,50 @@ export class IngestPositionService {
     return startsHere ? route : null;
   }
 
+  /**
+   * The vehicle's default route when it can start a trip, or null. There is no trip yet, so a
+   * missing or inactive route is a catalog problem (warned once per vehicle), and a load failure
+   * is logged as a skipped auto-start; the fix itself is stored either way.
+   */
+  private async loadDefaultRoute(
+    vehicleId: string,
+    routeId: string,
+  ): Promise<RouteSnapshot | null> {
+    const context = { vehicleId, routeId };
+    let route: RouteSnapshot | null;
+    try {
+      route = await this.deps.routes.get(routeId);
+    } catch (error) {
+      this.deps.logger.error(
+        { err: error, ...context },
+        'Default route could not be loaded; trip auto-start skipped for this fix',
+      );
+      return null;
+    }
+    if (route === null || !route.active) {
+      if (!this.warnedDefaultRoutes.has(vehicleId)) {
+        this.warnedDefaultRoutes.add(vehicleId);
+        this.deps.logger.warn(
+          context,
+          'Default route of the vehicle is missing or inactive; trips cannot auto-start',
+        );
+      }
+      return null;
+    }
+    this.warnedDefaultRoutes.delete(vehicleId); // warn again if it becomes unusable later
+    return route;
+  }
+
   private notifyInBackground(alerts: Outcome['alerts']): void {
-    const running = this.notify(alerts).finally(() => this.notifications.delete(running));
+    const running = this.notify(alerts)
+      .catch((error: unknown) => {
+        // Terminal handler: a background run must never become an unhandled rejection.
+        this.deps.logger.error(
+          { err: error, alertIds: alerts.map((a) => a.alertId) },
+          'Background alert notification failed',
+        );
+      })
+      .finally(() => this.notifications.delete(running));
     this.notifications.add(running);
   }
 

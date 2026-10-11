@@ -16,7 +16,11 @@ import {
   SpeedProfileProvider,
   type CompletedTripSamplesSource,
 } from '../../eta/application/speed-profile-provider.js';
-import { RouteCatalog, type RouteRepository } from '../../routes/application/route-catalog.js';
+import {
+  RouteCatalog,
+  type RouteRepository,
+  type RouteSnapshot,
+} from '../../routes/application/route-catalog.js';
 import { KeyedMutex } from '../../shared/application/keyed-mutex.js';
 import { SILENT_LOGGER } from '../../shared/application/logger.js';
 import { InMemoryEventBus } from '../../shared/infrastructure/events/in-memory-event-bus.js';
@@ -318,6 +322,60 @@ describe('IngestPositionService', () => {
     expect(ctx.logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ routeId: RI01_SNAPSHOT.id }),
       expect.stringContaining('speed profile'),
+    );
+  });
+
+  it.each([
+    ['missing', () => Promise.resolve(null)],
+    ['inactive', () => Promise.resolve({ ...RI01_SNAPSHOT, active: false })],
+  ])(
+    'warns once per vehicle, without a trip, when the default route is %s',
+    async (_case, findRoute: () => Promise<RouteSnapshot | null>) => {
+      ctx.findRoute.mockImplementation(findRoute);
+
+      for (let s = 0; s <= 40; s += 20) await ctx.send(s, s);
+
+      expect(ctx.store.positions).toHaveLength(3);
+      expect(ctx.store.trips).toEqual([]);
+      expect(ctx.logger.error).not.toHaveBeenCalled();
+      expect(ctx.logger.warn).toHaveBeenCalledOnce();
+      expect(ctx.logger.warn).toHaveBeenCalledWith(
+        { vehicleId: truck.id, routeId: RI01_SNAPSHOT.id },
+        'Default route of the vehicle is missing or inactive; trips cannot auto-start',
+      );
+    },
+  );
+
+  it('logs a failure to load the default route as an auto-start error on every fix', async () => {
+    ctx.findRoute.mockRejectedValue(new Error('connection reset'));
+
+    await ctx.send(0, 0);
+    await ctx.send(10, 20);
+
+    expect(ctx.store.positions).toHaveLength(2);
+    expect(ctx.store.trips).toEqual([]);
+    expect(ctx.logger.error).toHaveBeenCalledTimes(2);
+    expect(ctx.logger.error).toHaveBeenCalledWith(
+      { err: expect.any(Error) as unknown, vehicleId: truck.id, routeId: RI01_SNAPSHOT.id },
+      'Default route could not be loaded; trip auto-start skipped for this fix',
+    );
+  });
+
+  it('never leaves a failed background notification unhandled', async () => {
+    ctx.notify.mockRejectedValue(new Error('push service down'));
+    // Even the per-alert error log fails, so the notification run itself rejects.
+    ctx.logger.error.mockImplementationOnce(() => {
+      throw new Error('log sink down');
+    });
+    for (let s = 0; s <= 400 && ctx.store.alerts.length === 0; s += 20) {
+      await ctx.send(stopAndGoChainageAt(s), s);
+    }
+    expect(ctx.store.alerts.length).toBeGreaterThan(0);
+
+    await expect(ctx.service.whenNotificationsSettled()).resolves.toBeUndefined();
+    expect(ctx.logger.error).toHaveBeenLastCalledWith(
+      expect.objectContaining({ err: expect.any(Error) as unknown }),
+      'Background alert notification failed',
     );
   });
 

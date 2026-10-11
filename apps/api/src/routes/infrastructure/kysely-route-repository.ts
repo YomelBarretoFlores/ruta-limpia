@@ -21,7 +21,7 @@ export class KyselyRouteRepository implements RouteRepository {
     if (!isUuid(routeId)) return null;
     const route = await this.db
       .selectFrom('routes')
-      .select(['id', 'code', 'name', sql<string>`ST_AsGeoJSON(geometry)`.as('geojson')])
+      .select(['id', 'code', 'name', 'active', sql<string>`ST_AsGeoJSON(geometry)`.as('geojson')])
       .where('id', '=', routeId)
       .executeTakeFirst();
     if (route === undefined) return null;
@@ -48,6 +48,7 @@ export class KyselyRouteRepository implements RouteRepository {
       id: route.id,
       code: route.code,
       name: route.name,
+      active: route.active,
       geometry: buildRouteGeometry(line.coordinates.map(([lon, lat]) => ({ lat, lon }))),
       points: points.map((p) => ({
         id: p.id,

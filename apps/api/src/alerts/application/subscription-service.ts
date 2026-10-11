@@ -31,7 +31,9 @@ export type SubscribeResult =
   | { readonly status: 'unsupported_push_service' }
   | { readonly status: 'unknown_point' }
   | { readonly status: 'ambiguous_point' }
-  | { readonly status: 'unknown_household' };
+  | { readonly status: 'unknown_household' }
+  /** The household is enrolled on another route than the point's. */
+  | { readonly status: 'household_route_mismatch' };
 
 export type CancelResult = 'cancelled' | 'not_found' | 'forbidden';
 
@@ -70,6 +72,9 @@ export class SubscriptionService {
         command.householdCode.trim().toUpperCase(),
       );
       if (household === null || !household.active) return { status: 'unknown_household' };
+      // A household may follow any point of its own route (for example a closer one on the way to
+      // work), never a point of another route: its indicators belong to its enrollment route.
+      if (household.routeId !== point.routeId) return { status: 'household_route_mismatch' };
       householdId = household.id;
     }
 
@@ -89,17 +94,26 @@ export class SubscriptionService {
     return { status: 'subscribed', subscriptionId: id, managementToken: token, point };
   }
 
-  /** Revokes the subscription (reason `user_cancelled`). Cancelling twice is not an error. */
+  /**
+   * Revokes the subscription (reason `user_cancelled`). Cancelling twice is not an error. The
+   * revocation is conditional on the verified token hash, so when the same browser re-subscribes
+   * between the check and the revocation (rotating the token), the old token revokes nothing.
+   */
   async cancel(subscriptionId: string, managementToken: string): Promise<CancelResult> {
     const subscription = await this.deps.store.findManaged(subscriptionId);
     if (subscription === null) return 'not_found';
     if (!this.deps.tokens.matches(managementToken, subscription.managementTokenHash)) {
       return 'forbidden';
     }
-    if (subscription.revokedAt === null) {
-      await this.deps.store.revoke(subscriptionId, 'user_cancelled', this.deps.clock.now());
-      this.deps.logger.info({ subscriptionId }, 'Push subscription cancelled');
-    }
+    if (subscription.revokedAt !== null) return 'cancelled';
+    const revoked = await this.deps.store.revokeWithToken(
+      subscriptionId,
+      subscription.managementTokenHash,
+      'user_cancelled',
+      this.deps.clock.now(),
+    );
+    if (!revoked) return 'forbidden';
+    this.deps.logger.info({ subscriptionId }, 'Push subscription cancelled');
     return 'cancelled';
   }
 

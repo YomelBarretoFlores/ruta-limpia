@@ -77,6 +77,7 @@ const UNPROCESSABLE: Record<Exclude<SubscribeResult['status'], 'subscribed'>, st
   unknown_point: 'The reference point does not exist.',
   ambiguous_point: 'Several routes have this point code; give the route code too.',
   unknown_household: 'The household code is not enrolled or no longer active.',
+  household_route_mismatch: "The household is enrolled on another route than the point's.",
 };
 
 /**

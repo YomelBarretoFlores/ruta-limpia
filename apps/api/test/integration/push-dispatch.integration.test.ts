@@ -266,12 +266,13 @@ describe('alert dispatch: RI-01 drive through the ingest endpoint', () => {
       pushes.length,
     );
 
-    const p09Alerted = alerts.some((a) => a.code === 'P09');
+    // The drive is deterministic and alerts P09, whose push service answers 410 Gone.
+    expect(alerts.map((a) => a.code)).toContain('P09');
     const p09 = await db
       .selectFrom('push_subscriptions')
       .select(['revoke_reason'])
       .where('endpoint', '=', browserSubscription('device-P09').endpoint)
       .executeTakeFirstOrThrow();
-    expect(p09.revoke_reason).toBe(p09Alerted ? 'expired' : null);
+    expect(p09.revoke_reason).toBe('expired');
   });
 });

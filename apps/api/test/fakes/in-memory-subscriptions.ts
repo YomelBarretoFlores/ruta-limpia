@@ -77,6 +77,17 @@ export class InMemorySubscriptionStore implements SubscriptionStore, AlertDelive
     );
   }
 
+  revokeWithToken(
+    subscriptionId: string,
+    managementTokenHash: string,
+    reason: RevokeReason,
+    at: Date,
+  ): Promise<boolean> {
+    const found = this.find(subscriptionId);
+    if (found?.managementTokenHash !== managementTokenHash) return Promise.resolve(false);
+    return this.revoke(subscriptionId, reason, at).then(() => true);
+  }
+
   revoke(subscriptionId: string, reason: RevokeReason, at: Date): Promise<void> {
     const found = this.find(subscriptionId);
     if (found !== undefined && found.revokedAt === null) {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ManualClock } from '../../../test/fakes/in-memory-tracking-store.js';
 import {
@@ -151,6 +151,41 @@ describe('SubscriptionService', () => {
     expect(await ctx.service.cancel('subscription-1', 'token-9')).toBe('forbidden');
     expect(await ctx.service.cancel('subscription-9', 'token-1')).toBe('not_found');
     expect(ctx.store.find('subscription-1')?.revokedAt).toBeNull();
+  });
+
+  it('never lets an old token revoke a subscription that was re-subscribed meanwhile', async () => {
+    await ctx.service.subscribe(command());
+    const findManaged = ctx.store.findManaged.bind(ctx.store);
+    // The same browser subscribes again between the token check and the revocation.
+    vi.spyOn(ctx.store, 'findManaged').mockImplementationOnce(async (id) => {
+      const found = await findManaged(id);
+      await ctx.service.subscribe(command({ point: { pointId: p08.id } }));
+      return found;
+    });
+
+    expect(await ctx.service.cancel('subscription-1', 'token-1')).toBe('forbidden');
+    expect(ctx.store.find('subscription-1')).toMatchObject({
+      pointId: p08.id,
+      managementTokenHash: 'hash:token-2',
+      revokedAt: null,
+    });
+  });
+
+  it("rejects a household whose route is not the point's route", async () => {
+    const result = await ctx.service.subscribe(
+      command({ point: { pointCode: 'P08', routeCode: 'RH-01' }, householdCode: 'H-001' }),
+    );
+
+    expect(result).toEqual({ status: 'household_route_mismatch' });
+    expect(ctx.store.subscriptions).toEqual([]);
+  });
+
+  it('allows a household to follow another point of its own route', async () => {
+    // H-001 is enrolled at P08; following P09 on the same route (for example a closer point on
+    // the way to work) is allowed.
+    const result = await ctx.service.subscribe(command({ householdCode: 'H-001' }));
+
+    expect(result).toMatchObject({ status: 'subscribed', point: p09 });
   });
 
   it('confirms the reception of a delivered alert once, with the management token', async () => {

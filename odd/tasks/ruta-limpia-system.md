@@ -222,6 +222,26 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `PUSH_CONCURRENCY` and `PUSH_MAX_CONSECUTIVE_FAILURES` (agents
   cannot edit `.env*` files). Real delivery to a browser is checked in T6 (PWA service worker).
 
+- 2026-10-11: T4's last commit is `7d80fb3`. T4 was reviewed in two slices, `b1e148e..4b4b0af` and
+  `4b4b0af..7d80fb3`; both were approved and acknowledged. The reviewed boundary is now `7d80fb3`. Its
+  findings are handled in T5 commit A `fix(alerts): close the cancel race and harden background
+  dispatch and shutdown` (the parent records the hash):
+  - WARNING (cancel/revoke race): `cancel` now revokes with one UPDATE conditioned on the verified
+    `management_token_hash` (`SubscriptionStore.revokeWithToken`); a re-subscription that rotated the
+    token in between answers `403` and stays active.
+  - Auto-start: a missing or inactive default route (new `RouteSnapshot.active`) is warned once per
+    vehicle and process without trip wording; a route-load failure during auto-start is logged as a
+    skipped auto-start.
+  - Subscribing with a household requires the point to be on the household's route
+    (`422 household_route_mismatch`); another point of the same route is allowed.
+  - Background notifications end with a terminal logging `.catch`; `whenNotificationsSettled()` uses
+    `Promise.allSettled` and never rejects.
+  - `WebPushGateway` takes an injectable `sendNotification`; its 410/404/429/500 → status and
+    network-error → rejection mapping is unit-tested. Per-push timeout lowered from 10 s to 5 s.
+  - The end-to-end expiry assertion now requires P09 to be alerted (deterministic drive).
+  - Shutdown: `ShutdownStep.reserveMs` makes a step best-effort; the alert-dispatch wait gets the
+    remaining budget minus 1 s, so the database pool step always runs.
+
 ## Next step
 
 T5 (public API + SSE: routes, points, vehicle status, live ETA per point).
