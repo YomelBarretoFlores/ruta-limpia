@@ -1,0 +1,19 @@
+{
+  "name": "@ruta-limpia/simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GPS simulator for the Ruta Limpia pilot: bootstraps Traccar and drives RI-01 over OsmAnd.",
+  "scripts": {
+    "bootstrap-traccar": "tsx --env-file-if-exists=../../.env src/bootstrap-traccar.ts",
+    "drive-ri01": "tsx --env-file-if-exists=../../.env src/drive-ri01.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
+  }
+}

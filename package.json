@@ -13,13 +13,15 @@
     "build": "pnpm --recursive build",
     "typecheck": "tsc -p tsconfig.json && pnpm --recursive typecheck",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run && pnpm --filter @ruta-limpia/simulator test",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
-    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f"
+    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
+    "sim:bootstrap": "pnpm --filter @ruta-limpia/simulator bootstrap-traccar",
+    "sim:drive": "pnpm --filter @ruta-limpia/simulator drive-ri01"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
