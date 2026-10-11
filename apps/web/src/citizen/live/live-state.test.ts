@@ -160,6 +160,8 @@ describe('selectArrival', () => {
       lat: -9.5235,
       lon: -77.5283,
       stale: false,
+      fixTime: FIX_AT,
+      course: null,
     });
   });
 });

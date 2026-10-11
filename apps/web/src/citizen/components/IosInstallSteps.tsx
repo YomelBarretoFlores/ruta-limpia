@@ -19,7 +19,7 @@ export function IosInstallSteps() {
           Vuelve a esta sección y toca <strong>Activar avisos</strong>.
         </li>
       </ol>
-      <p className="field__note">Se necesita iOS 16.4 o una versión más reciente.</p>
+      <p className="install-steps__note">Se necesita iOS 16.4 o una versión más reciente.</p>
     </div>
   );
 }

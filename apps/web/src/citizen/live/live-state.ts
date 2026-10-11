@@ -52,11 +52,11 @@ function applyEvent(
 ): LiveSnapshot {
   switch (action.name) {
     case 'vehicle.position': {
-      const { tripId, fixTime, lat, lon } = action.data;
+      const { tripId, fixTime, lat, lon, course } = action.data;
       return updateTrip(snapshot, tripId, (trip) => ({
         ...trip,
         lastFixAt: fixTime,
-        lastPosition: { lat, lon, fixTime },
+        lastPosition: { lat, lon, fixTime, course },
       }));
     }
     case 'eta.updated': {
@@ -98,7 +98,7 @@ function updateTrip(
   };
 }
 
-/** What the arrival card shows for the household's point. */
+/** What the arrival section shows for the household's point. */
 export type ArrivalView =
   | { readonly kind: 'loading' }
   /** No truck runs the route: show the printed schedule. */
@@ -155,12 +155,30 @@ export function selectArrival(
   return { kind: 'starting', updatedAt };
 }
 
-/** The truck position to draw on the map (the trip shown in the arrival card), if any. */
+/** The truck as the map draws it. */
+export interface TruckPosition {
+  readonly lat: number;
+  readonly lon: number;
+  /** The signal is not live: the map draws the last known position, hollow. */
+  readonly stale: boolean;
+  readonly fixTime: string;
+  /** Heading in degrees from north, when known. */
+  readonly course: number | null;
+}
+
+/** The truck position to draw on the map (the trip shown in the arrival section), if any. */
 export function selectTruckPosition(
   snapshot: LiveSnapshot | null,
   pointCode: string | null,
-): { readonly lat: number; readonly lon: number; readonly stale: boolean } | null {
+): TruckPosition | null {
   const trip = snapshot === null ? null : shownTrip(snapshot, pointCode);
-  if (trip?.lastPosition == null) return null;
-  return { lat: trip.lastPosition.lat, lon: trip.lastPosition.lon, stale: trip.signal !== 'live' };
+  const position = trip?.lastPosition ?? null;
+  if (trip === null || position === null) return null;
+  return {
+    lat: position.lat,
+    lon: position.lon,
+    stale: trip.signal !== 'live',
+    fixTime: position.fixTime,
+    course: position.course ?? null,
+  };
 }

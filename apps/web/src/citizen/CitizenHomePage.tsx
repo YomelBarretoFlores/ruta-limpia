@@ -1,17 +1,24 @@
 import './citizen.css';
 
+import { lazy, Suspense } from 'react';
 import { useLocation } from 'react-router';
 
+import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
 import { Notice } from '../shared/ui/Notice';
 import { useCitizenDeps } from './citizen-deps';
-import { AlertSubscriptionCard } from './components/AlertSubscriptionCard';
-import { ArrivalCard } from './components/ArrivalCard';
-import { RouteMap } from './components/RouteMap';
+import { AlertsSection } from './components/AlertsSection';
+import { ArrivalSection } from './components/ArrivalSection';
+import { HowToSection } from './components/HowToSection';
 import { useAlertSubscription } from './hooks/useAlertSubscription';
 import { useCitizenRoute } from './hooks/useCitizenRoute';
 import { useLiveRoute } from './hooks/useLiveRoute';
 import { useViewReporting } from './hooks/useViewReporting';
 import { selectArrival, selectTruckPosition } from './live/live-state';
+
+// Leaflet is most of the bundle: the arrival window shows first, the map follows.
+const RouteMap = lazy(() =>
+  import('./components/RouteMap').then((module) => ({ default: module.RouteMap })),
+);
 
 /** Brings the alert sign-up into view and moves the keyboard focus to its title. */
 function showAlertSettings() {
@@ -20,9 +27,9 @@ function showAlertSettings() {
 }
 
 /**
- * Citizen area (`/`): the truck on the map, its arrival at the household's reference point, and
- * the alert sign-up. Container: it resolves the route and point, keeps the live state and the
- * subscription, and reports app views; the cards only render what they are given.
+ * Citizen area (`/`): the arrival of the truck at the household's reference point, the truck on
+ * the map, and the alert sign-up. Container: it resolves the route and point, keeps the live
+ * state and the subscription, and reports app views; the sections only render what they get.
  */
 export function CitizenHomePage() {
   const deps = useCitizenDeps();
@@ -43,35 +50,51 @@ export function CitizenHomePage() {
   const point = ready?.route.points.find((p) => p.code === pointCode) ?? null;
   return (
     <div className="citizen">
-      <header className="citizen__header">
-        <h1 className="citizen__title">Ruta Limpia</h1>
-        <p className="citizen__tagline">Recolección de residuos en tu barrio</p>
+      <header className="citizen-header">
+        <div className="citizen-header__inner">
+          <h1 className="citizen-header__wordmark">Ruta Limpia</h1>
+          <p className="citizen-header__district">
+            {ready === null ? 'Recolección de residuos' : `Distrito de ${ready.route.district}`}
+          </p>
+        </div>
       </header>
-      <main className="citizen__main">
+      <main className="citizen-main">
         {citizenRoute.status === 'loading' && <p>Cargando la ruta…</p>}
         {citizenRoute.status === 'unavailable' && (
-          <Notice tone="danger">
-            No se pudo cargar la ruta. Revisa tu conexión a internet e intenta otra vez.
+          <Notice tone="danger" title="No se pudo cargar la ruta">
+            <p>Revisa tu conexión a internet e intenta otra vez.</p>
           </Notice>
         )}
         {ready !== null && (
           <>
-            <ArrivalCard
+            <ArrivalSection
               route={{ district: ready.route.district, code: ready.route.code }}
               point={point === null ? null : { code: point.code, name: point.name }}
               arrival={selectArrival(live.snapshot, pointCode)}
               schedule={ready.route.schedule}
               connection={live.connection}
               map={
-                <RouteMap
-                  route={ready.route}
-                  highlightedPointCode={pointCode}
-                  truck={selectTruckPosition(live.snapshot, pointCode)}
-                />
+                <ErrorBoundary
+                  fallback={
+                    <p className="route-map route-map--placeholder">
+                      No se pudo mostrar el mapa. La llegada estimada sigue arriba.
+                    </p>
+                  }
+                >
+                  <Suspense
+                    fallback={<p className="route-map route-map--placeholder">Cargando el mapa…</p>}
+                  >
+                    <RouteMap
+                      route={ready.route}
+                      highlightedPointCode={pointCode}
+                      truck={selectTruckPosition(live.snapshot, pointCode)}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
               }
               onConfigureAlerts={showAlertSettings}
             />
-            <AlertSubscriptionCard
+            <AlertsSection
               zone={`${ready.route.district} · ${ready.route.code}`}
               points={ready.route.points}
               selectedPointCode={pointCode}
@@ -86,9 +109,17 @@ export function CitizenHomePage() {
               onActivate={alerts.activate}
               onCancel={alerts.cancel}
             />
+            <HowToSection />
           </>
         )}
       </main>
+      <footer className="citizen-footer">
+        <p>
+          Ruta Limpia no guarda la dirección de tu hogar: los avisos usan solo tu punto de
+          referencia y, si lo tienes, el código de hogar.
+        </p>
+        <p>Proyecto RSU UNASAM 2026</p>
+      </footer>
     </div>
   );
 }

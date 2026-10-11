@@ -1,0 +1,71 @@
+/*
+ * Leaflet overrides for the citizen map (docs/design/design-system.md, "Map"). Imported after
+ * leaflet.css, in the lazily loaded map chunk, so these rules win over Leaflet's own.
+ */
+/* Muted tiles; the attribution and the controls stay unfiltered. */
+.route-map .leaflet-tile-pane {
+  filter: grayscale(1) contrast(0.92) brightness(1.04);
+}
+
+.route-map .leaflet-bar {
+  border: var(--border) solid var(--rule-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 0 rgb(29 35 32 / 12%);
+}
+
+.route-map .leaflet-bar a,
+.route-map .leaflet-bar a:hover {
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  color: var(--ink);
+  background: var(--surface);
+  border-bottom-color: var(--rule);
+}
+
+.route-map .leaflet-bar a:first-child,
+.route-map .leaflet-bar a:last-child {
+  border-radius: 0;
+}
+
+.route-map .leaflet-control-attribution {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  background: var(--surface);
+}
+
+.route-map .leaflet-control-attribution a {
+  color: var(--ink-2);
+}
+
+.route-map .leaflet-tooltip {
+  padding: 2px var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  background: var(--surface);
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
+.route-map .leaflet-tooltip.map-label {
+  font-weight: var(--weight-title);
+}
+
+.route-map .leaflet-tooltip-top::before {
+  border-top-color: var(--ink);
+}
+
+.route-map .leaflet-tooltip-right::before {
+  border-right-color: var(--ink);
+}
+
+.truck-marker {
+  background: none;
+  border: 0;
+}
+
+.truck-marker svg {
+  display: block;
+}

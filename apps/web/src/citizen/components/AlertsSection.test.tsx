@@ -3,10 +3,10 @@ import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ROUTE } from '../test/fixtures';
-import { AlertSubscriptionCard, type AlertSubscriptionCardProps } from './AlertSubscriptionCard';
+import { AlertsSection, type AlertsSectionProps } from './AlertsSection';
 
-function renderCard(overrides: Partial<AlertSubscriptionCardProps> = {}) {
-  const props: AlertSubscriptionCardProps = {
+function renderSection(overrides: Partial<AlertsSectionProps> = {}) {
+  const props: AlertsSectionProps = {
     zone: 'Independencia · RI-01',
     points: ROUTE.points,
     selectedPointCode: 'P08',
@@ -22,15 +22,15 @@ function renderCard(overrides: Partial<AlertSubscriptionCardProps> = {}) {
     onCancel: vi.fn(),
     ...overrides,
   };
-  render(<AlertSubscriptionCard {...props} />);
+  render(<AlertsSection {...props} />);
   return props;
 }
 
-describe('AlertSubscriptionCard', () => {
+describe('AlertsSection', () => {
   it('shows the zone, the preselected point, the preference and the privacy notes', () => {
-    renderCard({ householdCode: 'H-001' });
+    renderSection({ householdCode: 'H-001' });
 
-    expect(screen.getByRole('heading', { name: 'Suscripción a las alertas' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Avisos de llegada' })).toBeInTheDocument();
     expect(screen.getByText('Solo con consentimiento del hogar')).toBeInTheDocument();
     expect(screen.getByLabelText('Zona urbana')).toHaveValue('Independencia · RI-01');
     expect(screen.getByLabelText('Punto cercano')).toHaveValue('P08');
@@ -40,11 +40,11 @@ describe('AlertSubscriptionCard', () => {
     expect(
       screen.getByText('Activar notificaciones depende del dispositivo y de sus permisos.'),
     ).toBeInTheDocument();
-    expect(screen.getByText('Puedes cancelar la suscripción.')).toBeInTheDocument();
+    expect(screen.getByText('Puedes cancelar los avisos cuando quieras.')).toBeInTheDocument();
   });
 
   it('keeps "Activar avisos" disabled until the household consents', async () => {
-    const props = renderCard();
+    const props = renderSection();
     const activate = screen.getByRole('button', { name: 'Activar avisos' });
 
     expect(activate).toBeDisabled();
@@ -57,7 +57,7 @@ describe('AlertSubscriptionCard', () => {
   });
 
   it('activates with consent and a point, and lets the household change the point', async () => {
-    const props = renderCard({ consent: true });
+    const props = renderSection({ consent: true });
 
     await userEvent.selectOptions(screen.getByLabelText('Punto cercano'), 'P09');
     await userEvent.click(screen.getByRole('button', { name: 'Activar avisos' }));
@@ -67,14 +67,14 @@ describe('AlertSubscriptionCard', () => {
   });
 
   it('needs a point before activating', () => {
-    renderCard({ consent: true, selectedPointCode: null });
+    renderSection({ consent: true, selectedPointCode: null });
 
     expect(screen.getByLabelText('Punto cercano')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeDisabled();
   });
 
   it('shows the home screen steps instead of the button on iPhone Safari', () => {
-    renderCard({ consent: true, support: 'ios_install' });
+    renderSection({ consent: true, support: 'ios_install' });
 
     expect(screen.queryByRole('button', { name: 'Activar avisos' })).not.toBeInTheDocument();
     expect(
@@ -84,14 +84,14 @@ describe('AlertSubscriptionCard', () => {
   });
 
   it('explains when the browser cannot receive alerts', () => {
-    renderCard({ support: 'unsupported' });
+    renderSection({ support: 'unsupported' });
 
     expect(screen.queryByRole('button', { name: 'Activar avisos' })).not.toBeInTheDocument();
     expect(screen.getByText(/Este navegador no puede recibir avisos/)).toBeInTheDocument();
   });
 
   it('offers to cancel an active subscription', async () => {
-    const props = renderCard({ phase: 'subscribed', subscribedPointCode: 'P08' });
+    const props = renderSection({ phase: 'subscribed', subscribedPointCode: 'P08' });
 
     expect(screen.getByText(/Avisos activados para el punto/)).toHaveTextContent('P08');
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar avisos' }));

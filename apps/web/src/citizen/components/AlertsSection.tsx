@@ -1,6 +1,7 @@
 import { Button } from '../../shared/ui/Button';
-import { Section } from '../../shared/ui/Section';
+import { Field } from '../../shared/ui/Field';
 import { Notice, type NoticeTone } from '../../shared/ui/Notice';
+import { Section } from '../../shared/ui/Section';
 import type { PushSupport } from '../push/push-support';
 import { IosInstallSteps } from './IosInstallSteps';
 
@@ -11,7 +12,7 @@ export interface SubscriptionMessage {
 
 export type SubscriptionPhase = 'checking' | 'idle' | 'activating' | 'subscribed' | 'cancelling';
 
-export interface AlertSubscriptionCardProps {
+export interface AlertsSectionProps {
   /** "Zona urbana": the route, for example "Independencia · RI-01". */
   readonly zone: string;
   readonly points: readonly { readonly code: string; readonly name: string }[];
@@ -31,15 +32,11 @@ export interface AlertSubscriptionCardProps {
   readonly onCancel: () => void;
 }
 
-/** "Suscripción a las alertas": consent-based sign-up for proximity alerts, and cancellation. */
-export function AlertSubscriptionCard(props: AlertSubscriptionCardProps) {
+/** "Avisos de llegada": consent-based sign-up for proximity alerts, and cancellation. */
+export function AlertsSection(props: AlertsSectionProps) {
   const { phase, message, support } = props;
   return (
-    <Section
-      id="avisos"
-      title="Suscripción a las alertas"
-      kicker="Solo con consentimiento del hogar"
-    >
+    <Section id="avisos" title="Avisos de llegada" kicker="Solo con consentimiento del hogar">
       {message !== null && <Notice tone={message.tone}>{message.text}</Notice>}
       {phase === 'checking' ? (
         <p>Revisando tus avisos…</p>
@@ -48,66 +45,76 @@ export function AlertSubscriptionCard(props: AlertSubscriptionCardProps) {
       ) : (
         <SubscriptionForm {...props} />
       )}
-      {support !== 'unsupported' && <p className="field__note">Puedes cancelar la suscripción.</p>}
+      {support !== 'unsupported' && (
+        <p className="alerts__note">Puedes cancelar los avisos cuando quieras.</p>
+      )}
     </Section>
   );
 }
 
-function SubscribedView({ subscribedPointCode, phase, onCancel }: AlertSubscriptionCardProps) {
+function SubscribedView({ subscribedPointCode, phase, onCancel }: AlertsSectionProps) {
   const cancelling = phase === 'cancelling';
   return (
     <>
-      <p className="subscription__active">
-        Avisos activados para el punto <strong>{subscribedPointCode}</strong>.
+      <p className="alerts__active">
+        Avisos activados para el punto <strong className="num">{subscribedPointCode}</strong>.
       </p>
-      <Button variant="secondary" onClick={onCancel} disabled={cancelling}>
+      <Button variant="destructive" onClick={onCancel} disabled={cancelling}>
         {cancelling ? 'Cancelando…' : 'Cancelar avisos'}
       </Button>
     </>
   );
 }
 
-function SubscriptionForm(props: AlertSubscriptionCardProps) {
+function SubscriptionForm(props: AlertsSectionProps) {
   const { zone, points, selectedPointCode, householdCode, support, phase, consent } = props;
   const working = phase === 'activating';
   return (
     <form
-      className="subscription"
+      className="alerts__form"
       onSubmit={(event) => {
         event.preventDefault();
         props.onActivate();
       }}
     >
-      <div className="field">
-        <label htmlFor="zona">Zona urbana</label>
-        <input id="zona" type="text" value={zone} readOnly />
-      </div>
-      <div className="field">
-        <label htmlFor="punto">Punto cercano</label>
-        <select
-          id="punto"
-          value={selectedPointCode ?? ''}
-          onChange={(event) => props.onSelectPoint(event.target.value)}
-          disabled={working}
-        >
-          {selectedPointCode === null && (
-            <option value="" disabled>
-              Elige tu punto
-            </option>
-          )}
-          {points.map((point) => (
-            <option key={point.code} value={point.code}>
-              {point.code} · {point.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Field
+        id="zona"
+        label="Zona urbana"
+        control={(control) => (
+          <input {...control} className="input" type="text" value={zone} readOnly />
+        )}
+      />
+      <Field
+        id="punto"
+        label="Punto cercano"
+        hint="El punto de referencia donde dejas tus residuos."
+        control={(control) => (
+          <select
+            {...control}
+            className="select"
+            value={selectedPointCode ?? ''}
+            onChange={(event) => props.onSelectPoint(event.target.value)}
+            disabled={working}
+          >
+            {selectedPointCode === null && (
+              <option value="" disabled>
+                Elige tu punto
+              </option>
+            )}
+            {points.map((point) => (
+              <option key={point.code} value={point.code}>
+                {point.code} · {point.name}
+              </option>
+            ))}
+          </select>
+        )}
+      />
       {householdCode !== null && (
-        <p className="field__note">
-          Código de hogar: <strong>{householdCode}</strong>
+        <p className="alerts__household">
+          Código de hogar: <strong className="num">{householdCode}</strong>
         </p>
       )}
-      <fieldset className="field">
+      <fieldset className="choices">
         <legend>Preferencia de aviso</legend>
         <label className="choice">
           <input type="radio" name="preferencia" value="proximidad" checked readOnly />
@@ -123,7 +130,7 @@ function SubscriptionForm(props: AlertSubscriptionCardProps) {
         />
         Acepto recibir avisos y el uso de mi punto de referencia.
       </label>
-      <ul className="subscription__notes">
+      <ul className="alerts__terms">
         <li>No se publicará la dirección del hogar.</li>
         <li>Activar notificaciones depende del dispositivo y de sus permisos.</li>
       </ul>

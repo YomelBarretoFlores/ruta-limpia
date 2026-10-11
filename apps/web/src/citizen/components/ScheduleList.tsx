@@ -12,7 +12,9 @@ export function ScheduleList({ schedule }: { readonly schedule: readonly Schedul
       ) : (
         <ul className="schedule__list">
           {lines.map((line) => (
-            <li key={line}>{line}</li>
+            <li key={line} className="num">
+              {line}
+            </li>
           ))}
         </ul>
       )}

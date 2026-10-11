@@ -9,7 +9,7 @@ import { CitizenHomePage } from './CitizenHomePage';
 import { fakeApi, fakeDeps, fakePush, fakeStorage } from './test/fake-deps';
 import { snapshot, trip } from './test/fixtures';
 
-// Leaflet needs a real layout engine; the map has its own text equivalents in the card.
+// Leaflet needs a real layout engine; the map has its own text equivalents in the section.
 vi.mock('./components/RouteMap', () => ({
   RouteMap: ({ highlightedPointCode }: { highlightedPointCode: string | null }) => (
     <div data-testid="map">{highlightedPointCode}</div>
@@ -33,10 +33,8 @@ describe('CitizenHomePage', () => {
 
     renderAt('/?r=ri-01&p=p08&h=H-001', deps);
 
-    expect(await screen.findByText('Llegada estimada:', { exact: false })).toHaveTextContent(
-      '8 a 12 minutos',
-    );
-    expect(screen.getByTestId('map')).toHaveTextContent('P08');
+    expect(await screen.findByText('8 a 12 min')).toBeInTheDocument();
+    expect(await screen.findByTestId('map')).toHaveTextContent('P08');
     expect(screen.getByText('Se actualiza cada 30 s')).toBeInTheDocument();
     expect(deps.api.getRoute).toHaveBeenCalledWith('RI-01');
     expect(JSON.parse(deps.storage.data.get('ruta-limpia:preferences')!)).toEqual({
@@ -96,6 +94,8 @@ describe('CitizenHomePage', () => {
     renderAt('/', fakeDeps({ api }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar la ruta');
+    expect(screen.getByRole('heading', { level: 1, name: 'Ruta Limpia' })).toBeInTheDocument();
+    expect(screen.getByText('Proyecto RSU UNASAM 2026')).toBeInTheDocument();
   });
 
   describe('alert subscription', () => {
@@ -178,7 +178,7 @@ describe('CitizenHomePage', () => {
 
       await userEvent.click(await screen.findByRole('button', { name: 'Configurar aviso' }));
 
-      expect(screen.getByRole('heading', { name: 'Suscripción a las alertas' })).toHaveFocus();
+      expect(screen.getByRole('heading', { name: 'Avisos de llegada' })).toHaveFocus();
     });
   });
 });

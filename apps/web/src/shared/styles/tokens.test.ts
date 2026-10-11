@@ -45,6 +45,7 @@ const PAIRS: readonly (readonly [fg: string, bg: string, min: number, use: strin
   ['accent', 'surface', TEXT, 'links, "En vivo"'],
   ['accent', 'paper', TEXT, 'links on the page'],
   ['ink', 'accent-tint', TEXT, 'info notice, selected row'],
+  ['ink-2', 'accent-tint', TEXT, 'secondary text in an info inset'],
   ['ink', 'warn-tint', TEXT, 'stale notice text'],
   ['warn', 'warn-tint', TEXT, 'stale notice title'],
   ['ink', 'danger-tint', TEXT, 'error notice text'],

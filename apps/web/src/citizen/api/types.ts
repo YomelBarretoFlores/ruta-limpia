@@ -78,6 +78,8 @@ export interface LiveTrip {
     readonly lat: number;
     readonly lon: number;
     readonly fixTime: string;
+    /** Heading in degrees from north; only `vehicle.position` events carry it. */
+    readonly course?: number | null;
   } | null;
   readonly progress: {
     readonly chainageMeters: number;

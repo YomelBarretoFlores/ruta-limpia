@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { SubscriptionMessage, SubscriptionPhase } from '../components/AlertSubscriptionCard';
+import type { SubscriptionMessage, SubscriptionPhase } from '../components/AlertsSection';
 import type { ActivationResult, PushService } from '../push/push-service';
 import type { StoredSubscription } from '../push/subscription-store';
 

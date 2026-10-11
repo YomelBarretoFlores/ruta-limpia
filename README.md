@@ -615,9 +615,12 @@ America/Lima; alert columns null), plus `record_id`, `service_date`, `route_code
 
 ## Citizen PWA (`apps/web`, `/`)
 
-The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an
-OpenStreetMap map, the arrival window at the household's reference point ("Llegada estimada: 8 a 12
-minutos", with the time of the last fix), and the alert sign-up with consent.
+The citizen app is an installable PWA in Spanish (Peru) for households. One column: the arrival
+section ("Llegada estimada", the window in display size, "8 a 12 min", and "Actualizado 17:30"),
+then the truck on a muted OpenStreetMap map (the route line, the reference points, "Tu punto · P08"
+and the truck as a small ink square), the alert sign-up with consent ("Avisos de llegada"), a short
+"Cómo usar Ruta Limpia", and a footer with the privacy note. The map (Leaflet) is loaded lazily, so
+the arrival window does not wait for it.
 
 ```bash
 pnpm infra:up && pnpm --filter api db:migrate && pnpm --filter api db:seed
@@ -635,10 +638,12 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
 - **Live data**: an `EventSource` on `/api/live/routes/:code/stream` (`snapshot`, `vehicle.position`,
   `eta.updated`, `point.passed`, `trip.completed`; `trip.started` refetches the snapshot). The browser
   reconnects by itself; after three failed attempts the page polls `GET /api/live/routes/:code`
-  every 30 s and tries the stream again after 5 minutes. A badge shows "En vivo" or "Reconectando…".
-- **Never a stale ETA**: when the signal is `stale`, the ETA is hidden and the printed schedule
-  (route `schedule`) is shown with "Sin actualización: la señal del camión se interrumpió. Usa el
-  horario de referencia.". Without an active trip, the page shows the schedule as well.
+  every 30 s and tries the stream again after 5 minutes. A status (text plus a small square) shows
+  "En vivo", "Reconectando…" or "Se actualiza cada 30 s".
+- **Never a stale ETA**: when the signal is `stale`, the window is removed (not greyed) and a notice
+  "Sin actualización — La señal del camión se interrumpió a las 17:22. Usa el horario de referencia."
+  is shown with the printed schedule (route `schedule`); on the map the truck turns hollow and dashed
+  with "Última posición 17:22". Without an active trip, the page shows the schedule as well.
 - **Alerts (Web Push)**: "Activar avisos" is enabled only after the consent checkbox. The click asks
   for the notification permission, subscribes the browser with the key from
   `GET /api/push/vapid-public-key`, and calls `POST /api/subscriptions` with `consent: true` and
