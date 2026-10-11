@@ -14,7 +14,7 @@ import { useAlertSubscription } from './hooks/useAlertSubscription';
 import { useCitizenRoute } from './hooks/useCitizenRoute';
 import { useLiveRoute } from './hooks/useLiveRoute';
 import { useViewReporting } from './hooks/useViewReporting';
-import { selectArrival, selectTruckPosition } from './live/live-state';
+import { selectArrival, selectTruckPosition, selectTruckSignal } from './live/live-state';
 
 // Leaflet is most of the bundle: the arrival window shows first, the map follows.
 const RouteMap = lazy(() =>
@@ -84,6 +84,7 @@ export function CitizenHomePage() {
               arrival={selectArrival(live.snapshot, pointCode)}
               schedule={ready.route.schedule}
               connection={live.connection}
+              signal={selectTruckSignal(live.snapshot, pointCode)}
               map={
                 <ErrorBoundary
                   fallback={

@@ -6,8 +6,8 @@ import { Notice } from '../../shared/ui/Notice';
 import { Num } from '../../shared/ui/Num';
 import { Section } from '../../shared/ui/Section';
 import type { ScheduleEntry } from '../api/types';
-import type { ArrivalView, ConnectionStatus } from '../live/live-state';
-import { ConnectionBadge } from './ConnectionBadge';
+import type { ArrivalView, ConnectionStatus, TruckSignal } from '../live/live-state';
+import { ConnectionBadge, TruckSignalStatus } from './ConnectionBadge';
 import { ScheduleList } from './ScheduleList';
 
 export interface ArrivalSectionProps {
@@ -16,7 +16,10 @@ export interface ArrivalSectionProps {
   readonly point: { readonly code: string; readonly name: string } | null;
   readonly arrival: ArrivalView;
   readonly schedule: readonly ScheduleEntry[];
+  /** The page's connection: shown only when degraded. */
   readonly connection: ConnectionStatus;
+  /** The truck's signal: the section's status. */
+  readonly signal: TruckSignal;
   /** The map (kept outside so this section stays easy to test). */
   readonly map?: ReactNode;
   /** Shows the "Configurar aviso" button when given. */
@@ -29,13 +32,18 @@ export interface ArrivalSectionProps {
  * removed and the printed schedule takes its place.
  */
 export function ArrivalSection(props: ArrivalSectionProps) {
-  const { route, point, arrival, schedule, connection, map, onConfigureAlerts } = props;
+  const { route, point, arrival, schedule, connection, signal, map, onConfigureAlerts } = props;
   return (
     <Section
       id="llegada"
       title="Llegada del camión"
       kicker={route === null ? undefined : `${route.district} · tramo ${route.code}`}
-      aside={<ConnectionBadge status={connection} />}
+      aside={
+        <div className="arrival__statuses">
+          <TruckSignalStatus signal={signal} />
+          <ConnectionBadge status={connection} />
+        </div>
+      }
     >
       {point === null ? (
         <p className="arrival__point">

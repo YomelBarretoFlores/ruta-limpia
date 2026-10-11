@@ -155,6 +155,22 @@ export function selectArrival(
   return { kind: 'starting', updatedAt };
 }
 
+/**
+ * The truck's signal for the header status: `loading` before the first snapshot, `no_trip` when no
+ * truck runs the route, else the signal of the trip shown for the point (`live`, `stale`, or
+ * `none` before its first fix). It is about the truck, not about the page's connection.
+ */
+export type TruckSignal = 'loading' | 'no_trip' | 'live' | 'stale' | 'none';
+
+export function selectTruckSignal(
+  snapshot: LiveSnapshot | null,
+  pointCode: string | null,
+): TruckSignal {
+  if (snapshot === null) return 'loading';
+  const trip = shownTrip(snapshot, pointCode);
+  return trip === null ? 'no_trip' : trip.signal;
+}
+
 /** The truck as the map draws it. */
 export interface TruckPosition {
   readonly lat: number;

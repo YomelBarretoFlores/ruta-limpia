@@ -53,6 +53,13 @@
 }
 
 /* Arrival */
+.arrival__statuses {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
 .arrival__point {
   margin-bottom: var(--space-4);
 }
@@ -121,7 +128,7 @@
 
 .route-map__canvas {
   width: 100%;
-  height: 16rem;
+  height: 17.5rem;
   background: var(--fill);
   font-family: var(--font-sans);
 }
@@ -130,7 +137,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 16rem;
+  height: 17.5rem;
   max-width: none;
   padding: var(--space-4);
   color: var(--ink-2);
@@ -185,4 +192,12 @@
 
 .howto li + li {
   margin-top: var(--space-2);
+}
+
+/* A taller map once there is room for it. */
+@media (min-width: 37.5rem) {
+  .route-map__canvas,
+  .route-map--placeholder {
+    height: 20rem;
+  }
 }

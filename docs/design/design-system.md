@@ -91,8 +91,9 @@ State colors are always paired with words (and, in the panel, an 8 px square/dot
 
 - Spacing scale (px): 4, 8, 12, 16, 24, 32, 48, 64. Tokens `--space-1` … `--space-8`.
 - Radius: `--radius-sm: 2px` (inputs, tags), `--radius: 4px` (panels, buttons). Nothing larger.
-- Borders: 1 px `--rule` for sections; 1 px `--rule-strong` for inputs and tables; 4 px left border in a
-  state color for notices (GOV.UK-style inset text).
+- Borders: 1 px `--rule` for sections; 1 px `--rule-control` for inputs, selects and checkboxes
+  (3:1 on `--surface`, WCAG 1.4.11); 1 px `--rule-strong` for table frames only; 4 px left border in
+  a state color for notices (GOV.UK-style inset text).
 - Touch targets ≥ 48 × 48 px (citizen), ≥ 40 px (panel).
 - Focus: `outline: 3px solid var(--focus); outline-offset: 1px; box-shadow: 0 0 0 1px var(--ink)` —
   an ink inner ring with the yellow outside it (with `outline-offset: 0` the outline would paint over
@@ -110,7 +111,8 @@ State colors are always paired with words (and, in the panel, an 8 px square/dot
 - **Field**: label above (600), hint below label in `--ink-2`, input 1 px `--rule-control`, 2 px radius;
   error = 4 px left border `--danger` around the group plus message text.
 - **Status**: text + 8 px square swatch. Values: "En vivo" (accent), "Sin actualización" (warn),
-  "Sin señal" (danger), "Sin recorrido" (ink-3).
+  "Sin señal" (danger), "Sin recorrido" (ink-3). It reports the truck's signal; the page's own
+  connection is a separate status shown only when degraded ("Reconectando…").
 - **Data table (panel)**: full-width, 1 px outer border, header on `--fill`, 600 weight `--text-sm`,
   row dividers `--rule`, zebra off, numbers right-aligned with tabular nums, times `HH:MM`, selected row
   `--accent-tint`. Sticky header on long tables.
@@ -123,8 +125,11 @@ State colors are always paired with words (and, in the panel, an 8 px square/dot
 - OSM tiles muted with CSS on the tile pane only:
   `filter: grayscale(1) contrast(0.92) brightness(1.04);` (keep attribution legible and unfiltered).
 - Route: 6 px `--accent` line over an 9 px white casing.
-- Reference points: 10 px white circles with 2 px `--ink` stroke; the household's point is a 14 px
-  `--accent` filled circle with a white 2 px stroke and a permanent label ("Tu punto · P08").
+- The map opens fitted to the whole route (24 px padding), and fits again when the route changes;
+  zoom stays between 13 (neighborhood) and 18 (street). Height: 280 px on phones, 320 px from 600 px.
+- Reference points: 8 px white circles with a 1.5 px `--ink` stroke, small enough to leave the route
+  line visible between them; the household's point is a 14 px `--accent` filled circle with a white
+  2 px stroke and a permanent label ("Tu punto · P08").
 - Truck: 16 px `--ink` filled square-ish marker with a small heading notch (inline SVG), no emoji; when
   stale, render it hollow with a dashed outline and the label "Última posición 17:22".
 - Controls: zoom buttons flat, 1 px `--rule-strong`, 1 px shadow allowed.

@@ -617,8 +617,8 @@ America/Lima; alert columns null), plus `record_id`, `service_date`, `route_code
 
 The citizen app is an installable PWA in Spanish (Peru) for households. One column: the arrival
 section ("Llegada estimada", the window in display size, "8 a 12 min", and "Actualizado 17:30"),
-then the truck on a muted OpenStreetMap map (the route line, the reference points, "Tu punto · P08"
-and the truck as a small ink square), the alert sign-up with consent ("Avisos de llegada"), a short
+then the truck on a muted OpenStreetMap map fitted to the route (the route line, small reference
+points, "Tu punto · P08" and the truck as a small ink square), the alert sign-up with consent ("Avisos de llegada"), a short
 "Cómo usar Ruta Limpia", and a footer with the privacy note. The map (Leaflet) is loaded lazily, so
 the arrival window does not wait for it.
 
@@ -644,9 +644,13 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
   reconnects by itself; a malformed event is skipped. A fetched snapshot (polling, or the refetch on
   `trip.started`) is applied only when no stream data arrived while it was in flight, so a late
   answer never brings back a finished trip or undoes a fresher stream snapshot (the `trip.started`
-  refetch tries up to three times). After three failed attempts the page polls `GET /api/live/routes/:code`
-  every 30 s and tries the stream again after 5 minutes. A status (text plus a small square) shows
-  "En vivo", "Reconectando…" or "Se actualiza cada 30 s".
+  refetch tries up to three times; events of a trip the page does not know yet do not count as
+  overtaking it, and a refetch that failed or was always overtaken runs again 5 s later, up to five
+  rounds). After three failed attempts the page polls `GET /api/live/routes/:code`
+  every 30 s and tries the stream again after 5 minutes. The section's status (text plus a small
+  square) is the truck's signal: "En vivo", "Sin actualización", "Esperando señal" or "Sin
+  recorrido"; the page's connection is shown next to it only when degraded ("Reconectando…" or
+  "Se actualiza cada 30 s").
 - **Never a stale ETA**: when the signal is `stale`, the window is removed (not greyed) and a notice
   "Sin actualización — La señal del camión se interrumpió a las 17:22. Usa el horario de referencia."
   is shown with the printed schedule (route `schedule`); on the map the truck turns hollow and dashed

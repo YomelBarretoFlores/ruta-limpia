@@ -2,9 +2,25 @@ import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ArrivalView } from '../live/live-state';
+import type { ArrivalView, TruckSignal } from '../live/live-state';
 import { FIX_AT, ROUTE } from '../test/fixtures';
 import { ArrivalSection, type ArrivalSectionProps } from './ArrivalSection';
+
+/** The truck signal that usually comes with each arrival view. */
+function signalOf(arrival: ArrivalView): TruckSignal {
+  switch (arrival.kind) {
+    case 'loading':
+      return 'loading';
+    case 'no_trip':
+      return 'no_trip';
+    case 'stale':
+      return 'stale';
+    case 'starting':
+      return 'none';
+    default:
+      return 'live';
+  }
+}
 
 function renderSection(arrival: ArrivalView, overrides: Partial<ArrivalSectionProps> = {}) {
   return render(
@@ -14,6 +30,7 @@ function renderSection(arrival: ArrivalView, overrides: Partial<ArrivalSectionPr
       arrival={arrival}
       schedule={ROUTE.schedule}
       connection="live"
+      signal={signalOf(arrival)}
       {...overrides}
     />,
   );
@@ -51,7 +68,7 @@ describe('ArrivalSection', () => {
 
     expect(screen.queryByText(/Llegada estimada/)).not.toBeInTheDocument();
     expect(screen.queryByText(/min\b/)).not.toBeInTheDocument();
-    expect(screen.getByText('Sin actualización')).toBeInTheDocument();
+    expect(screen.getAllByText('Sin actualización')).toHaveLength(2); // the status and the notice
     expect(
       screen.getByText(
         'La señal del camión se interrumpió a las 17:30. Usa el horario de referencia.',
@@ -117,5 +134,34 @@ describe('ArrivalSection', () => {
 
     renderSection({ kind: 'passed', passedAt: '2026-99-99' });
     expect(screen.getByText('El camión ya pasó por tu punto.')).toBeInTheDocument();
+  });
+
+  it('shows the truck signal as the header status, not the connection', () => {
+    const { unmount } = renderSection({ kind: 'stale', updatedAt: FIX_AT }, { connection: 'live' });
+    // A live stream that reports a silent truck is not "En vivo".
+    expect(screen.queryByText('En vivo')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Sin actualización').length).toBeGreaterThan(0);
+    unmount();
+
+    const idle = renderSection({ kind: 'no_trip' });
+    expect(screen.getByText('Sin recorrido')).toBeInTheDocument();
+    idle.unmount();
+
+    renderSection({ kind: 'starting', updatedAt: null });
+    expect(screen.getByText('Esperando señal')).toBeInTheDocument();
+  });
+
+  it('shows the connection only when it is degraded', () => {
+    const { unmount } = renderSection(
+      { kind: 'live', minMinutes: 8, maxMinutes: 12, updatedAt: FIX_AT },
+      { connection: 'reconnecting' },
+    );
+    expect(screen.getByText('En vivo')).toBeInTheDocument();
+    expect(screen.getByText('Reconectando…')).toBeInTheDocument();
+    unmount();
+
+    renderSection({ kind: 'live', minMinutes: 8, maxMinutes: 12, updatedAt: FIX_AT });
+    expect(screen.queryByText('Reconectando…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Conectando…')).not.toBeInTheDocument();
   });
 });

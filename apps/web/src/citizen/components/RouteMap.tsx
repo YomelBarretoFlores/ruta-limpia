@@ -16,6 +16,8 @@ import {
 import { formatLocalTime } from '../../shared/time';
 import type { RouteDetail } from '../api/types';
 import type { TruckPosition } from '../live/live-state';
+import { FitRouteBounds } from './FitRouteBounds';
+import { MAX_ZOOM, MIN_ZOOM } from './map-view';
 import { MAP_COLORS, TRUCK_ICON_SIZE, truckIconSvg } from './truck-icon';
 
 export interface RouteMapProps {
@@ -27,8 +29,12 @@ export interface RouteMapProps {
 /** Route line: a 6 px accent stroke over a 9 px white casing, so it reads on any tile. */
 const CASING = { color: MAP_COLORS.surface, weight: 9, opacity: 1, lineCap: 'round' } as const;
 const LINE = { color: MAP_COLORS.accent, weight: 6, opacity: 1, lineCap: 'round' } as const;
-/** Reference points: 10 px white circles with a 2 px ink stroke. */
-const POINT = { color: MAP_COLORS.ink, weight: 2, fillColor: MAP_COLORS.surface, fillOpacity: 1 };
+/**
+ * Reference points: 8 px white circles with a 1.5 px ink stroke, small enough that the route line
+ * stays visible between them (the points of RI-01 are about 90 m apart).
+ */
+const POINT = { color: MAP_COLORS.ink, weight: 1.5, fillColor: MAP_COLORS.surface, fillOpacity: 1 };
+
 /** The household's point: a 14 px accent circle with a white stroke. */
 const HOUSEHOLD_POINT = {
   color: MAP_COLORS.surface,
@@ -61,7 +67,9 @@ export function RouteMap({ route, highlightedPointCode, truck }: RouteMapProps) 
   return (
     <div className="route-map" role="region" aria-label={`Mapa del tramo ${route.code}`}>
       <MapContainer
-        bounds={latLngBounds(line).pad(0.15)}
+        bounds={latLngBounds(line)}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
         scrollWheelZoom={false}
         attributionControl={false}
         className="route-map__canvas"
@@ -71,15 +79,16 @@ export function RouteMap({ route, highlightedPointCode, truck }: RouteMapProps) 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maxZoom={19}
+          maxZoom={MAX_ZOOM}
         />
+        <FitRouteBounds route={route} />
         <Polyline positions={line} pathOptions={CASING} interactive={false} />
         <Polyline positions={line} pathOptions={LINE} interactive={false} />
         {route.points
           .filter((p) => p !== highlighted)
           .map((p) => (
-            <CircleMarker key={p.code} center={[p.lat, p.lon]} radius={5} pathOptions={POINT}>
-              <Tooltip direction="top" offset={[0, -6]}>
+            <CircleMarker key={p.code} center={[p.lat, p.lon]} radius={4} pathOptions={POINT}>
+              <Tooltip direction="top" offset={[0, -5]}>
                 {p.code} · {p.name}
               </Tooltip>
             </CircleMarker>

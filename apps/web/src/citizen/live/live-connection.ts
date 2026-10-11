@@ -34,10 +34,21 @@ export interface LiveConnectionOptions {
   readonly reconnectDelayMs?: number;
   /** While polling, the stream is tried again after this delay. */
   readonly streamRetryMs?: number;
+  /** A `trip.started` refetch that failed or was always overtaken runs again after this delay. */
+  readonly refetchRetryMs?: number;
 }
 
 /** Fetches a `trip.started` refetch may take when stream data keeps overtaking it. */
 const TRIP_STARTED_FETCHES = 3;
+/** Later rounds of a `trip.started` refetch that failed or was always overtaken. */
+const TRIP_STARTED_ROUNDS = 5;
+
+/** Stream events about one trip: the state ignores them while it does not know the trip. */
+const TRIP_EVENTS: ReadonlySet<string> = new Set([
+  'vehicle.position',
+  'eta.updated',
+  'point.passed',
+]);
 
 /**
  * Keeps the live state of a route up to date: Server-Sent Events first (the `snapshot` event,
@@ -55,12 +66,16 @@ export function connectLive(options: LiveConnectionOptions): () => void {
     pollIntervalMs = 30_000,
     reconnectDelayMs = 5_000,
     streamRetryMs = 5 * 60_000,
+    refetchRetryMs = 5_000,
   } = options;
   let closed = false;
   let source: EventSourceLike | null = null;
   let failures = 0;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Trips of the last applied snapshot: events of other trips change nothing the page shows. */
+  let knownTrips: ReadonlySet<string> = new Set();
   /**
    * Counts the stream messages applied. A fetched snapshot is applied only when no stream data
    * arrived while it was in flight: otherwise it may be older than what the page already shows
@@ -69,27 +84,63 @@ export function connectLive(options: LiveConnectionOptions): () => void {
    */
   let generation = 0;
 
-  const applyStream = (action: LiveAction) => {
-    generation += 1;
-    dispatch(action);
+  const applySnapshot = (snapshot: LiveSnapshot) => {
+    knownTrips = new Set(snapshot.trips.map((trip) => trip.tripId));
+    dispatch({ type: 'snapshot', snapshot });
   };
 
-  /** Fetches the snapshot; when stream data overtakes it, fetches again up to `attempts` times. */
-  const refresh = async (attempts = 1) => {
+  const applyStream = (action: LiveAction) => {
+    // An event of a trip the page does not know yet (the new trip of a pending refetch) is
+    // ignored by the state, so it cannot make a snapshot in flight outdated.
+    const ignored =
+      action.type === 'event' &&
+      TRIP_EVENTS.has(action.name) &&
+      !knownTrips.has(action.data.tripId);
+    if (!ignored) generation += 1;
+    if (action.type === 'snapshot') {
+      applySnapshot(action.snapshot);
+    } else {
+      dispatch(action);
+    }
+  };
+
+  /**
+   * Fetches the snapshot; when stream data overtakes it, fetches again up to `attempts` times.
+   * Resolves whether a snapshot was applied (false after a failure or when always overtaken).
+   */
+  const refresh = async (attempts = 1): Promise<boolean> => {
     for (let attempt = 0; attempt < attempts; attempt++) {
       const seen = generation;
       try {
         const snapshot = await fetchSnapshot();
-        if (closed) return;
+        if (closed) return false;
         if (generation === seen) {
-          dispatch({ type: 'snapshot', snapshot });
-          return;
+          applySnapshot(snapshot);
+          return true;
         }
       } catch {
-        // The next poll, event or reconnection tries again.
-        return;
+        // The next poll, event, reconnection or refetch round tries again.
+        return false;
       }
     }
+    return false;
+  };
+
+  /**
+   * A new trip: the snapshot carries its vehicle and progress. A round that failed or was always
+   * overtaken by a busy stream runs again later (a few times), so the new trip is not left out
+   * while the stream stays open and nothing polls.
+   */
+  const refetchForNewTrip = (round = 0) => {
+    if (refetchTimer !== null) clearTimeout(refetchTimer);
+    refetchTimer = null;
+    void refresh(TRIP_STARTED_FETCHES).then((applied) => {
+      if (applied || closed || round + 1 >= TRIP_STARTED_ROUNDS) return;
+      refetchTimer = setTimeout(() => {
+        refetchTimer = null;
+        if (!closed) refetchForNewTrip(round + 1);
+      }, refetchRetryMs);
+    });
   };
 
   const stopPolling = () => {
@@ -135,8 +186,7 @@ export function connectLive(options: LiveConnectionOptions): () => void {
         applyStream({ type: 'event', name, data } as LiveAction);
       });
     }
-    // A new trip: the snapshot carries its vehicle and progress.
-    stream.addEventListener('trip.started', () => void refresh(TRIP_STARTED_FETCHES));
+    stream.addEventListener('trip.started', () => refetchForNewTrip());
 
     stream.onerror = () => {
       if (closed || source !== stream) return;
@@ -160,6 +210,7 @@ export function connectLive(options: LiveConnectionOptions): () => void {
     source = null;
     stopPolling();
     if (retryTimer !== null) clearTimeout(retryTimer);
+    if (refetchTimer !== null) clearTimeout(refetchTimer);
   };
 }
 

@@ -212,4 +212,68 @@ describe('connectLive', () => {
       'trip.completed',
     ]);
   });
+
+  it('does not let events of the new trip, unknown to the page yet, discard its refetch', async () => {
+    const { actions, fetchSnapshot } = start();
+    latest().emit('snapshot', snapshot([]));
+    let answer: (value: ReturnType<typeof snapshot>) => void = () => undefined;
+    fetchSnapshot.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+
+    latest().emit('trip.started', { tripId: 'trip-1', startedAt: 'x', startMode: 'auto' });
+    // The new trip reports positions before its snapshot arrives; the state cannot use them yet.
+    latest().emit('vehicle.position', {
+      tripId: 'trip-1',
+      vehicleCode: 'UNIDAD-A',
+      fixTime: 'x',
+      lat: -9.52,
+      lon: -77.53,
+      speedKmh: 12,
+      course: 90,
+    });
+    answer(snapshot());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchSnapshot).toHaveBeenCalledOnce();
+    expect(actions.filter((a) => a.type === 'snapshot').at(-1)).toEqual({
+      type: 'snapshot',
+      snapshot: snapshot(),
+    });
+  });
+
+  it('tries the trip.started refetch again later when every attempt was overtaken or failed', async () => {
+    const { actions, fetchSnapshot } = start();
+    latest().emit('snapshot', snapshot());
+    const etaUpdate = {
+      tripId: 'trip-1',
+      computedAt: 'x',
+      lastFixAt: 'x',
+      signal: 'live',
+      etas: [],
+    };
+    // Every attempt of the first round is overtaken by an update of the known trip.
+    fetchSnapshot.mockImplementation(() => {
+      latest().emit('eta.updated', etaUpdate);
+      return Promise.resolve(snapshot());
+    });
+    latest().emit('trip.started', { tripId: 'trip-2', startedAt: 'x', startMode: 'auto' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchSnapshot).toHaveBeenCalledTimes(3);
+    const before = actions.filter((a) => a.type === 'snapshot').length;
+
+    // The route calms down: the later round is applied.
+    fetchSnapshot.mockImplementation(() => Promise.resolve(snapshot([])));
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(fetchSnapshot).toHaveBeenCalledTimes(4);
+    const snapshots = actions.filter((a) => a.type === 'snapshot');
+    expect(snapshots).toHaveLength(before + 1);
+    expect(snapshots.at(-1)).toEqual({ type: 'snapshot', snapshot: snapshot([]) });
+
+    // A failed refetch is retried too.
+    fetchSnapshot.mockImplementationOnce(() => Promise.reject(new TypeError('offline')));
+    latest().emit('trip.started', { tripId: 'trip-3', startedAt: 'x', startMode: 'auto' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fetchSnapshot).toHaveBeenCalledTimes(6);
+  });
 });

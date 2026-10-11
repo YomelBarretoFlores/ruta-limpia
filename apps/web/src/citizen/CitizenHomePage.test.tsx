@@ -83,7 +83,7 @@ describe('CitizenHomePage', () => {
 
     renderAt('/?r=XX-99&p=P08', fakeDeps({ api }));
 
-    expect(await screen.findByText(/Sin actualización/)).toBeInTheDocument();
+    expect(await screen.findAllByText(/Sin actualización/)).toHaveLength(2);
     expect(api.listRoutes).toHaveBeenCalled();
   });
 

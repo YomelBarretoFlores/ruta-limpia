@@ -5,6 +5,7 @@ import {
   INITIAL_LIVE_STATE,
   liveReducer,
   selectArrival,
+  selectTruckSignal,
   selectTruckPosition,
   type LiveAction,
   type LiveState,
@@ -163,5 +164,18 @@ describe('selectArrival', () => {
       fixTime: FIX_AT,
       course: null,
     });
+  });
+});
+
+describe('selectTruckSignal', () => {
+  it('follows the signal of the shown trip, not the connection', () => {
+    const stale = snapshot([trip({ signal: 'stale' })]);
+    const none = snapshot([trip({ signal: 'none', lastPosition: null, lastFixAt: null })]);
+
+    expect(selectTruckSignal(null, 'P08')).toBe('loading');
+    expect(selectTruckSignal(snapshot([]), 'P08')).toBe('no_trip');
+    expect(selectTruckSignal(snapshot(), 'P08')).toBe('live');
+    expect(selectTruckSignal(stale, 'P08')).toBe('stale');
+    expect(selectTruckSignal(none, 'P08')).toBe('none');
   });
 });
