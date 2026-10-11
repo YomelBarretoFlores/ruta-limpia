@@ -1,0 +1,67 @@
+import { formatLocalTime, LOCAL_TIME_ZONE } from '../shared/time';
+
+const date = new Intl.DateTimeFormat('es-PE', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  timeZone: LOCAL_TIME_ZONE,
+});
+
+/** `2026-10-20T22:30:00Z` → `20/10/2026` (America/Lima); null for a missing or bad value. */
+export function formatLocalDate(iso: string | null | undefined): string | null {
+  if (iso == null || iso === '') return null;
+  const instant = new Date(iso);
+  return Number.isNaN(instant.getTime()) ? null : date.format(instant);
+}
+
+/** `20/10/2026 17:30`, or the dash a table shows for nothing. */
+export function formatDateTime(iso: string | null | undefined): string {
+  const day = formatLocalDate(iso);
+  const time = formatLocalTime(iso);
+  return day === null || time === null ? '—' : `${day} ${time}`;
+}
+
+/** `17:30`, or a dash. */
+export function timeOrDash(iso: string | null | undefined): string {
+  return formatLocalTime(iso) ?? '—';
+}
+
+/** A calendar date `2026-10-20` → `20/10/2026`. */
+export function formatCalendarDate(value: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? '');
+  return match === null ? '—' : `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+/** `5400` → `1 h 30 min`; `90` → `1 min 30 s`; `40` → `40 s`. */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+  if (hours > 0) return `${hours} h ${minutes} min`;
+  if (minutes > 0) return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
+  return `${rest} s`;
+}
+
+/** Today's calendar date in Lima, `YYYY-MM-DD` (the default of the field forms). */
+export function localToday(now: number): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: LOCAL_TIME_ZONE,
+  }).format(new Date(now));
+  return parts;
+}
+
+/** Minutes between two `HH:MM` times of the same day; null when one is missing or malformed. */
+export function minutesBetween(from: string | null, to: string | null): number | null {
+  const parse = (value: string | null) => {
+    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value ?? '');
+    return match === null ? null : Number(match[1]) * 60 + Number(match[2]);
+  };
+  const start = parse(from);
+  const end = parse(to);
+  return start === null || end === null ? null : end - start;
+}
