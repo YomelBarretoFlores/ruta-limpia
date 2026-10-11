@@ -1,5 +1,5 @@
 import 'leaflet/dist/leaflet.css';
-import './route-map.css';
+import '../../shared/map/route-map.css';
 
 import { divIcon, latLngBounds, type LatLngTuple } from 'leaflet';
 import { useMemo } from 'react';
@@ -16,9 +16,9 @@ import {
 import { formatLocalTime } from '../../shared/time';
 import type { RouteDetail } from '../api/types';
 import type { TruckPosition } from '../live/live-state';
-import { FitRouteBounds } from './FitRouteBounds';
-import { MAX_ZOOM, MIN_ZOOM } from './map-view';
-import { MAP_COLORS, TRUCK_ICON_SIZE, truckIconSvg } from './truck-icon';
+import { FitRouteBounds } from '../../shared/map/FitRouteBounds';
+import { MAX_ZOOM, MIN_ZOOM } from '../../shared/map/map-view';
+import { MAP_COLORS, TRUCK_ICON_SIZE, truckIconSvg } from '../../shared/map/truck-icon';
 
 export interface RouteMapProps {
   readonly route: RouteDetail;

@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   formatCalendarDate,
   formatDateTime,
+  formatAge,
   formatDuration,
+  fromLocalDateTimeInput,
   localToday,
   minutesBetween,
+  toLocalDateTimeInput,
 } from './format';
 
 describe('panel formats', () => {
@@ -32,5 +35,16 @@ describe('panel formats', () => {
     expect(minutesBetween(null, '07:55')).toBeNull();
     // 02:00 UTC is still the previous day in Lima (UTC-5).
     expect(localToday(Date.parse('2026-10-21T02:00:00Z'))).toBe('2026-10-20');
+  });
+
+  it('reads and writes datetime-local values in Lima time, and says how old a time is', () => {
+    const now = Date.parse('2026-10-20T22:30:00.000Z');
+    expect(toLocalDateTimeInput(now)).toBe('2026-10-20T17:30');
+    expect(fromLocalDateTimeInput('2026-10-20T17:30')).toBe('2026-10-20T17:30:00-05:00');
+    expect(fromLocalDateTimeInput('20/10/2026')).toBeNull();
+    expect(formatAge('2026-10-20T22:27:40.000Z', now)).toBe('hace 2 min');
+    expect(formatAge('2026-10-20T22:29:40.000Z', now)).toBe('hace menos de 1 min');
+    expect(formatAge('2026-10-20T21:20:00.000Z', now)).toBe('hace 1 h 10 min');
+    expect(formatAge(null, now)).toBeNull();
   });
 });

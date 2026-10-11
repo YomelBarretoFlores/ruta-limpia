@@ -226,7 +226,7 @@ export interface NewIncident {
 
 export interface IncidentChanges {
   readonly kind?: IncidentKind;
-  readonly description?: string | null;
+  readonly description?: string;
   readonly resolved?: boolean;
   readonly resolutionNote?: string;
 }

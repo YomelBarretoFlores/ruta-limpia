@@ -167,6 +167,8 @@ Sentence case. Short sentences. Verbs first on buttons ("Activar avisos", "Cance
 | Primitives                                             | `apps/web/src/shared/ui/` — `Section`, `Button`, `Notice`, `Field`, `Status`, `Num` (styles in `ui.css`) |
 | Contrast check                                         | `apps/web/src/shared/styles/tokens.test.ts`                                                              |
 | Citizen screens                                        | `apps/web/src/citizen/` (styles in `citizen.css`)                                                        |
+| Panel screens (lazily loaded `/panel/*`)               | `apps/web/src/panel/` (styles in `panel.css`)                                                            |
+| Map helpers (fit, truck icon, Leaflet overrides)       | `apps/web/src/shared/map/`                                                                               |
 
 The panel scale applies inside an element with `data-density="panel"`; the citizen scale is the
 default.

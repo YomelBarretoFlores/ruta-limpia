@@ -10,6 +10,7 @@ export interface NavItem {
 
 /** The panel's sections, in navigation order. */
 export const NAV_ITEMS: readonly NavItem[] = [
+  { to: '/panel/en-vivo', label: 'En vivo', anyOf: ['live:read'] },
   { to: '/panel/usuarios', label: 'Usuarios', anyOf: ['users:manage'] },
 ];
 

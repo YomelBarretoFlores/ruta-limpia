@@ -1,6 +1,6 @@
 /*
- * Leaflet overrides for the citizen map (docs/design/design-system.md, "Map"). Imported after
- * leaflet.css, in the lazily loaded map chunk, so these rules win over Leaflet's own.
+ * Leaflet overrides for the citizen and panel maps (docs/design/design-system.md, "Map").
+ * Imported after leaflet.css, in the lazily loaded map chunks, so these rules win over Leaflet's.
  */
 /* Muted tiles; the attribution and the controls stay unfiltered. */
 .route-map .leaflet-tile-pane {

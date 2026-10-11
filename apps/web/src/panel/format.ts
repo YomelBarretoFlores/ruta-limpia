@@ -65,3 +65,27 @@ export function minutesBetween(from: string | null, to: string | null): number |
   const end = parse(to);
   return start === null || end === null ? null : end - start;
 }
+
+/** The pilot's offset: America/Lima has no daylight saving time. */
+const LIMA_OFFSET = '-05:00';
+
+/** An instant as a `datetime-local` value in Lima time (`2026-10-20T17:30`). */
+export function toLocalDateTimeInput(epochMs: number): string {
+  const shifted = new Date(epochMs - 5 * 3_600_000);
+  return shifted.toISOString().slice(0, 16);
+}
+
+/** A `datetime-local` value read as Lima time, as ISO with its offset; null when malformed. */
+export function fromLocalDateTimeInput(value: string): string | null {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) ? `${value}:00${LIMA_OFFSET}` : null;
+}
+
+/** "hace 2 min", "hace 1 h 5 min", "ahora" — the age of a timestamp at `now`. */
+export function formatAge(iso: string | null | undefined, now: number): string | null {
+  if (iso == null) return null;
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return null;
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 60) return 'hace menos de 1 min';
+  return `hace ${formatDuration(Math.floor(seconds / 60) * 60)}`;
+}

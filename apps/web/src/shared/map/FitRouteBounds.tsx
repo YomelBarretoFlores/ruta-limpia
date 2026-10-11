@@ -2,11 +2,10 @@ import { latLngBounds, type LatLngTuple } from 'leaflet';
 import { useEffect } from 'react';
 import { useMap } from 'react-leaflet';
 
-import type { RouteDetail } from '../api/types';
-import { FIT_OPTIONS } from './map-view';
+import { FIT_OPTIONS, type RouteShape } from './map-view';
 
 /** The route's line and its reference points, as Leaflet `[lat, lon]` pairs. */
-function routeLatLngs(route: RouteDetail): LatLngTuple[] {
+function routeLatLngs(route: RouteShape): LatLngTuple[] {
   return [
     ...route.geometry.coordinates.map(([lon, lat]): LatLngTuple => [lat, lon]),
     ...route.points.map((p): LatLngTuple => [p.lat, p.lon]),
@@ -18,7 +17,7 @@ function routeLatLngs(route: RouteDetail): LatLngTuple[] {
  * container's size is re-read first: the map may be created before its lazy styles apply, and
  * fitting a zero-sized map leaves the route as a speck in the middle.
  */
-export function FitRouteBounds({ route }: { readonly route: RouteDetail }) {
+export function FitRouteBounds({ route }: { readonly route: RouteShape }) {
   const map = useMap();
   // Keyed by value: a new object for the same route (a refetch) keeps the reader's pan and zoom.
   const key = JSON.stringify(routeLatLngs(route));

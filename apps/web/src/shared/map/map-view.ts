@@ -9,3 +9,9 @@ export const FIT_OPTIONS: FitBoundsOptions = Object.freeze({
 /** Neighborhood to street level: the whole 1.3 km route fits, a single block is the closest. */
 export const MIN_ZOOM = 13;
 export const MAX_ZOOM = 18;
+
+/** What the map needs of a route: its line (`[lon, lat]` pairs) and its reference points. */
+export interface RouteShape {
+  readonly geometry: { readonly coordinates: readonly (readonly [number, number])[] };
+  readonly points: readonly { readonly lat: number; readonly lon: number }[];
+}

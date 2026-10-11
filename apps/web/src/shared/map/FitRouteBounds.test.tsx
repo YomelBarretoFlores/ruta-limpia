@@ -2,9 +2,23 @@ import { render } from '@testing-library/react';
 import type { FitBoundsOptions, LatLngBounds } from 'leaflet';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ROUTE } from '../test/fixtures';
 import { FitRouteBounds } from './FitRouteBounds';
-import { FIT_OPTIONS } from './map-view';
+import { FIT_OPTIONS, type RouteShape } from './map-view';
+
+const ROUTE: RouteShape = {
+  geometry: {
+    coordinates: [
+      [-77.52855, -9.523468],
+      [-77.5279, -9.5241],
+      [-77.5271, -9.5249],
+    ],
+  },
+  points: [
+    { lat: -9.5232, lon: -77.5286 },
+    { lat: -9.5241, lon: -77.5279 },
+    { lat: -9.5249, lon: -77.5271 },
+  ],
+};
 
 const map = {
   fitBounds: vi.fn<(bounds: LatLngBounds, options: FitBoundsOptions) => void>(),

@@ -4,6 +4,7 @@ import { Route, Routes } from 'react-router';
 
 import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
 import { Notice } from '../shared/ui/Notice';
+import { LivePage } from './live/LivePage';
 import { LoginPage } from './session/LoginPage';
 import { RequireSession } from './session/RequireSession';
 import { SessionProvider } from './session/SessionProvider';
@@ -46,6 +47,14 @@ export default function PanelApp() {
             }
           >
             <Route index element={<PanelIndex />} />
+            <Route
+              path="en-vivo"
+              element={
+                <RequirePermission anyOf={['live:read']}>
+                  <LivePage />
+                </RequirePermission>
+              }
+            />
             <Route
               path="usuarios"
               element={
