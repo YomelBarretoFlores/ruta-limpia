@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { SubscriptionMessage, SubscriptionPhase } from '../components/AlertsSection';
 import type { ActivationResult, PushService } from '../push/push-service';
@@ -8,9 +8,24 @@ import type { StoredSubscription } from '../push/subscription-store';
 export function activationMessage(result: ActivationResult): SubscriptionMessage {
   switch (result.status) {
     case 'subscribed':
+      return result.stored === false
+        ? {
+            tone: 'warn',
+            text:
+              `Avisos activados para tu punto ${result.subscription.pointCode}, pero este ` +
+              'navegador no pudo guardarlos. Si quieres cancelarlos, hazlo antes de cerrar esta ' +
+              'página.',
+          }
+        : {
+            tone: 'info',
+            text: `Listo. Te avisaremos cuando el camión se acerque a tu punto ${result.subscription.pointCode}.`,
+          };
+    case 'not_stored':
       return {
-        tone: 'info',
-        text: `Listo. Te avisaremos cuando el camión se acerque a tu punto ${result.subscription.pointCode}.`,
+        tone: 'warn',
+        text:
+          'Este navegador no permite guardar los avisos (por ejemplo, en una ventana privada), así ' +
+          'que no se activaron. Ábrelo en una ventana normal e intenta otra vez.',
       };
     case 'denied':
       return {
@@ -79,6 +94,23 @@ export function useAlertSubscription(
   const [consent, setConsent] = useState(false);
   const [message, setMessage] = useState<SubscriptionMessage | null>(null);
 
+  const routeCode = target?.routeCode ?? null;
+  const pointCode = target?.pointCode ?? null;
+  const householdCode = target?.householdCode ?? null;
+  /** The target the page shows now; a result that arrives for an older one gets no message. */
+  const targetKey = `${routeCode}|${pointCode}|${householdCode}`;
+  const shownTarget = useRef(targetKey);
+  const mounted = useRef(true);
+  useEffect(() => {
+    shownTarget.current = targetKey;
+  }, [targetKey]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void push.current().then((current) => {
@@ -91,16 +123,16 @@ export function useAlertSubscription(
     };
   }, [push]);
 
-  const routeCode = target?.routeCode ?? null;
-  const pointCode = target?.pointCode ?? null;
-  const householdCode = target?.householdCode ?? null;
-
   const activate = useCallback(() => {
     if (routeCode === null || pointCode === null || !consent) return;
+    const requestedFor = targetKey;
     setPhase('activating');
     setMessage(null);
     void push.activate({ routeCode, pointCode, householdCode }).then((result) => {
-      setMessage(activationMessage(result));
+      if (!mounted.current) return;
+      // The subscription belongs to the browser, so its state is applied whatever the page shows;
+      // the message speaks about the request, so it is dropped when the target changed meanwhile.
+      if (shownTarget.current === requestedFor) setMessage(activationMessage(result));
       if (result.status === 'subscribed') {
         setSubscription(result.subscription);
         setPhase('subscribed');
@@ -108,12 +140,13 @@ export function useAlertSubscription(
         setPhase('idle');
       }
     });
-  }, [push, routeCode, pointCode, householdCode, consent]);
+  }, [push, routeCode, pointCode, householdCode, consent, targetKey]);
 
   const cancel = useCallback(() => {
     setPhase('cancelling');
     setMessage(null);
     void push.cancel().then((result) => {
+      if (!mounted.current) return;
       if (result.status === 'cancelled') {
         setSubscription(null);
         setConsent(false);

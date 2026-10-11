@@ -3,6 +3,7 @@ import './citizen.css';
 import { lazy, Suspense } from 'react';
 import { useLocation } from 'react-router';
 
+import { Button } from '../shared/ui/Button';
 import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
 import { Notice } from '../shared/ui/Notice';
 import { useCitizenDeps } from './citizen-deps';
@@ -61,8 +62,18 @@ export function CitizenHomePage() {
       <main className="citizen-main">
         {citizenRoute.status === 'loading' && <p>Cargando la ruta…</p>}
         {citizenRoute.status === 'unavailable' && (
-          <Notice tone="danger" title="No se pudo cargar la ruta">
-            <p>Revisa tu conexión a internet e intenta otra vez.</p>
+          <div>
+            <Notice tone="danger" title="No se pudo cargar la ruta">
+              <p>Revisa tu conexión a internet. Lo intentaremos de nuevo automáticamente.</p>
+            </Notice>
+            <Button variant="secondary" onClick={citizenRoute.retry}>
+              Intentar otra vez
+            </Button>
+          </div>
+        )}
+        {citizenRoute.status === 'no_route' && (
+          <Notice tone="info" title="No hay una ruta activa">
+            <p>Por ahora no hay recorridos publicados. Consulta el horario en la municipalidad.</p>
           </Notice>
         )}
         {ready !== null && (
@@ -102,7 +113,9 @@ export function CitizenHomePage() {
               householdCode={ready.householdCode}
               support={deps.push.support()}
               phase={alerts.phase}
+              routeCode={ready.route.code}
               subscribedPointCode={alerts.subscription?.pointCode ?? null}
+              subscribedRouteCode={alerts.subscription?.routeCode ?? null}
               consent={alerts.consent}
               onConsentChange={alerts.setConsent}
               message={alerts.message}

@@ -104,4 +104,39 @@ describe('openAlertPage', () => {
 
     expect(clients.openWindow).toHaveBeenCalledWith(`${origin}/?p=P08`);
   });
+
+  it('opens a window on the alert when an open window cannot be navigated', async () => {
+    const client = {
+      url: `${origin}/`,
+      focus: vi.fn(() => Promise.resolve()),
+      // An uncontrolled window rejects navigate().
+      navigate: vi.fn(() => Promise.reject(new TypeError('not controlled'))),
+    };
+    const clients = {
+      matchAll: vi.fn(() => Promise.resolve([client])),
+      openWindow: vi.fn(() => Promise.resolve()),
+    };
+
+    await openAlertPage('/?p=P08', clients, origin);
+
+    expect(clients.openWindow).toHaveBeenCalledWith(`${origin}/?p=P08`);
+    expect(client.focus).not.toHaveBeenCalled();
+  });
+
+  it('only focuses a window already showing the alert', async () => {
+    const client = {
+      url: `${origin}/?p=P08`,
+      focus: vi.fn(() => Promise.resolve()),
+      navigate: vi.fn(() => Promise.resolve()),
+    };
+    const clients = {
+      matchAll: vi.fn(() => Promise.resolve([client])),
+      openWindow: vi.fn(() => Promise.resolve()),
+    };
+
+    await openAlertPage('/?p=P08', clients, origin);
+
+    expect(client.navigate).not.toHaveBeenCalled();
+    expect(client.focus).toHaveBeenCalled();
+  });
 });

@@ -54,7 +54,11 @@ export interface ClientsLike {
   openWindow(url: string): Promise<unknown>;
 }
 
-/** Focuses an open window of the app on `path` (navigating it if needed), or opens one. */
+/**
+ * Focuses an open window of the app on `path` (navigating it if needed), or opens one. A window
+ * the service worker does not control rejects `navigate()`: then a new window opens on the
+ * alert, so the tap always shows the alerted point.
+ */
 export async function openAlertPage(path: string, clients: ClientsLike, origin: string) {
   const target = new URL(path, origin).href;
   const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -63,6 +67,15 @@ export async function openAlertPage(path: string, clients: ClientsLike, origin: 
     await clients.openWindow(target);
     return;
   }
-  if (open.url !== target) await open.navigate(target).catch(() => undefined);
+  if (open.url !== target) {
+    const navigated = await open.navigate(target).then(
+      () => true,
+      () => false,
+    );
+    if (!navigated) {
+      await clients.openWindow(target);
+      return;
+    }
+  }
   await open.focus();
 }

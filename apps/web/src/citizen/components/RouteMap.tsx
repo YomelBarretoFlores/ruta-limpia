@@ -3,7 +3,15 @@ import './route-map.css';
 
 import { divIcon, latLngBounds, type LatLngTuple } from 'leaflet';
 import { useMemo } from 'react';
-import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip } from 'react-leaflet';
+import {
+  AttributionControl,
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Polyline,
+  TileLayer,
+  Tooltip,
+} from 'react-leaflet';
 
 import { formatLocalTime } from '../../shared/time';
 import type { RouteDetail } from '../api/types';
@@ -38,6 +46,7 @@ export function RouteMap({ route, highlightedPointCode, truck }: RouteMapProps) 
   const highlighted = route.points.find((p) => p.code === highlightedPointCode);
   const stale = truck?.stale ?? false;
   const course = truck?.course ?? null;
+  const lastSeen = formatLocalTime(truck?.fixTime);
   const truckIcon = useMemo(
     () =>
       divIcon({
@@ -54,8 +63,11 @@ export function RouteMap({ route, highlightedPointCode, truck }: RouteMapProps) 
       <MapContainer
         bounds={latLngBounds(line).pad(0.15)}
         scrollWheelZoom={false}
+        attributionControl={false}
         className="route-map__canvas"
       >
+        {/* The OpenStreetMap credit only, without Leaflet's flag prefix. */}
+        <AttributionControl prefix={false} />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -92,8 +104,8 @@ export function RouteMap({ route, highlightedPointCode, truck }: RouteMapProps) 
             zIndexOffset={1000}
           >
             {truck.stale && (
-              <Tooltip permanent direction="right" offset={[10, 0]} className="map-label">
-                Última posición {formatLocalTime(truck.fixTime)}
+              <Tooltip permanent direction="bottom" offset={[0, 10]} className="map-label">
+                {lastSeen === null ? 'Última posición' : `Última posición ${lastSeen}`}
               </Tooltip>
             )}
           </Marker>

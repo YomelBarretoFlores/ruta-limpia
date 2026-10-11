@@ -14,7 +14,9 @@ function renderSection(overrides: Partial<AlertsSectionProps> = {}) {
     householdCode: null,
     support: 'supported',
     phase: 'idle',
+    routeCode: 'RI-01',
     subscribedPointCode: null,
+    subscribedRouteCode: null,
     consent: false,
     onConsentChange: vi.fn(),
     message: null,
@@ -96,5 +98,21 @@ describe('AlertsSection', () => {
     expect(screen.getByText(/Avisos activados para el punto/)).toHaveTextContent('P08');
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar avisos' }));
     expect(props.onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('names the route of a subscription made on another route, and offers to cancel it', () => {
+    renderSection({
+      phase: 'subscribed',
+      subscribedPointCode: 'P03',
+      subscribedRouteCode: 'RH-02',
+    });
+
+    expect(screen.getByText(/Tienes avisos activados para el punto/)).toHaveTextContent(
+      'Tienes avisos activados para el punto P03 de la ruta RH-02.',
+    );
+    expect(
+      screen.getByText('Para recibir avisos en esta zona, primero cancela esos avisos.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelar avisos' })).toBeInTheDocument();
   });
 });

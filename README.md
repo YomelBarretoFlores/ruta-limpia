@@ -634,10 +634,17 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
 
 - **QR deep link**: `/?r=<route>&p=<point>&h=<household>` preselects the route, the point and the
   household code; each part is optional. The choices are saved on the device (`localStorage`).
-  Without a link, the saved choice or the first active route is used.
+  Without a link, the saved choice or the first active route is used. A failed load is retried by
+  itself (2 s, 4 s, 8 s … at most every 60 s, and at once when the browser comes back online; the
+  page also offers "Intentar otra vez"); an empty catalog says "No hay una ruta activa" instead of
+  blaming the connection. A render failure shows a calm Spanish page ("No pudimos mostrar la
+  página") instead of a blank screen, and a malformed timestamp is simply left out.
 - **Live data**: an `EventSource` on `/api/live/routes/:code/stream` (`snapshot`, `vehicle.position`,
   `eta.updated`, `point.passed`, `trip.completed`; `trip.started` refetches the snapshot). The browser
-  reconnects by itself; after three failed attempts the page polls `GET /api/live/routes/:code`
+  reconnects by itself; a malformed event is skipped. A fetched snapshot (polling, or the refetch on
+  `trip.started`) is applied only when no stream data arrived while it was in flight, so a late
+  answer never brings back a finished trip or undoes a fresher stream snapshot (the `trip.started`
+  refetch tries up to three times). After three failed attempts the page polls `GET /api/live/routes/:code`
   every 30 s and tries the stream again after 5 minutes. A status (text plus a small square) shows
   "En vivo", "Reconectando…" or "Se actualiza cada 30 s".
 - **Never a stale ETA**: when the signal is `stale`, the window is removed (not greyed) and a notice
@@ -650,7 +657,13 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
   `consentVersion` `2026-10-v1`. The subscription id, the management token and the point are stored
   in IndexedDB (database `ruta-limpia`), never in cookies, because the service worker needs them.
   "Cancelar avisos" calls `DELETE /api/subscriptions/:id` with the token, then unsubscribes the
-  browser. Denied permission, unsupported browsers, push not configured (`503`) and rejected
+  browser; when the stored credentials cannot be read, it reports a failure instead of a
+  cancellation that did not happen. When IndexedDB cannot be opened, the credentials fall back to
+  memory, which is not durable: a new subscription whose credentials cannot be stored durably is
+  cancelled on the server at once ("Este navegador no permite guardar los avisos…"); if that
+  cancellation fails too, the credentials stay in the page's memory and the household is told to
+  cancel before closing it. A subscription made on another route is shown with its route, with the
+  option to cancel it. Denied permission, unsupported browsers, push not configured (`503`) and rejected
   subscriptions (`422`, for example a household code of another route) are explained in Spanish.
 - **iPhone and iPad**: Web Push works only from the app installed on the home screen
   (iOS/iPadOS 16.4+). Safari outside the installed app shows the "Agregar a pantalla de inicio"
@@ -658,7 +671,8 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
 - **Service worker** (`src/sw/sw.ts`, built by `vite-plugin-pwa` with `injectManifest`): precaches the
   app shell (pages open offline), shows each alert as a notification (one `tag` per point,
   `renotify`), confirms it with `POST /api/alerts/:alertId/receipts` (best effort), and opens or
-  focuses the app on the alert's URL when the notification is tapped. It also runs under `vite dev`.
+  focuses the app on the alert's URL when the notification is tapped (a window it cannot navigate,
+  because it does not control it, gets a new window on the alert instead). It also runs under `vite dev`.
 - **Usage**: the page reports `POST /api/usage/views` once per page load and when it becomes visible
   again (at most every 5 minutes), with the subscription proof when the browser is subscribed.
 

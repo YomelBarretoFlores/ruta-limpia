@@ -57,8 +57,8 @@
   border-top-color: var(--ink);
 }
 
-.route-map .leaflet-tooltip-right::before {
-  border-right-color: var(--ink);
+.route-map .leaflet-tooltip-bottom::before {
+  border-bottom-color: var(--ink);
 }
 
 .truck-marker {

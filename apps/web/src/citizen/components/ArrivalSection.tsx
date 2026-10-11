@@ -90,40 +90,45 @@ function ArrivalStatus({
           El camión inició el recorrido. En breve verás la llegada estimada.
         </p>
       );
-    case 'live':
+    case 'live': {
+      const updated = formatLocalTime(arrival.updatedAt);
       return (
         <div className="arrival">
           <p className="arrival__label">Llegada estimada</p>
           <p className="arrival__window num">
             {arrivalWindowText(arrival.minMinutes, arrival.maxMinutes)}
           </p>
-          {arrival.updatedAt !== null && (
+          {updated !== null && (
             <p className="arrival__updated">
-              Actualizado <Num>{formatLocalTime(arrival.updatedAt)}</Num>
+              Actualizado <Num>{updated}</Num>
             </p>
           )}
         </div>
       );
-    case 'stale':
+    }
+    case 'stale': {
+      const lastSignal = formatLocalTime(arrival.updatedAt);
       return (
         <>
           <Notice tone="warn" title="Sin actualización">
             <p>
               La señal del camión se interrumpió
-              {arrival.updatedAt === null ? '' : ` a las ${formatLocalTime(arrival.updatedAt)}`}.
-              Usa el horario de referencia.
+              {lastSignal === null ? '' : ` a las ${lastSignal}`}. Usa el horario de referencia.
             </p>
           </Notice>
           <ScheduleList schedule={schedule} />
         </>
       );
-    case 'passed':
+    }
+    case 'passed': {
+      const passed = formatLocalTime(arrival.passedAt);
       return (
         <p className="arrival__message">
-          {arrival.passedAt === null
+          {passed === null
             ? 'El camión ya pasó por tu punto.'
-            : `El camión ya pasó por tu punto a las ${formatLocalTime(arrival.passedAt)}.`}
+            : `El camión ya pasó por tu punto a las ${passed}.`}
         </p>
       );
+    }
   }
 }

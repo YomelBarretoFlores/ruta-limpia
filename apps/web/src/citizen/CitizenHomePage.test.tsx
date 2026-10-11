@@ -94,8 +94,19 @@ describe('CitizenHomePage', () => {
     renderAt('/', fakeDeps({ api }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar la ruta');
+    expect(screen.getByRole('button', { name: 'Intentar otra vez' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'Ruta Limpia' })).toBeInTheDocument();
     expect(screen.getByText('Proyecto RSU UNASAM 2026')).toBeInTheDocument();
+  });
+
+  it('says when no route is active instead of blaming the connection', async () => {
+    const api = fakeApi();
+    api.listRoutes.mockResolvedValue([]);
+
+    renderAt('/', fakeDeps({ api }));
+
+    expect(await screen.findByText('No hay una ruta activa')).toBeInTheDocument();
+    expect(screen.queryByText(/Revisa tu conexión/)).not.toBeInTheDocument();
   });
 
   describe('alert subscription', () => {
@@ -174,11 +185,22 @@ describe('CitizenHomePage', () => {
 
     it('moves the focus to the sign-up from "Configurar aviso"', async () => {
       renderAt('/?r=RI-01&p=P08', fakeDeps());
-      Element.prototype.scrollIntoView = vi.fn();
+      // jsdom has no scrollIntoView: stub it for this test only, then put things back.
+      const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        await userEvent.click(await screen.findByRole('button', { name: 'Configurar aviso' }));
 
-      await userEvent.click(await screen.findByRole('button', { name: 'Configurar aviso' }));
-
-      expect(screen.getByRole('heading', { name: 'Avisos de llegada' })).toHaveFocus();
+        expect(screen.getByRole('heading', { name: 'Avisos de llegada' })).toHaveFocus();
+        expect(scrollIntoView).toHaveBeenCalledOnce();
+      } finally {
+        if (descriptor === undefined) {
+          delete (Element.prototype as Partial<Element>).scrollIntoView;
+        } else {
+          Object.defineProperty(Element.prototype, 'scrollIntoView', descriptor);
+        }
+      }
     });
   });
 });

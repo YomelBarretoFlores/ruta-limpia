@@ -36,6 +36,9 @@ export interface LiveConnectionOptions {
   readonly streamRetryMs?: number;
 }
 
+/** Fetches a `trip.started` refetch may take when stream data keeps overtaking it. */
+const TRIP_STARTED_FETCHES = 3;
+
 /**
  * Keeps the live state of a route up to date: Server-Sent Events first (the `snapshot` event,
  * then every change), reconnecting when the stream drops. After `maxStreamFailures` errors in a
@@ -58,13 +61,34 @@ export function connectLive(options: LiveConnectionOptions): () => void {
   let failures = 0;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Counts the stream messages applied. A fetched snapshot is applied only when no stream data
+   * arrived while it was in flight: otherwise it may be older than what the page already shows
+   * (a trip that ended meanwhile would come back as a ghost, a slow poll would undo a fresher
+   * stream snapshot).
+   */
+  let generation = 0;
 
-  const refresh = async () => {
-    try {
-      const snapshot = await fetchSnapshot();
-      if (!closed) dispatch({ type: 'snapshot', snapshot });
-    } catch {
-      // The next poll, event or reconnection tries again.
+  const applyStream = (action: LiveAction) => {
+    generation += 1;
+    dispatch(action);
+  };
+
+  /** Fetches the snapshot; when stream data overtakes it, fetches again up to `attempts` times. */
+  const refresh = async (attempts = 1) => {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const seen = generation;
+      try {
+        const snapshot = await fetchSnapshot();
+        if (closed) return;
+        if (generation === seen) {
+          dispatch({ type: 'snapshot', snapshot });
+          return;
+        }
+      } catch {
+        // The next poll, event or reconnection tries again.
+        return;
+      }
     }
   };
 
@@ -97,22 +121,22 @@ export function connectLive(options: LiveConnectionOptions): () => void {
     source = stream;
 
     stream.addEventListener('snapshot', (event) => {
+      const snapshot = parse<LiveSnapshot>(event);
+      if (snapshot === null) return;
       failures = 0;
       stopPolling();
-      dispatch({ type: 'snapshot', snapshot: parse<LiveSnapshot>(event) });
+      applyStream({ type: 'snapshot', snapshot });
       dispatch({ type: 'connection', status: 'live' });
     });
     for (const name of APPLIED_EVENTS) {
       stream.addEventListener(name, (event) => {
-        dispatch({
-          type: 'event',
-          name,
-          data: parse<LiveStreamEvents[typeof name]>(event),
-        } as LiveAction);
+        const data = parse<LiveStreamEvents[typeof name]>(event);
+        if (data === null) return;
+        applyStream({ type: 'event', name, data } as LiveAction);
       });
     }
     // A new trip: the snapshot carries its vehicle and progress.
-    stream.addEventListener('trip.started', () => void refresh());
+    stream.addEventListener('trip.started', () => void refresh(TRIP_STARTED_FETCHES));
 
     stream.onerror = () => {
       if (closed || source !== stream) return;
@@ -139,6 +163,12 @@ export function connectLive(options: LiveConnectionOptions): () => void {
   };
 }
 
-function parse<T>(event: MessageEvent<string>): T {
-  return JSON.parse(event.data) as T;
+/** The event's JSON data, or null for a malformed or truncated payload (the event is skipped). */
+function parse<T>(event: MessageEvent<string>): T | null {
+  try {
+    const data: unknown = JSON.parse(event.data);
+    return typeof data === 'object' && data !== null ? (data as T) : null;
+  } catch {
+    return null;
+  }
 }

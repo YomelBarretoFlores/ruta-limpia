@@ -3,13 +3,18 @@ import { createPushService, type PushService } from './push-service';
 import { browserPushCapabilities, detectPushSupport } from './push-support';
 import {
   createSubscriptionStore,
+  withMemoryFallback,
   type StoredSubscription,
   type SubscriptionStore,
 } from './subscription-store';
 
-/** The subscription store of this browser (in memory when IndexedDB is blocked). */
+/**
+ * The subscription store of this browser: IndexedDB, falling back to memory when IndexedDB is
+ * missing or cannot be opened. Memory is not durable, and the push service treats it so.
+ */
 export function createBrowserSubscriptionStore(): SubscriptionStore {
-  if (typeof indexedDB !== 'undefined') return createSubscriptionStore(indexedDB);
+  if (typeof indexedDB !== 'undefined')
+    return withMemoryFallback(createSubscriptionStore(indexedDB));
   let current: StoredSubscription | null = null;
   return {
     load: () => Promise.resolve(current),
@@ -21,6 +26,7 @@ export function createBrowserSubscriptionStore(): SubscriptionStore {
       current = null;
       return Promise.resolve();
     },
+    durable: () => current === null,
   };
 }
 

@@ -97,4 +97,25 @@ describe('ArrivalSection', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Configurar aviso' }));
     expect(onConfigureAlerts).toHaveBeenCalledOnce();
   });
+
+  it('never fails on a malformed timestamp: the time is simply left out', () => {
+    const { unmount } = renderSection({
+      kind: 'live',
+      minMinutes: 8,
+      maxMinutes: 12,
+      updatedAt: 'not-a-time',
+    });
+    expect(screen.getByText('8 a 12 min')).toBeInTheDocument();
+    expect(screen.queryByText(/Actualizado/)).not.toBeInTheDocument();
+    unmount();
+
+    const stale = renderSection({ kind: 'stale', updatedAt: '' });
+    expect(
+      screen.getByText('La señal del camión se interrumpió. Usa el horario de referencia.'),
+    ).toBeInTheDocument();
+    stale.unmount();
+
+    renderSection({ kind: 'passed', passedAt: '2026-99-99' });
+    expect(screen.getByText('El camión ya pasó por tu punto.')).toBeInTheDocument();
+  });
 });

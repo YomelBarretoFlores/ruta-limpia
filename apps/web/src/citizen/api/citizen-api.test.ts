@@ -30,17 +30,16 @@ describe('createCitizenApi', () => {
   });
 
   it('cancels with the management token as a bearer token', async () => {
-    const fetchFn = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+    const fetchFn = vi.fn((_url: string, _init?: RequestInit) =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
 
     await createCitizenApi(fetchFn).cancelSubscription('sub-1', 'token-1');
 
-    expect(fetchFn).toHaveBeenCalledWith(
-      '/api/subscriptions/sub-1',
-      expect.objectContaining({
-        method: 'DELETE',
-        headers: expect.objectContaining({ authorization: 'Bearer token-1' }) as unknown,
-      }),
-    );
+    const [url, init] = fetchFn.mock.calls[0] ?? [];
+    expect(url).toBe('/api/subscriptions/sub-1');
+    expect(init?.method).toBe('DELETE');
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer token-1');
   });
 
   it('throws ApiError with the error code of the answer', async () => {

@@ -23,8 +23,11 @@ export interface AlertsSectionProps {
   readonly support: PushSupport;
   /** `checking`: reading this browser's subscription. */
   readonly phase: SubscriptionPhase;
-  /** The point of the active subscription. */
+  /** The route shown on the page. */
+  readonly routeCode: string;
+  /** The point and route of this browser's active subscription. */
   readonly subscribedPointCode: string | null;
+  readonly subscribedRouteCode: string | null;
   readonly consent: boolean;
   readonly onConsentChange: (consent: boolean) => void;
   readonly message: SubscriptionMessage | null;
@@ -52,13 +55,26 @@ export function AlertsSection(props: AlertsSectionProps) {
   );
 }
 
-function SubscribedView({ subscribedPointCode, phase, onCancel }: AlertsSectionProps) {
+function SubscribedView(props: AlertsSectionProps) {
+  const { subscribedPointCode, subscribedRouteCode, routeCode, phase, onCancel } = props;
   const cancelling = phase === 'cancelling';
+  const otherRoute = subscribedRouteCode !== null && subscribedRouteCode !== routeCode;
   return (
     <>
-      <p className="alerts__active">
-        Avisos activados para el punto <strong className="num">{subscribedPointCode}</strong>.
-      </p>
+      {otherRoute ? (
+        <>
+          <p className="alerts__active">
+            Tienes avisos activados para el punto{' '}
+            <strong className="num">{subscribedPointCode}</strong> de la ruta{' '}
+            <strong className="num">{subscribedRouteCode}</strong>.
+          </p>
+          <p>Para recibir avisos en esta zona, primero cancela esos avisos.</p>
+        </>
+      ) : (
+        <p className="alerts__active">
+          Avisos activados para el punto <strong className="num">{subscribedPointCode}</strong>.
+        </p>
+      )}
       <Button variant="destructive" onClick={onCancel} disabled={cancelling}>
         {cancelling ? 'Cancelando…' : 'Cancelar avisos'}
       </Button>

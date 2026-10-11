@@ -73,7 +73,8 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [x] |
 | T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [x] |
 | T7a | Municipal panel backend: auth/sessions/roles, audit, live panel, trips, incidents, households, field observations, baseline logs | delegated (writer: 2+ non-trivial files) | [x] |
-| T7b | Municipal panel UI (`/panel`) + design system + T6 PWA hardening | delegated (writer) | [ ] |
+| T7b-1 | Design system + citizen PWA redesign + T6 PWA hardening (and the T7a-hardening residual findings) | delegated (writer: 2+ non-trivial files) | [x] |
+| T7b-2 | Municipal panel UI (`/panel`) on the design system | delegated (writer) | [ ] |
 | T8 | Indicators and exports: KPI computation (Tabla 16), CSV exports for Instruments 1–3 | delegated (writer) | [ ] |
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer) | [ ] |
 | T10 | Production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5) | delegated (writer) | [ ] |
@@ -474,9 +475,58 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   `unknown_trip`), `R2-empty-panel-routes` and `R2-unused-panel-http-exports` (no longer true:
   the routes array and schemas are used).
 
+- 2026-10-11: the T7a-hardening commits `d120eda 2834928 68087a1 3ea76eb` were reviewed in two
+  slices, `8526846..2834928` and `2834928..3ea76eb`; both were approved and acknowledged. The
+  reviewed boundary is now `3ea76eb`.
+
+- 2026-10-11: T7b split into T7b-1 (design system, citizen redesign, hardening; done) and T7b-2
+  (panel UI). T7b-1 done in four work-unit commits (changed lines, lockfile excluded), each building
+  and passing its tests on its own:
+  - `c0e0676` `fix(auth): observe shed logins, cap account guessing at 20 and keep running pauses;
+    diff field edits under a row lock` (399).
+  - `c556401` `feat(web): add the civic design system foundation` (1090):
+    `docs/design/design-system.md`, `tokens.css`, the primitives `Section` (replaces `Card`),
+    `Button`, `Notice`, `Field`, `Status`, `Num`; a Vitest contrast check
+    over `tokens.css`; Atkinson Hyperlegible Next self-hosted and precached.
+  - `b781c01` `feat(web): redesign the citizen PWA on the civic design system` (1036).
+  - The last commit (the parent records the hash) `fix(web): harden the citizen PWA against stale
+    snapshots, failed loads, bad timestamps and storage failures`, with this entry.
+
+  Verification at the last commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0,
+  `pnpm format:check` clean, `pnpm test` 85 files / 631 tests passed, `pnpm --filter
+  @ruta-limpia/web build` exit 0 (service worker `sw.js` and `manifest.webmanifest` emitted,
+  precache 19 entries / 612 KiB with the two `woff2` files). Bundle: initial JS 492.5 kB (152.9 kB
+  gzip) before, 343.6 kB (109.0 kB gzip) after, with the lazily loaded map chunk 156.4 kB (46.1 kB
+  gzip); CSS 20.0 kB before, 9.4 kB initial + 16.2 kB with the map after. Smoke: a throwaway
+  PostGIS container (`docker run`, port 55432; the compose `db` service reads the root `.env`,
+  which agents may not read), migrations 0001–0011 and seed applied, built API with the env on the
+  command line and fresh VAPID keys, `vite preview` with the proxy: `/` 200, `/api/routes/RI-01`
+  200 through the proxy, `sw.js` and the manifest 200, Traccar-format fixes posted with the ingest
+  token started a trip and gave P08 a live window; headless Chromium screenshots of the stale and
+  live states; everything stopped, the container removed, project volumes untouched. One
+  unexplained single failure in six full `pnpm test` runs during commit A (not reproduced in five
+  reruns).
+
+  Decisions: the font has `tnum` (checked with fontTools), so no Public Sans; inputs use a new
+  `--rule-control` (`#8a877e`, 3.6:1) because `--rule-strong` is 2:1; `--ink-3` only on
+  `--surface`; the focus ring has `outline-offset: 1px` so its ink inner ring shows; the alerts
+  section is now titled "Avisos de llegada"; the per-account sign-in budget is 20 failures per 15
+  minutes; a subscription whose credentials cannot be stored durably is cancelled on the server at
+  once (kept in page memory, with a warning, only if that cancellation fails).
+
+  Findings: T6 review (15) — `R3-stale-refresh-overwrites-stream`, `R3-unguarded-event-parse`,
+  `R3-headers-instance-dropped`, `R3-route-resolution-no-retry`, `R3-invalid-iso-throws`,
+  `R3-visibility-reporting-untested`, `R3-uncontrolled-client-navigate`, `R3-001` to `R3-007`:
+  fixed in the last commit; `R3-eta-zero-branch-untested`: tests in `b781c01`. T7a-hardening
+  review (11): all fixed in `c0e0676`, except that `R3-incident-audit-diff-unlocked` has no
+  dedicated concurrency test (the row lock is in place) and `R3-auth-busy-admin-paths-untested` is
+  covered for the password reset only (user creation goes through the same scope handler).
+  Pending: the seed names the points "Reference point P08" (Spanish names belong in the seed);
+  the Engram mirror of this document.
+
 ## Next step
 
-T7b: the municipal panel UI at `/panel` (login, live route with the pass table and alert status,
-vehicles, trips and trip detail, incidents, households and stickers, Instrument 2 sheets,
-baseline logs, user administration), a small design system, and the T6 PWA hardening, built on
-the T7a endpoints documented in the README ("Municipal panel API").
+T7b-2: the municipal panel UI at `/panel` on the design system (`docs/design/design-system.md`,
+panel density): login, live route with the pass table and alert status, vehicles, trips and trip
+detail, incidents, households and stickers, Instrument 2 sheets, baseline logs, user
+administration, built on the T7a endpoints documented in the README ("Municipal panel API").

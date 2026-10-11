@@ -24,7 +24,17 @@ export interface PushManagerLike {
 }
 
 export type ActivationResult =
-  | { readonly status: 'subscribed'; readonly subscription: StoredSubscription }
+  | {
+      readonly status: 'subscribed';
+      readonly subscription: StoredSubscription;
+      /**
+       * False when the credentials could not be stored and the server subscription could not be
+       * undone either: they live in this page only (cancel before closing it).
+       */
+      readonly stored?: false;
+    }
+  /** The credentials could not be stored, so the new subscription was undone at once. */
+  | { readonly status: 'not_stored' }
   | { readonly status: 'denied' }
   | { readonly status: 'unsupported' }
   /** The server has no VAPID keys (503). */
@@ -63,9 +73,41 @@ export interface PushServiceOptions {
 
 export function createPushService(options: PushServiceOptions): PushService {
   const { api, store } = options;
+  /** Credentials the store could not keep, while the server subscription is still active. */
+  let unsaved: StoredSubscription | null = null;
+
+  /** Stores the credentials; false when they only reached memory or nothing at all. */
+  const persist = async (subscription: StoredSubscription): Promise<boolean> => {
+    try {
+      await store.save(subscription);
+      return store.durable?.() !== false;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * The credentials could not be stored: without them the household could never cancel, so the
+   * subscription is undone at once. If that fails too, they stay in this page's memory.
+   */
+  const undo = async (
+    subscription: StoredSubscription,
+    browserSubscription: PushSubscriptionLike,
+  ): Promise<ActivationResult> => {
+    await store.clear().catch(() => undefined);
+    try {
+      await api.cancelSubscription(subscription.subscriptionId, subscription.managementToken);
+    } catch {
+      unsaved = subscription;
+      return { status: 'subscribed', subscription, stored: false };
+    }
+    await browserSubscription.unsubscribe().catch(() => false);
+    return { status: 'not_stored' };
+  };
+
   return {
     support: options.support,
-    current: () => store.load().catch(() => null),
+    current: async () => unsaved ?? (await store.load().catch(() => null)),
 
     async activate({ routeCode, pointCode, householdCode }) {
       if (options.support() !== 'supported') return { status: 'unsupported' };
@@ -96,7 +138,8 @@ export function createPushService(options: PushServiceOptions): PushService {
           pointCode: response.point.code,
           routeCode: response.point.routeCode,
         };
-        await store.save(subscription);
+        if (!(await persist(subscription))) return await undo(subscription, browserSubscription);
+        unsaved = null;
         return { status: 'subscribed', subscription };
       } catch (error) {
         return failure(error);
@@ -104,7 +147,13 @@ export function createPushService(options: PushServiceOptions): PushService {
     },
 
     async cancel() {
-      const stored = await store.load().catch(() => null);
+      let stored: StoredSubscription | null;
+      try {
+        stored = unsaved ?? (await store.load());
+      } catch {
+        // Unknown whether a subscription exists: never report a cancellation that did not happen.
+        return { status: 'failed' };
+      }
       if (stored !== null) {
         try {
           await api.cancelSubscription(stored.subscriptionId, stored.managementToken);
@@ -120,6 +169,7 @@ export function createPushService(options: PushServiceOptions): PushService {
       } catch {
         // The server side is cancelled; a leftover browser subscription receives nothing.
       }
+      unsaved = null;
       await store.clear().catch(() => undefined);
       return { status: 'cancelled' };
     },

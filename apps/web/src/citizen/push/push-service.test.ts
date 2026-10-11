@@ -11,7 +11,7 @@ import {
   type PushSubscriptionLike,
 } from './push-service';
 import { detectPushSupport, type PushCapabilities } from './push-support';
-import { createSubscriptionStore } from './subscription-store';
+import { createSubscriptionStore, type SubscriptionStore } from './subscription-store';
 
 const VAPID_KEY = 'BOrH0Dz9DJQqk_2bS2AG5h2DuYQWhPrYQ5wmfWT3w2Kc';
 const SUBSCRIPTION_JSON = {
@@ -27,7 +27,10 @@ function browserSubscription(key: string = VAPID_KEY) {
   } satisfies PushSubscriptionLike;
 }
 
-function setup(existing: PushSubscriptionLike | null = null) {
+function setup(
+  existing: PushSubscriptionLike | null = null,
+  storeOf: (store: SubscriptionStore) => SubscriptionStore = (store) => store,
+) {
   const api = fakeApi();
   api.getVapidPublicKey.mockResolvedValue(VAPID_KEY);
   api.subscribe.mockResolvedValue({
@@ -40,7 +43,7 @@ function setup(existing: PushSubscriptionLike | null = null) {
     getSubscription: vi.fn(() => Promise.resolve(existing)),
     subscribe: vi.fn<PushManagerLike['subscribe']>(() => Promise.resolve(created)),
   };
-  const store = createSubscriptionStore(new IDBFactory());
+  const store = storeOf(createSubscriptionStore(new IDBFactory()));
   const requestPermission = vi.fn(() => Promise.resolve<NotificationPermission>('granted'));
   const service = createPushService({
     api,
@@ -126,6 +129,43 @@ describe('PushService.activate', () => {
   });
 });
 
+describe('PushService.activate when the credentials cannot be stored', () => {
+  const failingSave = (store: SubscriptionStore): SubscriptionStore => ({
+    ...store,
+    save: () => Promise.reject(new Error('QuotaExceededError')),
+  });
+
+  it('cancels the new server subscription at once instead of leaving it orphaned', async () => {
+    const { api, service, request, created } = setup(null, failingSave);
+
+    expect(await service.activate(request)).toEqual({ status: 'not_stored' });
+    expect(api.cancelSubscription).toHaveBeenCalledWith('sub-1', 'token-1');
+    expect(created.unsubscribe).toHaveBeenCalled();
+    expect(await service.current()).toBeNull();
+  });
+
+  it('treats a store that only kept the credentials in memory as not stored', async () => {
+    const { api, service, request } = setup(null, (store) => ({ ...store, durable: () => false }));
+
+    expect(await service.activate(request)).toEqual({ status: 'not_stored' });
+    expect(api.cancelSubscription).toHaveBeenCalledWith('sub-1', 'token-1');
+  });
+
+  it('keeps the credentials in memory, and says so, when that cancellation fails too', async () => {
+    const { api, service, request } = setup(null, failingSave);
+    api.cancelSubscription.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    const result = await service.activate(request);
+
+    expect(result).toMatchObject({ status: 'subscribed', stored: false });
+    expect(await service.current()).toMatchObject({ subscriptionId: 'sub-1' });
+    // The household can still cancel from this page.
+    expect(await service.cancel()).toEqual({ status: 'cancelled' });
+    expect(api.cancelSubscription).toHaveBeenLastCalledWith('sub-1', 'token-1');
+    expect(await service.current()).toBeNull();
+  });
+});
+
 describe('PushService.cancel', () => {
   it('cancels on the server with the token, then unsubscribes the browser', async () => {
     const existing = browserSubscription();
@@ -159,6 +199,20 @@ describe('PushService.cancel', () => {
 
     expect(await service.cancel()).toEqual({ status: 'cancelled' });
     expect(await store.load()).toBeNull();
+  });
+});
+
+describe('PushService.cancel when the stored credentials cannot be read', () => {
+  it('reports a failure, and touches neither the server nor the browser', async () => {
+    const existing = browserSubscription();
+    const { api, service } = setup(existing, (store) => ({
+      ...store,
+      load: () => Promise.reject(new Error('IndexedDB unavailable')),
+    }));
+
+    expect(await service.cancel()).toEqual({ status: 'failed' });
+    expect(api.cancelSubscription).not.toHaveBeenCalled();
+    expect(existing.unsubscribe).not.toHaveBeenCalled();
   });
 });
 

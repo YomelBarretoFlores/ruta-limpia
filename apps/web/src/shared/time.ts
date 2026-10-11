@@ -8,7 +8,12 @@ const clock = new Intl.DateTimeFormat('es-PE', {
   timeZone: LOCAL_TIME_ZONE,
 });
 
-/** `2026-10-20T22:30:00Z` → `17:30` (America/Lima). */
-export function formatLocalTime(iso: string): string {
-  return clock.format(new Date(iso));
+/**
+ * `2026-10-20T22:30:00Z` → `17:30` (America/Lima). A missing or malformed timestamp gives null
+ * (the caller leaves the time out) instead of throwing during render.
+ */
+export function formatLocalTime(iso: string | null | undefined): string | null {
+  if (iso == null || iso === '') return null;
+  const instant = new Date(iso);
+  return Number.isNaN(instant.getTime()) ? null : clock.format(instant);
 }

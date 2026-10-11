@@ -14,6 +14,11 @@ export interface SubscriptionStore {
   load(): Promise<StoredSubscription | null>;
   save(subscription: StoredSubscription): Promise<void>;
   clear(): Promise<void>;
+  /**
+   * False when the last save only reached memory (lost when the page closes, invisible to the
+   * service worker). Stores without the method are durable.
+   */
+  durable?(): boolean;
 }
 
 const DB_NAME = 'ruta-limpia';
@@ -74,4 +79,42 @@ function isStoredSubscription(value: unknown): value is StoredSubscription {
   return ['subscriptionId', 'managementToken', 'pointCode', 'routeCode'].every(
     (key) => typeof v[key] === 'string',
   );
+}
+
+/**
+ * IndexedDB with a memory fallback, for browsers where IndexedDB exists but cannot be opened
+ * (blocked storage, some private modes). A save that IndexedDB refuses is kept in memory and
+ * reported through `durable()`. A read that fails falls back to memory only when memory holds
+ * something: otherwise it rejects, because "no subscription" could be false (a transient error
+ * must not make the page skip the server-side cancellation).
+ */
+export function withMemoryFallback(primary: SubscriptionStore): SubscriptionStore {
+  let memory: StoredSubscription | null = null;
+  let durable = true;
+  return {
+    async load() {
+      try {
+        return await primary.load();
+      } catch (error) {
+        if (memory !== null) return memory;
+        throw error;
+      }
+    },
+    async save(subscription) {
+      try {
+        await primary.save(subscription);
+        memory = null;
+        durable = true;
+      } catch {
+        memory = subscription;
+        durable = false;
+      }
+    },
+    async clear() {
+      memory = null;
+      durable = true;
+      await primary.clear();
+    },
+    durable: () => durable,
+  };
 }

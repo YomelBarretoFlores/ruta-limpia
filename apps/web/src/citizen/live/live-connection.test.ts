@@ -25,8 +25,12 @@ class FakeEventSource implements EventSourceLike {
   }
 
   emit(type: string, data: unknown) {
+    this.emitRaw(type, JSON.stringify(data));
+  }
+
+  emitRaw(type: string, data: string) {
     this.readyState = 1;
-    const event = new MessageEvent(type, { data: JSON.stringify(data) });
+    const event = new MessageEvent(type, { data });
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 
@@ -138,5 +142,74 @@ describe('connectLive', () => {
 
     expect(fetchSnapshot).toHaveBeenCalledOnce();
     expect(actions[0]).toEqual({ type: 'connection', status: 'polling' });
+  });
+
+  it('drops a fetched snapshot when stream data arrived while it was in flight, and fetches again', async () => {
+    const { actions, fetchSnapshot } = start();
+    latest().emit('snapshot', snapshot());
+    // The first refetch is taken before the trip ends; the second one after.
+    let answerFirst: (value: ReturnType<typeof snapshot>) => void = () => undefined;
+    fetchSnapshot
+      .mockImplementationOnce(() => new Promise((resolve) => (answerFirst = resolve)))
+      .mockImplementationOnce(() => Promise.resolve(snapshot([])));
+
+    latest().emit('trip.started', { tripId: 'trip-2', startedAt: 'x', startMode: 'auto' });
+    latest().emit('trip.completed', {
+      tripId: 'trip-1',
+      status: 'completed',
+      endedAt: 'x',
+      endReason: null,
+    });
+    answerFirst(snapshot());
+    await vi.waitFor(() => expect(fetchSnapshot).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(actions.at(-1)?.type).toBe('snapshot'));
+
+    const snapshots = actions.filter((a) => a.type === 'snapshot');
+    // The stream snapshot, then only the fresh refetch: the ghost of trip-1 never comes back.
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[1]).toEqual({ type: 'snapshot', snapshot: snapshot([]) });
+  });
+
+  it('lets a reopened stream win over a slow poll that finishes after it', async () => {
+    const { actions, fetchSnapshot } = start();
+    let answerPoll: (value: ReturnType<typeof snapshot>) => void = () => undefined;
+    fetchSnapshot.mockImplementationOnce(() => new Promise((resolve) => (answerPoll = resolve)));
+    latest().fail(2);
+    vi.advanceTimersByTime(5_000);
+    latest().fail(2);
+    vi.advanceTimersByTime(5_000);
+    latest().fail(2);
+    await vi.waitFor(() => expect(fetchSnapshot).toHaveBeenCalledOnce());
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    latest().emit('snapshot', snapshot([]));
+    const streamSnapshotAt = actions.length - 2;
+    answerPoll(snapshot());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(actions[streamSnapshotAt]).toEqual({ type: 'snapshot', snapshot: snapshot([]) });
+    // The first poll answered last, with the trip: it is not applied over the stream snapshot.
+    expect(actions.slice(streamSnapshotAt + 1).filter((a) => a.type === 'snapshot')).toEqual([]);
+  });
+
+  it('skips a malformed event and keeps applying the next ones', () => {
+    const { actions, statuses } = start();
+
+    latest().emitRaw('snapshot', '{"route": ');
+    latest().emit('snapshot', snapshot());
+    latest().emitRaw('eta.updated', 'not json');
+    latest().emit('trip.completed', {
+      tripId: 'trip-1',
+      status: 'completed',
+      endedAt: 'x',
+      endReason: null,
+    });
+
+    expect(statuses()).toEqual(['live']);
+    expect(actions.map((a) => (a.type === 'event' ? a.name : a.type))).toEqual([
+      'snapshot',
+      'connection',
+      'trip.completed',
+    ]);
   });
 });

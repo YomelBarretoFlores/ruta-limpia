@@ -18,14 +18,13 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
  * network errors (`TypeError` from `fetch`) through. A 204 resolves to `undefined`.
  */
 export async function requestJson<T>(fetchFn: FetchLike, url: string, init?: RequestInit) {
-  const response = await fetchFn(url, {
-    ...init,
-    headers: {
-      accept: 'application/json',
-      ...(init?.body === undefined ? {} : { 'content-type': 'application/json' }),
-      ...init?.headers,
-    },
-  });
+  // `Headers` accepts every form of `HeadersInit` (object, pairs or a `Headers` instance).
+  const headers = new Headers(init?.headers);
+  if (!headers.has('accept')) headers.set('accept', 'application/json');
+  if (init?.body !== undefined && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
+  const response = await fetchFn(url, { ...init, headers });
   if (!response.ok) throw new ApiError(response.status, await errorCode(response));
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
