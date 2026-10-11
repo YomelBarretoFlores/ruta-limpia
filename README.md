@@ -428,6 +428,9 @@ Administrators then manage every other account from the panel.
 | `households:delete`                   |   ✓   |            |          |
 | `field:read_own`, `field:write_own`   |   ✓   |     ✓      |    ✓     |
 | `field:read_all`, `field:write_all`   |   ✓   |     ✓      |          |
+| `indicators:read` (Tabla 16)          |   ✓   |     ✓      |    ✓     |
+| `surveys:read`, `surveys:write`       |   ✓   |     ✓      |          |
+| `exports:read` (CSV downloads)        |   ✓   |     ✓      |          |
 | `users:manage` (users, audit trail)   |   ✓   |            |          |
 
 Field records (observations, baseline logs) with only the `_own` permissions: the user sees the
@@ -605,6 +608,10 @@ The sheet, one per point and visit (unset fields may be omitted or `null`):
   without the `other` cause is refused too).
 - The exposure of the first bag is computed (`exposureComputed: true`) from the placement and pass
   times when both are present; otherwise the observed `exposureMinutes` is kept.
+- `exposureIncomplete` (default `false`): the first placement happened before the observation
+  began, so the exposure is a minimum time (kept out of the I2 median). `comparableWindow`
+  (`true`, `false` or `null`): "mismo punto y ventana"; `false` keeps the sheet out of the window
+  comparisons (I3, I8).
 - `music` is accepted only at points with `observesMusic` (P04, P08, P12).
 - Photos are never uploaded: only whether one was taken and its archive code (avoid faces and
   plates when shooting).
@@ -638,11 +645,37 @@ actualStart?: "HH:MM", notes?, passes: [{ pointCode, passedAt: "HH:MM" }] }`. Th
 `baseline_log.created`, `.updated`, `.deleted`.
 
 The `instrument1_export` view (migration `0009-baseline-route-logs`) unites both sources of
-Instrument 1 for the exports (T8): one row per point and trip or log, with `source` = `system`
+Instrument 1 for `instrumento1.csv`: one row per point and trip or log, with `source` = `system`
 (the `instrument1_route_log` rows) or `baseline_manual` (local times turned into timestamps in
 America/Lima; alert columns null), plus `record_id`, `service_date`, `route_code`, `vehicle`,
 `planned_start`, `actual_start`, `point_sequence`, `point_code`, `actual_passed_at`,
 `alert_emitted_at`, `communicated_eta`, `abs_error_minutes`, `point_incidents_count` and `notes`.
+
+### Household surveys (Instrument 3)
+
+| Route                                           | Access          | Request → response                                 |
+| ----------------------------------------------- | --------------- | -------------------------------------------------- |
+| `POST /api/panel/household-surveys`             | `surveys:write` | survey → `201 { survey }` (`409 duplicate_survey`) |
+| `GET /api/panel/household-surveys`              | `surveys:read`  | `?route=&wave=&household=&page=&pageSize=` → paged |
+| `GET /api/panel/household-surveys/:id`          | `surveys:read`  | → `{ survey }`                                     |
+| `PUT /api/panel/household-surveys/:id`          | `surveys:write` | the whole edited survey → `{ survey }`             |
+| `DELETE /api/panel/household-surveys/:id`       | `surveys:write` | → `204`                                            |
+| `POST /api/panel/household-surveys/import`      | `surveys:write` | `text/csv` → `{ batchId, created, updated }`       |
+| `GET /api/panel/household-surveys/template.csv` | `surveys:write` | the CSV header                                     |
+
+A survey is one household (by its code, never an address) in one wave (`pre`, `post`), with the
+answers of Tabla 19; questions 6–11 only in the post wave (`422 invalid_survey` with `problems`).
+The import is all or nothing: `422 invalid_rows` (or `400 invalid_csv`) lists every problem as
+`{ line, column, problem }` and imports none. Codes and columns: [`docs/indicators.md`](docs/indicators.md).
+
+### Indicators and exports
+
+`GET /api/panel/indicators?route=&from=&to=` (`indicators:read`) computes the nine indicators of
+Tabla 16 for a route and a period, with valid and missing counts, the compared phases, the change,
+the paired test and the target state. `GET /api/panel/exports/{instrumento1, instrumento2,
+instrumento3, indicadores, uso}.csv` (`exports:read`) download them as UTF-8 CSV with a BOM. The
+operational definitions, the pilot's methodological decisions and every export column are in
+[`docs/indicators.md`](docs/indicators.md).
 
 ## Citizen PWA (`apps/web`, `/`)
 
@@ -746,9 +779,18 @@ Spanish (Peru) on the same design system, at panel density.
   browser as SVG with the `qrcode` library, with the code, the point and "Escanea para recibir
   avisos del camión"; the print stylesheet is plain black on white, two per row.
 - **Fichas de campo** (Instrument 2), phone first, in the order of the paper form; the exposure is
-  computed from the two times; the API's `problems` are shown next to their fields; a sheet of
+  computed from the two times, and an incomplete exposure and the window's comparability are
+  recorded; the API's `problems` are shown next to their fields; a sheet of
   another observer, or past the 24-hour window, opens read-only.
 - **Línea base** (manual Instrument 1): the log and a per-point table of pass times.
+- **Encuestas** (Instrument 3): the list by wave and household; the phone-first form of Tabla 19
+  (questions 6–11 only for the post wave, "No la escuché" as its own answer); the CSV import with
+  its template and, when a file is refused, a table of every problem by line and column.
+- **Indicadores**: Tabla 16 for the route and a period (Fase 3 by default): value, target, valid
+  and missing records, baseline → exit, change and the state in words (Cumple, No cumple, Sin
+  datos); then the paired comparisons and the weekly adoption.
+- **Exportaciones**: a download link per CSV file, with what each holds, for the route and the
+  period.
 - **Usuarios** (administrators): create (the 12-character rule is checked before sending), change
   name, role and state, reset a password.
 

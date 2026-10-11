@@ -39,6 +39,7 @@ describe('visibleNavItems', () => {
       'Línea base',
       'Encuestas',
       'Indicadores',
+      'Exportaciones',
       'Usuarios',
     ]);
     expect(labels('supervisor', NAV_ITEMS)).toEqual([
@@ -50,6 +51,7 @@ describe('visibleNavItems', () => {
       'Línea base',
       'Encuestas',
       'Indicadores',
+      'Exportaciones',
     ]);
     expect(labels('observer', NAV_ITEMS)).toEqual([
       'En vivo',

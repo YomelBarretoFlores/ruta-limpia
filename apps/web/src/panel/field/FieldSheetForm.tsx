@@ -190,6 +190,18 @@ export function FieldSheetForm(props: FieldSheetFormProps) {
             control={input('exposureMinutes', { inputMode: 'numeric', pattern: '[0-9]*' })}
           />
         )}
+        <label className="choice form-wide">
+          <input
+            type="checkbox"
+            checked={form.exposureIncomplete}
+            disabled={!editable}
+            onChange={(event) => set('exposureIncomplete', event.target.checked)}
+          />
+          <span>
+            La colocación ocurrió antes de iniciar la observación: la exposición es un tiempo mínimo
+            (dato incompleto).
+          </span>
+        </label>
       </SheetPart>
 
       <SheetPart title="3. Bolsas">
@@ -362,7 +374,37 @@ export function FieldSheetForm(props: FieldSheetFormProps) {
         </SheetPart>
       )}
 
-      <SheetPart title={point?.observesMusic === true ? '8. Notas' : '7. Notas'}>
+      <SheetPart
+        title={
+          point?.observesMusic === true ? '8. Comparabilidad y notas' : '7. Comparabilidad y notas'
+        }
+      >
+        <fieldset className="choices form-wide">
+          <legend>Mismo punto y ventana de observación que la línea base</legend>
+          <div className="choice-row">
+            {(['yes', 'no'] as const).map((value) => (
+              <label key={value} className="choice">
+                <input
+                  type="radio"
+                  name="comparable-window"
+                  checked={form.comparableWindow === value}
+                  disabled={!editable}
+                  onChange={() => set('comparableWindow', value)}
+                />
+                <span>{value === 'yes' ? 'Sí' : 'No'}</span>
+              </label>
+            ))}
+            {form.comparableWindow !== '' && editable && (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => set('comparableWindow', '')}
+              >
+                Sin respuesta
+              </button>
+            )}
+          </div>
+        </fieldset>
         <div className="form-wide">
           <Field
             id="sheet-notes"

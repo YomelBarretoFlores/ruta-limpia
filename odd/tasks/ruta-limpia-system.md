@@ -76,7 +76,8 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T7b-1 | Design system + citizen PWA redesign + T6 PWA hardening (and the T7a-hardening residual findings) | delegated (writer: 2+ non-trivial files) | [x] |
 | T7b-2 | Municipal panel UI (`/panel`) on the design system | delegated (writer) | [x] |
 | T7c | T7b-2 review follow-ups: account throttle redesign, household point resolve, citizen refetch jitter, panel fixes, trip map, bundle and precache guards | delegated (writer: 2+ non-trivial files) | [x] |
-| T8 | Indicators and exports: KPI computation (Tabla 16), CSV exports for Instruments 1–3 | delegated (writer) | [ ] |
+| T7d | T7c review follow-ups: per-network burst budget, shed-attempt release, throttled refusals without hashing, doc fixes, trip track decimation, panel renames | delegated (writer: 2+ non-trivial files) | [x] |
+| T8 | Indicators and exports: KPI computation (Tabla 16), Instrument 3 surveys and import, CSV exports, panel screens | delegated (writer: 2+ non-trivial files) | [x] |
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer) | [ ] |
 | T10 | Production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5) | delegated (writer) | [ ] |
 
@@ -649,7 +650,80 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   `apps/api/src/README.md` (outside the listed surfaces, mechanical). Pending: the Engram mirror
   of this document.
 
+- 2026-10-11: the T7c commits were reviewed as one slice, `d7af82e..aeee04d` (four lenses), approved
+  and acknowledged. The reviewed boundary is now `aeee04d`. Its advisory findings are handled in
+  T7d.
+
+- 2026-10-11: T7d and T8 done in eleven work-unit commits (changed lines, lockfile excluded), each
+  building and passing its tests on its own. Route: delegated writer (trigger: 2+ non-trivial
+  files).
+  - `cfa4470` `fix(auth): bound bursts per network, give back shed attempts and refuse throttled
+    ones without hashing; decimate the trip track` (941), T7d. RED first: 6 `AuthService` tests
+    failed against the previous service (a burst of 8 from a known network got 8 password checks,
+    a shed check kept the reserved slot, a throttled flood with a one-slot scrypt queue shed the
+    other account's sign-in with `auth_busy`, and the refusal tests still saw dummy hashes); all
+    GREEN after: attempts in flight count as provisional failures of their source
+    (`admitSourceAttempt` / `settleSourceAttempt`, known networks included, entries with attempts
+    in flight never evicted); a shed check gives back its slot (`releaseAttempt`) and its place;
+    paused and throttled attempts wait one of the last 32 measured real verification durations
+    (`VerificationTiming`, 400 ms before any, 5 ms–6 s) instead of burning scrypt. Doc fix
+    (`R2-failed-attempts-doc-mismatch`): the code's meaning was kept and documented —
+    `failedAttempts` counts the consecutive failures of the current 24 h window since the last
+    success, so the per-window cap (`windowFailures`) is untouched. Deploy note: stop the old API
+    before migrating `0013`. Web: at most 200 track dots on one canvas renderer, `FitRouteBounds`
+    keyed by the extent; `reopening` boolean, `fieldErrors`, a preset incident trip kept while the
+    trips load (`tripsLoading`).
+  - `d591304` `feat(field): record incomplete exposures and window comparability, and add the
+    household survey table` (150): migration `0014-indicator-inputs` (`exposure_incomplete`,
+    `comparable_window`, `household_surveys` with `UNIQUE (household_id, wave)`, the post-only
+    CHECK and the not-heard CHECK; `ON DELETE CASCADE` from households). RED: the field test saw
+    the flags dropped.
+  - `2bb89ba` `feat(indicators): compute the Tabla 16 indicators and the paired tests from
+    recorded inputs` (1105): pure domain (median, proportions, relative change with the zero
+    baseline rule, McNemar exact, Wilcoxon signed-rank exact/normal checked against scipy 1.17).
+  - `d5b5ddc` `feat(indicators): serve the Tabla 16 indicators of a route and a period to the
+    panel` (1201): `GET /api/panel/indicators`, one read-only `REPEATABLE READ` snapshot, new
+    permissions `indicators:read` (observers too), `surveys:read`, `surveys:write`,
+    `exports:read`; PostGIS tests with hand-computed values (`test/support/indicator-fixtures.ts`),
+    `docs/indicators.md`.
+  - `564168a` `feat(field): record Instrument 3 household surveys from the panel` (876) and
+    `5dae2d6` `feat(field): import household surveys from a CSV file, all or nothing` (929):
+    survey CRUD, in-repo RFC 4180 reader/writer (BOM, CRLF, quoting, formula neutralization),
+    per-row error report, one audited import event, batch id, template.
+  - `0850f5a` `feat(indicators): export the instruments, the indicators and the weekly use as
+    CSV` (806): `instrumento1/2/3.csv`, `indicadores.csv` (long form), `uso.csv`.
+  - `ccce187` (774), `f7bee0f` (1230), `33a4f27` (297): panel Indicadores, Encuestas, CSV import.
+  - The last commit (the parent records the hash) `feat(web): download the CSV exports and record
+    the Instrument 2 flags on the field sheet`, with this entry (about 600 with docs): Exportaciones,
+    the two Instrument 2 controls (RED: two editor tests failed before), README, design-system
+    note, visual QA fixes (a flex button dropped the space in "Descargar instrumento1.csv"; page
+    notes spaced; "Pre y post" sub-label).
+
+  Verification at the last commit: see the writer's report (`pnpm typecheck`, `pnpm lint`,
+  `pnpm format:check`, `pnpm test`, `pnpm --filter @ruta-limpia/web build`). Visual QA with the
+  scratchpad stack (throwaway PostGIS, built API, `vite preview`, the indicator fixture seeded,
+  an admin from the user CLI): headless Chromium screenshots `qa-t8-indicators`, `qa-t8-surveys`,
+  `qa-t8-import-errors`, `qa-t8-exports`, `qa-t8-survey-form-phone` (390 px) and
+  `qa-t8-field-sheet-flags-phone`; the stack was stopped and the container removed.
+
+  Parent decisions for the T8 open questions (recorded in `docs/indicators.md`): (1) a dispersion
+  event is an Instrument 2 record with `dispersion` `few` or `many`, the exit phase is `post`,
+  broken bags and waste left are secondary rates only, the two new flags exist and incomplete
+  exposures are reported apart and kept out of the I2 median; (2) availability uses consecutive
+  60 s intervals over each trip's `[started_at, ended_at]` (running trips up to now) in the
+  period, available when the latest valid position at or before the interval end is ≤ 60 s old;
+  (3) adoption is per America/Lima week, numerator = active households with a linked app view or
+  a `sent` delivery, views without household excluded, denominator = active households enrolled by
+  the week's end, plus the stricter `received_at` rate; an I6 "active user" meets the rule in at
+  least one week; (4) phases are not stored: every request takes the route and `from`/`to`, field
+  indicators use the stored phase. Implementation choices beyond them: a position must also be
+  received by the interval end to count (I7); `comparable_window = false` excludes a sheet from I3
+  and I8 only; I5 pools household-weeks; a zero baseline leaves a reduction target "Sin datos";
+  target labels in `indicadores.csv` start with a comparison so spreadsheets never read them as
+  formulas; the comparability control is a Sí/No radio pair (a nullable answer), the incomplete
+  exposure a checkbox. Pending: the Engram mirror of this document; cost per household needs the
+  executed budget (divide by I6 `activeHouseholds`).
+
 ## Next step
 
-T8: indicators and exports: KPI computation (Tabla 16) and CSV exports for Instruments 1–3 (the
-`instrument1_export` view, field observations, usage), with their panel screens.
+T9: simulator (OsmAnd → Traccar) and the end-to-end smoke test over the whole pipeline.

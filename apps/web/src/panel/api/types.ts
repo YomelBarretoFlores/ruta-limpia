@@ -341,6 +341,10 @@ export interface ObservationSheet {
     readonly musicSeconds: number;
     readonly conditions: string | null;
   } | null;
+  /** The placement happened before the observation began: the exposure is a minimum. */
+  readonly exposureIncomplete: boolean;
+  /** "Mismo punto y ventana"; null when not answered. */
+  readonly comparableWindow: boolean | null;
 }
 
 export interface Observation extends ObservationSheet {

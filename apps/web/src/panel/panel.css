@@ -832,7 +832,58 @@ textarea.input {
   border-left: var(--notice-bar) solid var(--danger);
 }
 
+/* A short note under a page title or a table: secondary text, readable line length */
+.page-note {
+  max-width: 65ch;
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.page-note--after {
+  margin-top: var(--space-3);
+}
+
 /* Indicators (Tabla 16): the state column stays on one line */
 .indicators-table td:last-child {
   white-space: nowrap;
+}
+
+/* Exports: one ruled row per file, its description and its download */
+.export-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.export-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-4) var(--space-5);
+}
+
+.export-list__item + .export-list__item {
+  border-top: var(--border) solid var(--rule);
+}
+
+.export-list__item > div {
+  flex: 1 1 24rem;
+  max-width: 65ch;
+}
+
+.export-list__title {
+  margin: 0;
+  font-weight: var(--weight-title);
+}
+
+.export-list__description {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
 }

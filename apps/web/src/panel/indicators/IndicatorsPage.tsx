@@ -86,7 +86,7 @@ export function IndicatorsPage() {
           ))}
         </div>
       </form>
-      <p className="panel-section__note">
+      <p className="page-note">
         El periodo elige los registros del sistema (precisión, adopción, disponibilidad).
         Exposición, dispersión y aviso musical comparan las fichas de línea base y salida; las
         encuestas comparan pre y post.
@@ -105,7 +105,7 @@ export function IndicatorsPage() {
       ) : (
         <>
           <IndicatorsTable indicators={report.data.indicators} />
-          <p className="panel-section__note">
+          <p className="page-note page-note--after">
             Calculado el {formatDateTime(report.data.generatedAt)}. Si la línea base es 0, se
             informa el cambio absoluto y la meta queda sin evaluar.
           </p>

@@ -11,6 +11,7 @@ import { FieldSheetsPage } from './field/FieldSheetsPage';
 import { HouseholdsPage } from './households/HouseholdsPage';
 import { StickerSheetPage } from './households/StickerSheetPage';
 import { IncidentsPage } from './incidents/IncidentsPage';
+import { ExportsPage } from './exports/ExportsPage';
 import { IndicatorsPage } from './indicators/IndicatorsPage';
 import { SurveyEditorPage } from './surveys/SurveyEditorPage';
 import { SurveysPage } from './surveys/SurveysPage';
@@ -186,6 +187,14 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={['indicators:read']}>
                   <IndicatorsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="exportaciones"
+              element={
+                <RequirePermission anyOf={['exports:read']}>
+                  <ExportsPage />
                 </RequirePermission>
               }
             />

@@ -20,6 +20,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/panel/linea-base', label: 'Línea base', anyOf: FIELD_READ },
   { to: '/panel/encuestas', label: 'Encuestas', anyOf: ['surveys:read'] },
   { to: '/panel/indicadores', label: 'Indicadores', anyOf: ['indicators:read'] },
+  { to: '/panel/exportaciones', label: 'Exportaciones', anyOf: ['exports:read'] },
   { to: '/panel/usuarios', label: 'Usuarios', anyOf: ['users:manage'] },
 ];
 

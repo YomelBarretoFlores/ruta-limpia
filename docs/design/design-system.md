@@ -112,7 +112,10 @@ State colors are always paired with words (and, in the panel, an 8 px square/dot
   error = 4 px left border `--danger` around the group plus message text.
 - **Status**: text + 8 px square swatch. Values: "En vivo" (accent), "Sin actualización" (warn),
   "Sin señal" (danger), "Sin recorrido" (ink-3). It reports the truck's signal; the page's own
-  connection is a separate status shown only when degraded ("Reconectando…").
+  connection is a separate status shown only when degraded ("Reconectando…"). The indicator table
+  reuses the swatch for the target state: "Cumple" (accent), "No cumple" (warn, a result to look
+  at, not an error), "Sin datos" and "Exploratoria" (ink-3). No charts are needed; if one is
+  added, it stays flat, in ink and the accent only.
 - **Data table (panel)**: full-width, 1 px outer border, header on `--fill`, 600 weight `--text-sm`,
   row dividers `--rule`, zebra off, numbers right-aligned with tabular nums, times `HH:MM`, selected row
   `--accent-tint`. Sticky header on long tables.

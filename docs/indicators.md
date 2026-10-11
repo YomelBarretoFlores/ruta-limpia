@@ -13,6 +13,10 @@ taken for the pilot, the data each one reads, and how to reproduce the paired te
 3. For analysis outside the panel, download `indicadores.csv` and the instrument exports from
    **Exportaciones** (see [Exports](#exports)).
 
+The field team records the two Instrument 2 flags on the sheet (**Fichas de campo**: "La colocación
+ocurrió antes de iniciar la observación" and "Mismo punto y ventana") and the surveys in
+**Encuestas**.
+
 API: `GET /api/panel/indicators?route=RI-01&from=YYYY-MM-DD&to=YYYY-MM-DD` (permission
 `indicators:read`: administrators, supervisors and observers).
 

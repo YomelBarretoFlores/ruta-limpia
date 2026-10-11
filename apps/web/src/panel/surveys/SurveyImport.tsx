@@ -41,7 +41,7 @@ export function SurveyImportPanel({ templateUrl, working, outcome, onImport }: S
       <h2 id="survey-import-title" className="panel-section__title">
         Importar encuestas desde un archivo CSV
       </h2>
-      <p className="panel-section__note">
+      <p className="page-note">
         Una fila por hogar y aplicación. Si el hogar ya tiene esa aplicación, la fila la reemplaza.
         Si alguna fila tiene un problema, no se importa ninguna.{' '}
         <a href={templateUrl} download>

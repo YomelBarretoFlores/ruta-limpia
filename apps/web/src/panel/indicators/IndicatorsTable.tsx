@@ -12,7 +12,7 @@ import {
   STATUS_LABELS,
 } from './indicator-format';
 
-const PHASE_NAMES = { baseline: 'Línea base', pre: 'Pre' } as const;
+const PHASE_NAMES = { baseline: 'Línea base y salida', pre: 'Pre y post' } as const;
 const TEST_NAMES = { wilcoxon: 'Wilcoxon', mcnemar: 'McNemar' } as const;
 
 /** Tabla 16: one row per indicator, its counts, its phases and whether it meets the target. */
@@ -54,9 +54,7 @@ export function IndicatorsTable({ indicators }: { readonly indicators: readonly 
                     <span className="num">{indicator.id}</span> · {indicator.name}
                   </span>
                   {indicator.phases !== null && (
-                    <span className="cell-sub">
-                      {PHASE_NAMES[indicator.phases.before]} y salida
-                    </span>
+                    <span className="cell-sub">{PHASE_NAMES[indicator.phases.before]}</span>
                   )}
                 </th>
                 <td className="is-numeric">

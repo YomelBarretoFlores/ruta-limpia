@@ -18,6 +18,8 @@ export interface SheetForm {
   readonly truckPassTime: string;
   /** Typed by the observer; used only when the two times do not give the exposure. */
   readonly exposureMinutes: string;
+  /** The placement happened before the observation began (a minimum exposure). */
+  readonly exposureIncomplete: boolean;
   readonly bagsAtPass: string;
   readonly brokenBags: string;
   readonly dispersion: Dispersion | '';
@@ -32,6 +34,8 @@ export interface SheetForm {
   readonly musicWindowEnd: string;
   readonly musicSeconds: string;
   readonly musicConditions: string;
+  /** "Mismo punto y ventana": yes, no, or not answered. */
+  readonly comparableWindow: 'yes' | 'no' | '';
   readonly notes: string;
 }
 
@@ -44,6 +48,7 @@ export function emptySheet(observedOn: string): SheetForm {
     firstPlacementTime: '',
     truckPassTime: '',
     exposureMinutes: '',
+    exposureIncomplete: false,
     bagsAtPass: '',
     brokenBags: '',
     dispersion: '',
@@ -58,6 +63,7 @@ export function emptySheet(observedOn: string): SheetForm {
     musicWindowEnd: '',
     musicSeconds: '',
     musicConditions: '',
+    comparableWindow: '',
     notes: '',
   };
 }
@@ -73,6 +79,7 @@ export function sheetFromObservation(observation: Observation): SheetForm {
     firstPlacementTime: text(observation.firstPlacementTime),
     truckPassTime: text(observation.truckPassTime),
     exposureMinutes: observation.exposureComputed ? '' : text(observation.exposureMinutes),
+    exposureIncomplete: observation.exposureIncomplete,
     bagsAtPass: text(observation.bagsAtPass),
     brokenBags: text(observation.brokenBags),
     dispersion: observation.dispersion ?? '',
@@ -92,6 +99,8 @@ export function sheetFromObservation(observation: Observation): SheetForm {
     musicWindowEnd: text(observation.music?.windowEnd),
     musicSeconds: text(observation.music?.musicSeconds),
     musicConditions: text(observation.music?.conditions),
+    comparableWindow:
+      observation.comparableWindow === null ? '' : observation.comparableWindow ? 'yes' : 'no',
     notes: text(observation.notes),
   };
 }
@@ -139,6 +148,8 @@ export function toSheet(
     firstPlacementTime: orNull(form.firstPlacementTime),
     truckPassTime: orNull(form.truckPassTime),
     exposureMinutes: exposure.computed ? null : exposure.minutes,
+    exposureIncomplete: form.exposureIncomplete,
+    comparableWindow: form.comparableWindow === '' ? null : form.comparableWindow === 'yes',
     bagsAtPass: wholeNumber(form.bagsAtPass),
     brokenBags: wholeNumber(form.brokenBags),
     dispersion: form.dispersion === '' ? null : form.dispersion,

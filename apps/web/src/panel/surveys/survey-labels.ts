@@ -111,7 +111,7 @@ export function importProblemLabel(problem: string): string {
 
 const IMPORT_PROBLEMS: Readonly<Record<string, string>> = {
   required: 'Falta este dato.',
-  invalid_value: 'El valor no es uno de los códigos permitidos.',
+  invalid_value: 'El valor no es válido: usa los códigos y el formato de la plantilla.',
   unknown_household: 'No hay un hogar inscrito con este código.',
   unknown_column: 'La columna no es de la plantilla.',
   duplicate_column: 'La columna está repetida.',

@@ -48,12 +48,46 @@ const SAVED: Observation = {
   photoBefore: { taken: true, code: 'F-P08-001' },
   photoAfter: { taken: false, code: null },
   music: null,
+  exposureIncomplete: false,
+  comparableWindow: true,
   createdByUserId: 'someone-else',
   createdAt: '2026-10-20T13:00:00.000Z',
   updatedAt: '2026-10-20T13:00:00.000Z',
 };
 
 describe('FieldSheetEditorPage', () => {
+  it('records an incomplete exposure and the comparability of the window', async () => {
+    const api = setup();
+    api.createObservation.mockResolvedValue(SAVED);
+    await fillRequired();
+
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /La colocación ocurrió antes de iniciar/ }),
+    );
+    const comparable = screen.getByRole('group', { name: /Mismo punto y ventana/ });
+    await userEvent.click(within(comparable).getByRole('radio', { name: 'No' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+    expect(api.createObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ exposureIncomplete: true, comparableWindow: false }),
+    );
+  });
+
+  it('shows the stored comparability and sends it back unchanged', async () => {
+    const api = setup('supervisor', '/panel/fichas/o-1');
+    api.getObservation.mockResolvedValue(SAVED);
+    api.updateObservation.mockResolvedValue(SAVED);
+
+    const comparable = await screen.findByRole('group', { name: /Mismo punto y ventana/ });
+    expect(within(comparable).getByRole('radio', { name: 'Sí' })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+    expect(api.updateObservation).toHaveBeenCalledWith(
+      'o-1',
+      expect.objectContaining({ exposureIncomplete: false, comparableWindow: true }),
+    );
+  });
+
   it('computes the exposure from the two times, and asks for it only when one is missing', async () => {
     setup();
     await userEvent.type(await screen.findByLabelText('Hora de primera colocación'), '06:40');
