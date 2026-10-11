@@ -2,11 +2,20 @@ import { render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
+import { CitizenDepsContext } from '../citizen/citizen-deps';
+import { fakeApi, fakeDeps } from '../citizen/test/fake-deps';
 import { appRoutes } from './routes';
 
 function renderAt(path: string) {
+  const api = fakeApi();
+  // The citizen page stays on its loading state: this test only checks the routing.
+  api.listRoutes.mockReturnValue(new Promise(() => undefined));
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
+  render(
+    <CitizenDepsContext.Provider value={fakeDeps({ api })}>
+      <RouterProvider router={router} />
+    </CitizenDepsContext.Provider>,
+  );
 }
 
 describe('app routes', () => {
