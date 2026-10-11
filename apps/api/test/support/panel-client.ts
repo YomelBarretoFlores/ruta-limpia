@@ -59,6 +59,7 @@ export async function panelClient(app: FastifyInstance, username: string) {
     post: (url: string, payload?: object) =>
       request({ method: 'POST', url, payload: payload ?? {} }),
     patch: (url: string, payload: object) => request({ method: 'PATCH', url, payload }),
+    put: (url: string, payload: object) => request({ method: 'PUT', url, payload }),
     delete: (url: string) => request({ method: 'DELETE', url }),
   };
 }

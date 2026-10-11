@@ -472,6 +472,69 @@ active, notes, updatedAt }`; the list adds `activeSubscriptions`, `lastAlertRece
   citizen app); without `PUBLIC_ORIGIN` the request's own origin is used.
 - Audited as `household.created`, `household.updated`, `household.deleted` (entity id = code).
 
+### Field observations (Instrument 2)
+
+| Route                                      | Access      | Request → response                                                        |
+| ------------------------------------------ | ----------- | ------------------------------------------------------------------------- |
+| `POST /api/panel/field-observations`       | field write | sheet → `201 { observation }`                                             |
+| `GET /api/panel/field-observations`        | field read  | `?route=&point=&phase=&from=&to=&page=&pageSize=` → paged `[observation]` |
+| `GET /api/panel/field-observations/:id`    | field read  | → `{ observation }`                                                       |
+| `PUT /api/panel/field-observations/:id`    | field write | the whole edited sheet → `{ observation }`                                |
+| `DELETE /api/panel/field-observations/:id` | field write | → `204`                                                                   |
+
+"Field read" is `field:read_own` or `field:read_all`; "field write" is `field:write_own` or
+`field:write_all`. Without the `_all` permission a user lists and reads only their own sheets
+(others answer `404`) and may change or delete them for 24 hours (`403 edit_window_closed`; another
+user's sheet: `403 not_owner`).
+
+The sheet, one per point and visit (unset fields may be omitted or `null`):
+
+```json
+{
+  "routeCode": "RI-01",
+  "pointCode": "P08",
+  "tripId": null,
+  "observedOn": "2026-10-20",
+  "phase": "baseline",
+  "observers": "L.R., M.Q.",
+  "notes": null,
+  "firstPlacementTime": "06:40",
+  "truckPassTime": "07:55",
+  "exposureMinutes": null,
+  "bagsAtPass": 12,
+  "brokenBags": 3,
+  "dispersion": "many",
+  "dispersionCauses": ["animals", "other"],
+  "dispersionCauseOther": "Recyclers opened bags",
+  "wasteRemainingAfterPass": false,
+  "photoBefore": { "taken": true, "code": "F-P08-001" },
+  "photoAfter": { "taken": false, "code": null },
+  "music": {
+    "windowStart": "07:30",
+    "windowEnd": "08:00",
+    "musicSeconds": 240,
+    "conditions": "Windy"
+  }
+}
+```
+
+- `phase`: `baseline` | `intervention` | `post`. Times are `HH:MM` local; `observedOn` is a local
+  date. `dispersion` (scattered waste within 5 m): `none` ("No") | `few` ("Pocos") | `many`
+  ("Muchos"). `dispersionCauses`: `animals`, `wind`, `manipulation` (observed manipulation),
+  `undetermined`, `other` (then `dispersionCauseOther` is required).
+- The exposure of the first bag is computed (`exposureComputed: true`) from the placement and pass
+  times when both are present; otherwise the observed `exposureMinutes` is kept.
+- `music` is accepted only at points with `observesMusic` (P04, P08, P12).
+- Photos are never uploaded: only whether one was taken and its archive code (avoid faces and
+  plates when shooting).
+- Inconsistent sheets answer `422 invalid_observation` with `problems`: `pass_before_placement`,
+  `broken_bags_exceed_bags`, `causes_without_dispersion`, `other_cause_text_required`,
+  `photo_code_without_photo`, `music_not_observed_at_point`, `music_window_invalid`,
+  `music_seconds_exceed_window`. Unknown codes or trips: `422 unknown_route`, `unknown_point`,
+  `unknown_trip`, `trip_route_mismatch`.
+- The response adds `id`, `routeId`, `exposureComputed`, `createdByUserId`, `createdAt` and
+  `updatedAt`. Audited as `field_observation.created`, `.updated`, `.deleted`.
+
 ## Citizen PWA (`apps/web`, `/`)
 
 The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an

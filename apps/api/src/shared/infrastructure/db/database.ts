@@ -262,6 +262,41 @@ export interface AuditEventsTable {
   details: ColumnType<Record<string, unknown>, string, never>;
 }
 
+/** Instrument 2: one point observation sheet (migration 0008-field-observations). */
+export interface FieldObservationsTable {
+  id: Generated<string>;
+  route_id: string;
+  point_id: string;
+  trip_id: string | null;
+  /** `YYYY-MM-DD`: always written and read as text (`to_char`), never as a JS Date. */
+  observed_on: ColumnType<string, string, string>;
+  phase: 'baseline' | 'intervention' | 'post';
+  observers: string;
+  /** Local times of day: written `HH:MM`, read back `HH:MM:SS`. */
+  first_placement_time: string | null;
+  truck_pass_time: string | null;
+  exposure_minutes: number | null;
+  exposure_computed: Generated<boolean>;
+  bags_at_pass: number | null;
+  broken_bags: number | null;
+  dispersion: 'none' | 'few' | 'many' | null;
+  dispersion_causes: ColumnType<string[], string[] | undefined, string[]>;
+  dispersion_cause_other: string | null;
+  waste_remaining_after_pass: boolean | null;
+  photo_before_taken: Generated<boolean>;
+  photo_before_code: string | null;
+  photo_after_taken: Generated<boolean>;
+  photo_after_code: string | null;
+  music_window_start: string | null;
+  music_window_end: string | null;
+  music_seconds: number | null;
+  music_conditions: string | null;
+  notes: string | null;
+  created_by_user_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface Database {
   routes: RoutesTable;
   route_schedules: RouteSchedulesTable;
@@ -280,6 +315,7 @@ export interface Database {
   users: UsersTable;
   sessions: SessionsTable;
   audit_events: AuditEventsTable;
+  field_observations: FieldObservationsTable;
 }
 
 export interface DatabaseOptions {

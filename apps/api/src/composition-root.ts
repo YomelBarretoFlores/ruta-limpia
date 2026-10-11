@@ -48,6 +48,9 @@ import { InactivityJob } from './tracking/infrastructure/inactivity-job.js';
 import { PanelTripService } from './tracking/application/panel-trip-service.js';
 import { IncidentService } from './field/application/incident-service.js';
 import { HouseholdRegistryService } from './field/application/household-registry.js';
+import { FieldObservationService } from './field/application/field-observation-service.js';
+import { panelFieldObservationRoutes } from './field/infrastructure/http/panel-field-observation-routes.js';
+import { KyselyFieldObservationStore } from './field/infrastructure/kysely-field-observation-store.js';
 import { panelHouseholdRoutes } from './field/infrastructure/http/panel-household-routes.js';
 import { KyselyHouseholdStore } from './field/infrastructure/kysely-household-store.js';
 import { panelIncidentRoutes } from './field/infrastructure/http/panel-incident-routes.js';
@@ -312,6 +315,14 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
   panelRoutes.push((scope) =>
     scope.register(panelHouseholdRoutes, { households, publicOrigin: config.publicOrigin }),
   );
+
+  const observations = new FieldObservationService({
+    store: new KyselyFieldObservationStore(db),
+    points: routePoints,
+    audit,
+    clock,
+  });
+  panelRoutes.push((scope) => scope.register(panelFieldObservationRoutes, { observations }));
 
   const panelLive = new PanelLiveService({
     snapshots: liveSnapshots,
