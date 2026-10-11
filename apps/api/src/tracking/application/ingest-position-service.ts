@@ -2,6 +2,7 @@ import type { AlertNotifier } from '../../alerts/application/alert-notifier.js';
 import { decideAlerts } from '../../alerts/domain/alert-policy.js';
 import type { SpeedProfileProvider } from '../../eta/application/speed-profile-provider.js';
 import { estimateEtas } from '../../eta/domain/eta-estimator.js';
+import type { SpeedProfile } from '../../eta/domain/speed-profile.js';
 import { observeProgress } from '../../eta/domain/recent-speed.js';
 import type { RouteCatalog, RouteSnapshot } from '../../routes/application/route-catalog.js';
 import { projectOntoRoute } from '../../routes/domain/route-geometry.js';
@@ -133,7 +134,10 @@ export class IngestPositionService {
         events.push({ name: 'trip.started', payload: tripStarted(trip) });
       }
     } else {
-      route = await this.deps.routes.get(trip.routeId);
+      route = await this.loadRoute(trip.routeId, {
+        tripId: trip.state.tripId,
+        vehicleId: vehicle.id,
+      });
     }
 
     events.unshift({
@@ -150,16 +154,23 @@ export class IngestPositionService {
         valid: fix.valid,
       },
     });
-    if (trip === null) {
-      return {
-        result: { status: 'processed', positionId, tripId: null },
-        events,
-        alerts: [],
-        completedRouteId: null,
-      };
+    const tripId = trip?.state.tripId ?? null;
+    const stored: Outcome = {
+      result: { status: 'processed', positionId, tripId },
+      events,
+      alerts: [],
+      completedRouteId: null,
+    };
+    if (trip === null) return stored;
+    if (route === null) {
+      // The position is kept and linked to its trip, but the trip cannot advance without its
+      // route. Later fixes keep flowing; the inactivity job ends the trip if the route stays gone.
+      await tx.attachPositionToTrip(positionId, trip.state.tripId, {
+        chainage: null,
+        offRoute: trip.state.offRoute,
+      });
+      return stored;
     }
-    if (route === null)
-      throw new Error(`Route ${trip.routeId} of trip ${trip.state.tripId} not found`);
 
     return this.advance(tx, { trip, route, fix, positionId, now, events });
   }
@@ -229,7 +240,7 @@ export class IngestPositionService {
       };
     }
 
-    const profile = await this.deps.profiles.forRoute(trip.routeId);
+    const profile = await this.loadSpeedProfile(trip.routeId, tripId);
     const etas = estimateEtas(
       { now, trip: state, points: route.points, recentSpeedMps: recentSpeed.speedMps, profile },
       settings.eta,
@@ -273,10 +284,53 @@ export class IngestPositionService {
     };
   }
 
+  /**
+   * The route of a trip, or null when it is missing or cannot be loaded: the fix is then stored
+   * without advancing the trip, so one bad route never blocks a vehicle's later positions.
+   */
+  private async loadRoute(
+    routeId: string,
+    context: { readonly tripId: string | null; readonly vehicleId: string },
+  ): Promise<RouteSnapshot | null> {
+    let route: RouteSnapshot | null = null;
+    let failure: unknown;
+    try {
+      route = await this.deps.routes.get(routeId);
+    } catch (error) {
+      failure = error;
+    }
+    if (route === null) {
+      this.deps.logger.error(
+        { err: failure, routeId, ...context },
+        'Trip route could not be loaded; position stored without trip advancement',
+      );
+    }
+    return route;
+  }
+
+  /**
+   * The route's historical speed profile, or null when it cannot be loaded: the ETA then relies on
+   * the recent speed only, and the fix is processed as usual.
+   */
+  private async loadSpeedProfile(routeId: string, tripId: string): Promise<SpeedProfile | null> {
+    try {
+      return await this.deps.profiles.forRoute(routeId);
+    } catch (error) {
+      this.deps.logger.warn(
+        { err: error, routeId, tripId },
+        'Historical speed profile unavailable; using recent speed only',
+      );
+      return null;
+    }
+  }
+
   /** The vehicle's default route when this fix is a plausible start of it (on route, near its start). */
   private async autoStartRoute(vehicle: Vehicle, fix: PositionFix): Promise<RouteSnapshot | null> {
     if (vehicle.defaultRouteId === null || !fix.valid) return null;
-    const route = await this.deps.routes.get(vehicle.defaultRouteId);
+    const route = await this.loadRoute(vehicle.defaultRouteId, {
+      tripId: null,
+      vehicleId: vehicle.id,
+    });
     if (route === null) return null;
     const match = projectOntoRoute(route.geometry, fix);
     const { tracking, startZoneMeters } = this.deps.settings;

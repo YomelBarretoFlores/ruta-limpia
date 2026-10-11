@@ -50,6 +50,24 @@ describe('loadConfig', () => {
     });
   });
 
+  it('treats empty values as unset, so the defaults apply', () => {
+    const config = loadConfig({
+      ...validEnv,
+      HOST: '',
+      PORT: '',
+      LOG_LEVEL: '',
+      DATABASE_POOL_MAX: '',
+      MIGRATE_ON_START: '',
+      SHUTDOWN_TIMEOUT_SEC: '',
+    });
+
+    expect(config).toEqual(loadConfig(validEnv));
+  });
+
+  it('reports an empty required variable as missing', () => {
+    expect(() => loadConfig({ ...validEnv, INGEST_TOKEN: '' })).toThrow(/INGEST_TOKEN/);
+  });
+
   it('fails fast when required variables are missing', () => {
     expect(() => loadConfig({})).toThrow(ConfigError);
     expect(() => loadConfig({})).toThrow(/DATABASE_URL[\s\S]*INGEST_TOKEN/);

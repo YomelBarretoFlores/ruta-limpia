@@ -158,4 +158,120 @@ describe('integrity guards', () => {
       code: '23505',
     });
   });
+
+  it('rejects a raw duplicate Traccar position id', async () => {
+    const position = {
+      vehicle_id: seeded.vehicleId,
+      traccar_position_id: 4242,
+      fix_time: new Date('2026-10-20T12:00:00Z'),
+      received_at: new Date('2026-10-20T12:00:01Z'),
+      location: sql`ST_GeogFromText('SRID=4326;POINT(-77.5286 -9.5232)')`,
+      speed_kmh: 5,
+      valid: true,
+    };
+    await db.insertInto('positions').values(position).execute();
+
+    await expect(db.insertInto('positions').values(position).execute()).rejects.toMatchObject({
+      code: '23505',
+    });
+  });
+});
+
+describe('instrument1_route_log view', () => {
+  let seeded: SeedResult;
+  let points: { id: string; code: string }[];
+  beforeEach(async () => {
+    seeded = await seedDatabase(db, { vehicleUniqueId: 'imei-1' });
+    points = await db
+      .selectFrom('reference_points')
+      .select(['id', 'code'])
+      .orderBy('sequence')
+      .execute();
+  });
+
+  const insertTrip = (startedAt: string) =>
+    db
+      .insertInto('trips')
+      .values({
+        route_id: seeded.routeId,
+        vehicle_id: seeded.vehicleId,
+        status: 'completed',
+        start_mode: 'auto',
+        started_at: new Date(startedAt),
+        ended_at: new Date(new Date(startedAt).getTime() + 3_600_000),
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+
+  const rowsOf = (tripId: string) =>
+    db
+      .selectFrom('instrument1_route_log')
+      .selectAll()
+      .where('trip_id', '=', tripId)
+      .orderBy('point_sequence')
+      .execute();
+
+  it('dates a trip in America/Lima and takes the planned start of that local weekday', async () => {
+    // Wednesday 2026-10-21 03:00 UTC is still Tuesday 2026-10-20 22:00 in Lima (UTC-5).
+    const lateTuesday = await insertTrip('2026-10-21T03:00:00Z');
+    // Sunday 2026-10-25 10:00 in Lima: the sample schedule has no Sunday start.
+    const sunday = await insertTrip('2026-10-25T15:00:00Z');
+
+    const [tuesdayRow] = await rowsOf(lateTuesday.id);
+    const [sundayRow] = await rowsOf(sunday.id);
+
+    expect(tuesdayRow).toMatchObject({ service_date: '2026-10-20', planned_start: '07:00:00' });
+    expect(sundayRow).toMatchObject({ service_date: '2026-10-25', planned_start: null });
+  });
+
+  it('reports the ETA error only when an alert was sent and the point was passed', async () => {
+    const trip = await insertTrip('2026-10-20T12:00:00Z');
+    const [alertedAndPassed, passedOnly, alertedOnly] = points;
+    await db
+      .insertInto('alerts')
+      .values(
+        [alertedAndPassed!, alertedOnly!].map((point) => ({
+          trip_id: trip.id,
+          point_id: point.id,
+          emitted_at: new Date('2026-10-20T12:02:00Z'),
+          communicated_predicted_pass_at: new Date('2026-10-20T12:10:00Z'),
+          seconds_remaining_at_emission: 480,
+          inside_target_window: true,
+        })),
+      )
+      .execute();
+    await db
+      .insertInto('trip_point_passes')
+      .values(
+        [alertedAndPassed!, passedOnly!].map((point) => ({
+          trip_id: trip.id,
+          point_id: point.id,
+          passed_at: new Date('2026-10-20T12:13:30Z'),
+          precision: 'interpolated' as const,
+        })),
+      )
+      .execute();
+
+    const rows = await rowsOf(trip.id);
+
+    expect(rows).toHaveLength(15);
+    expect(rows[0]).toMatchObject({
+      alert_emitted_at: new Date('2026-10-20T12:02:00Z'),
+      communicated_eta: new Date('2026-10-20T12:10:00Z'),
+      actual_passed_at: new Date('2026-10-20T12:13:30Z'),
+      abs_error_minutes: 3.5,
+    });
+    expect(rows[1]).toMatchObject({
+      alert_emitted_at: null,
+      communicated_eta: null,
+      actual_passed_at: new Date('2026-10-20T12:13:30Z'),
+      abs_error_minutes: null,
+    });
+    expect(rows[2]).toMatchObject({
+      communicated_eta: new Date('2026-10-20T12:10:00Z'),
+      actual_passed_at: null,
+      abs_error_minutes: null,
+    });
+    expect(rows.slice(3).every((row) => row.alert_emitted_at === null)).toBe(true);
+  });
 });

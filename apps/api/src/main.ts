@@ -5,6 +5,7 @@ import { loadConfig } from './config.js';
 import { createDatabase } from './shared/infrastructure/db/database.js';
 import { migrateToLatest } from './shared/infrastructure/db/migrator.js';
 import { systemClock } from './shared/infrastructure/system-clock.js';
+import { createShutdown } from './shutdown.js';
 
 /** Composition root: reads configuration, wires adapters and starts the HTTP server and jobs. */
 async function main(): Promise<void> {
@@ -16,26 +17,17 @@ async function main(): Promise<void> {
 
   const api = await composeApi({ config, db, clock: systemClock, logger });
 
-  let shuttingDown = false;
-  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info({ signal }, 'Shutting down');
-    // Hard deadline: a stuck connection or request must not keep the process alive forever.
-    setTimeout(() => {
-      logger.error({ timeoutSec: config.shutdownTimeoutSec }, 'Shutdown deadline exceeded');
-      process.exit(1);
-    }, config.shutdownTimeoutSec * 1000).unref();
-    try {
-      await api.inactivityJob.stop();
-      await api.app.close();
-      await db.destroy();
-      process.exit(0);
-    } catch (error) {
-      logger.error({ err: error }, 'Shutdown failed');
-      process.exit(1);
-    }
-  };
+  const shutdown = createShutdown({
+    steps: [
+      { name: 'inactivity job', run: () => api.inactivityJob.stop() },
+      { name: 'http server', run: () => api.app.close() },
+      { name: 'database pool', run: () => db.destroy() },
+    ],
+    timeoutMs: config.shutdownTimeoutSec * 1000,
+    logger,
+    exit: (code) => process.exit(code),
+    setTimer: (callback, ms) => setTimeout(callback, ms),
+  });
   process.once('SIGINT', (signal) => void shutdown(signal));
   process.once('SIGTERM', (signal) => void shutdown(signal));
 

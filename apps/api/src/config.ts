@@ -43,11 +43,23 @@ export class ConfigError extends Error {
 }
 
 /**
+ * `VAR=` in a `.env` file or a compose `environment:` entry yields an empty string. It means "not
+ * set", so the default applies (or a required variable is reported as missing).
+ */
+function withoutEmptyValues(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined && entry[1] !== '',
+    ),
+  );
+}
+
+/**
  * Parses and validates the process environment. Throws a ConfigError listing every invalid
  * variable so the process fails fast at startup instead of misbehaving later.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const result = configSchema.safeParse(env);
+  const result = configSchema.safeParse(withoutEmptyValues(env));
   if (!result.success) {
     throw new ConfigError(`Invalid environment configuration:\n${z.prettifyError(result.error)}`);
   }

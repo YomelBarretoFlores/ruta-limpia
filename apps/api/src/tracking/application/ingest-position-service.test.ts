@@ -12,8 +12,11 @@ import {
   stopAndGoChainageAt,
 } from '../../../test/support/ri01-tracking.js';
 import type { AlertNotifier } from '../../alerts/application/alert-notifier.js';
-import { SpeedProfileProvider } from '../../eta/application/speed-profile-provider.js';
-import { RouteCatalog } from '../../routes/application/route-catalog.js';
+import {
+  SpeedProfileProvider,
+  type CompletedTripSamplesSource,
+} from '../../eta/application/speed-profile-provider.js';
+import { RouteCatalog, type RouteRepository } from '../../routes/application/route-catalog.js';
 import { KeyedMutex } from '../../shared/application/keyed-mutex.js';
 import { SILENT_LOGGER } from '../../shared/application/logger.js';
 import { InMemoryEventBus } from '../../shared/infrastructure/events/in-memory-event-bus.js';
@@ -39,6 +42,10 @@ const noRouteTruck: Vehicle = {
 };
 
 function setup() {
+  const findRoute = vi.fn<RouteRepository['findById']>(() => Promise.resolve(RI01_SNAPSHOT));
+  const recentCompletedTrips = vi.fn<CompletedTripSamplesSource['recentCompletedTrips']>(() =>
+    Promise.resolve([]),
+  );
   const store = new InMemoryTrackingStore();
   const clock = new ManualClock(new Date(T0));
   const bus = new InMemoryEventBus<TrackingEvents>(SILENT_LOGGER);
@@ -56,14 +63,15 @@ function setup() {
   const notify = vi.fn<AlertNotifier['notify']>(() => Promise.resolve());
   const notifier: AlertNotifier = { notify };
   const profiles = new SpeedProfileProvider(
-    { recentCompletedTrips: () => Promise.resolve([]) },
+    { recentCompletedTrips },
     { maxTrips: 20, bucketLengthMeters: 100 },
   );
-  const logger = { ...SILENT_LOGGER, error: vi.fn() };
+  const routes = new RouteCatalog({ findById: findRoute });
+  const logger = { ...SILENT_LOGGER, warn: vi.fn(), error: vi.fn() };
   const service = new IngestPositionService({
     vehicles: new InMemoryVehicleDirectory([truck, noRouteTruck]),
     store,
-    routes: new RouteCatalog({ findById: () => Promise.resolve(RI01_SNAPSHOT) }),
+    routes,
     profiles,
     notifier,
     events: bus,
@@ -95,7 +103,20 @@ function setup() {
       ...overrides,
     });
   };
-  return { store, clock, published, notify, notifier, profiles, logger, service, send };
+  return {
+    store,
+    clock,
+    published,
+    notify,
+    notifier,
+    profiles,
+    routes,
+    findRoute,
+    recentCompletedTrips,
+    logger,
+    service,
+    send,
+  };
 }
 
 describe('IngestPositionService', () => {
@@ -246,4 +267,64 @@ describe('IngestPositionService', () => {
     await ctx.send(end - 5, 2000);
     expect(ctx.store.trips).toHaveLength(1);
   });
+
+  it('creates exactly one trip for two concurrent first fixes of the same vehicle', async () => {
+    const results = await Promise.all([ctx.send(10, 0), ctx.send(20, 1)]);
+
+    expect(ctx.store.trips).toHaveLength(1);
+    const tripId = ctx.store.trips[0]!.state.tripId;
+    expect(results).toEqual([
+      expect.objectContaining({ status: 'processed', tripId }),
+      expect.objectContaining({ status: 'processed', tripId }),
+    ]);
+    expect(ctx.published.filter((e) => e.name === 'trip.started')).toHaveLength(1);
+  });
+
+  it('falls back to recent speed only when the speed profile cannot be loaded', async () => {
+    ctx.recentCompletedTrips.mockRejectedValue(new Error('profile query failed'));
+
+    const result = await ctx.send(20, 0);
+
+    expect(result.status).toBe('processed');
+    expect(ctx.store.positions).toHaveLength(1);
+    expect(ctx.store.trips).toHaveLength(1);
+    expect(ctx.published.map((e) => e.name)).toContain('eta.updated');
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ routeId: RI01_SNAPSHOT.id }),
+      expect.stringContaining('speed profile'),
+    );
+  });
+
+  it.each([
+    ['is missing', () => Promise.resolve(null)],
+    ['fails to load', () => Promise.reject(new Error('route query failed'))],
+  ])(
+    'stores the fix but skips trip advancement when the trip route %s',
+    async (_case, findRoute: () => Promise<null>) => {
+      await ctx.send(0, 0);
+      const trip = ctx.store.trips[0]!;
+      ctx.findRoute.mockImplementation(findRoute);
+      ctx.routes.invalidate();
+      ctx.published.length = 0;
+
+      const first = await ctx.send(100, 20);
+      const second = await ctx.send(200, 40);
+
+      expect([first, second]).toEqual([
+        expect.objectContaining({ status: 'processed', tripId: trip.state.tripId }),
+        expect.objectContaining({ status: 'processed', tripId: trip.state.tripId }),
+      ]);
+      expect(ctx.store.positions).toHaveLength(3);
+      expect(ctx.store.positions.slice(1).map((p) => [p.tripId, p.chainage])).toEqual([
+        [trip.state.tripId, null],
+        [trip.state.tripId, null],
+      ]);
+      expect(ctx.store.trips[0]).toEqual(trip);
+      expect(ctx.published.map((e) => e.name)).toEqual(['vehicle.position', 'vehicle.position']);
+      expect(ctx.logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ tripId: trip.state.tripId, vehicleId: truck.id }),
+        expect.stringContaining('route'),
+      );
+    },
+  );
 });

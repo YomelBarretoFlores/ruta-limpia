@@ -71,7 +71,7 @@ IMEI or simulator ID as the identifier.
 ### Configuration
 
 The API reads its configuration from the environment (the root `.env` in development) and fails fast on
-invalid values.
+invalid values. An empty value (`PORT=`) counts as unset, so the default applies.
 
 | Variable                             | Default                | Description                                                       |
 | ------------------------------------ | ---------------------- | ----------------------------------------------------------------- |

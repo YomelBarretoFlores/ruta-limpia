@@ -35,12 +35,17 @@ export class RouteCatalog {
     }
     try {
       const route = await entry;
-      if (route === null) this.cache.delete(routeId); // a route may be created later
+      if (route === null) this.forget(routeId, entry); // a route may be created later
       return route;
     } catch (error) {
-      this.cache.delete(routeId);
+      this.forget(routeId, entry);
       throw error;
     }
+  }
+
+  /** Drops a failed or empty entry, unless an invalidation already replaced it with a newer load. */
+  private forget(routeId: string, entry: Promise<RouteSnapshot | null>): void {
+    if (this.cache.get(routeId) === entry) this.cache.delete(routeId);
   }
 
   invalidate(routeId?: string): void {

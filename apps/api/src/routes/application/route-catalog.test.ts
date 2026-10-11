@@ -40,4 +40,48 @@ describe('RouteCatalog', () => {
     await expect(catalog.get('route-1')).rejects.toThrow('db down');
     expect(await catalog.get('route-1')).toBe(snapshot);
   });
+
+  it.each([
+    ['resolves to null', (d: Deferred<RouteSnapshot | null>) => d.resolve(null)],
+    ['fails', (d: Deferred<RouteSnapshot | null>) => d.reject(new Error('db down'))],
+  ])(
+    'keeps a newer cache entry when a superseded load %s',
+    async (_case, settle: (d: Deferred<RouteSnapshot | null>) => void) => {
+      const stale = deferred<RouteSnapshot | null>();
+      const fresh = deferred<RouteSnapshot | null>();
+      const findById = vi
+        .fn<(id: string) => Promise<RouteSnapshot | null>>()
+        .mockReturnValueOnce(stale.promise)
+        .mockReturnValueOnce(fresh.promise)
+        .mockResolvedValue(snapshot);
+      const catalog = new RouteCatalog({ findById });
+
+      const superseded = catalog.get('route-1').catch(() => null);
+      catalog.invalidate('route-1');
+      const current = catalog.get('route-1');
+      settle(stale);
+      await superseded;
+      fresh.resolve(snapshot);
+      await current;
+
+      expect(await catalog.get('route-1')).toBe(snapshot);
+      expect(findById).toHaveBeenCalledTimes(2);
+    },
+  );
 });
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: Error): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}

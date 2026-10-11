@@ -34,7 +34,8 @@ export class SpeedProfileProvider {
     try {
       return await entry;
     } catch (error) {
-      this.cache.delete(routeId);
+      // Drop the failed build, unless an invalidation already replaced it with a newer one.
+      if (this.cache.get(routeId) === entry) this.cache.delete(routeId);
       throw error;
     }
   }

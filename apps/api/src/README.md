@@ -69,6 +69,7 @@ tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransact
 tracking/infrastructure  KyselyTrackingStore, KyselyVehicleDirectory, http/ (Traccar ingest route,
                          payload schema, token check), InactivityJob
 composition-root.ts      composeApi(): wires adapters to use cases (shared by main.ts and integration tests)
+shutdown.ts              createShutdown(): ordered graceful shutdown with a hard deadline (used by main.ts)
 ```
 
 ### Tracking pipeline (`IngestPositionService`)
@@ -87,6 +88,16 @@ by `SELECT … FOR UPDATE` on the vehicle and its active trip (which also covers
    inserted with `ON CONFLICT (trip_id, point_id) DO NOTHING`; the database is the final guard.
 5. After commit: publish events, call the `AlertNotifier` for newly inserted alerts, and invalidate the
    route's speed profile when the trip completed.
+
+Degraded inputs never block a vehicle's positions:
+
+- When the historical speed profile cannot be loaded, a warning is logged and the ETA uses the recent
+  speed only.
+- When the route of the active trip is missing or cannot be loaded, the position is stored and linked to
+  the trip without advancing it, and an error is logged with the trip and vehicle ids. The inactivity job
+  ends the trip if the route stays unavailable.
+- The route and profile caches drop a failed load only while it is still the current entry, so a late
+  failure never evicts a newer load that followed an invalidation.
 
 `TripLifecycleService` provides `startTrip` (manual), `endTrip` (recorded as aborted) and
 `closeInactiveTrips`, which the `InactivityJob` runs periodically.
