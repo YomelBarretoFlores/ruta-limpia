@@ -69,7 +69,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T1 | Monorepo scaffold, tooling, docker compose (PostGIS + Traccar) and README | delegated (writer: 2+ non-trivial files) | [x] |
 | T2 | Pure domain: route geometry, trip lifecycle, pass detection, ETA engine, staleness, alert policy (test-first) | delegated (writer) | [x] |
 | T3 | Persistence + ingestion: schema/migrations, Traccar forward endpoint, tracking pipeline, Instrument 1 log | delegated (writer) | [x] |
-| T4 | Notifications: Web Push (VAPID), point subscriptions with consent/cancel, alert dispatch and delivery log | delegated (writer) | [ ] |
+| T4 | Notifications: Web Push (VAPID), point subscriptions with consent/cancel, alert dispatch and delivery log | delegated (writer) | [x] |
 | T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [ ] |
 | T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [ ] |
 | T7 | Municipal panel: auth/roles, live tracking, pass table, alert status, incidents, trips, field forms, household registry | delegated (writer) | [ ] |
@@ -185,6 +185,43 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   - `.env.example` cannot be edited by agents (`.env*` access is blocked by the user's permission settings); the
     user must apply the INGEST_TOKEN placeholder and new variables.
 
+- 2026-10-11: T4 done in three work-unit commits, each under the ~1.5k-line review budget (lockfile
+  excluded) and each building and passing its tests on its own. Commit A `36c5c9c`
+  `fix(tracking): harden ingestion against degraded routes, profiles and shutdown` (about 590 lines)
+  closes the T3 review findings. RED first: 3 ingest tests failed (a profile failure rejected the ingest
+  with `profile query failed`; a missing or failing route threw `Route ... not found` or
+  `route query failed`), 3 cache-race tests failed (a superseded load evicted the newer entry: 3 loads
+  instead of 2), the empty-env test threw `ConfigError`, and the shutdown tests failed on the missing
+  module. All went GREEN. These passed as characterization tests: concurrent first fixes create one
+  trip (the per-vehicle mutex already covered it), a raw duplicate Traccar id raises 23505 (the
+  endpoint replay test already existed), and the Instrument 1 view dates trips in America/Lima (a 22:00
+  local Tuesday trip keeps Tuesday's planned start; Sunday has none) and reports the ETA error only with
+  an alert and a pass (3.5 min). Commit B `4b4b0af` `feat(alerts): add point subscriptions with consent
+  and token-based cancellation` (about 1.5k lines): migration `0002-push-subscriptions` (households with
+  code and point only, with a composite FK so the point belongs to the route; push subscriptions;
+  alert deliveries), `SubscriptionService`, the public `/api` routes with `@fastify/rate-limit`, VAPID,
+  `TRUST_PROXY`, `PUBLIC_RATE_LIMIT_PER_MINUTE`, and `vapid:generate`. Commit C (the parent records the
+  hash) `feat(alerts): deliver proximity alerts through Web Push` (about 1.45k lines):
+  `PushAlertNotifier` over the `PushGateway` and `AlertDeliveryStore` ports, `WebPushGateway`
+  (web-push 3.6.7), Spanish payload, receipts endpoint, background dispatch with
+  `whenNotificationsSettled()` (also a shutdown step), `PUSH_CONCURRENCY` and
+  `PUSH_MAX_CONSECUTIVE_FAILURES`. Verification at C: `pnpm typecheck` exit 0, `pnpm lint` exit 0,
+  `pnpm format:check` clean, `pnpm test` 36 files / 246 tests passed (4 integration files, 31 PostGIS
+  tests, including the end-to-end drive where a fake gateway receives one push per active subscription of
+  each alerted point and none for other points or revoked subscriptions). Smoke: compose db healthy,
+  `db:migrate` applied `0002-push-subscriptions`, built API with command-line VAPID keys answered
+  `GET /api/push/vapid-public-key` 200, `POST /api/subscriptions` 400 without consent, 422 for `P99`, 201
+  for `P08`, `DELETE` 403 with a wrong token and 204 with the right one; SIGTERM exited cleanly;
+  containers removed, volumes kept. Decisions: endpoints are restricted to the browser push services
+  (FCM, Mozilla, Apple, Windows) to prevent SSRF; a point code that repeats across routes needs
+  `routeCode`; unknown point or household answers 422; without VAPID the API warns and the subscription
+  endpoints answer 503; the application notifier is `PushAlertNotifier` (protocol-agnostic) and
+  `WebPushGateway` is the `web-push` adapter; receipts get a 10x rate limit for carrier NAT bursts;
+  `secondsRemaining` is recomputed at send time from the communicated ETA (never a new prediction).
+  Pending: `.env.example` must gain `TRUST_PROXY`, `PUBLIC_RATE_LIMIT_PER_MINUTE`, `VAPID_PUBLIC_KEY`,
+  `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `PUSH_CONCURRENCY` and `PUSH_MAX_CONSECUTIVE_FAILURES` (agents
+  cannot edit `.env*` files). Real delivery to a browser is checked in T6 (PWA service worker).
+
 ## Next step
 
-T4 (commit A: T3 review hardening; then Web Push).
+T5 (public API + SSE: routes, points, vehicle status, live ETA per point).

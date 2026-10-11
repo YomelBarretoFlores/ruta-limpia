@@ -7,6 +7,12 @@ import type {
   ReferencePointLookup,
 } from '../../src/routes/application/reference-point-lookup.js';
 import type {
+  AlertDeliveryStore,
+  DeliveryCounts,
+  NewDelivery,
+  PushTarget,
+} from '../../src/alerts/application/push-ports.js';
+import type {
   ManagedSubscription,
   ManagementTokens,
   NewSubscription,
@@ -22,9 +28,18 @@ export interface StoredSubscription extends NewSubscription {
   consecutiveFailures: number;
 }
 
-/** In-memory SubscriptionStore with the database rules: unique endpoint, upsert keeps the id. */
-export class InMemorySubscriptionStore implements SubscriptionStore {
+export interface StoredDelivery extends NewDelivery {
+  receivedAt: Date | null;
+}
+
+/**
+ * In-memory subscription and delivery store with the database rules: unique endpoint (upsert keeps
+ * the id), one delivery per (alert, subscription), counts recomputed from the deliveries.
+ */
+export class InMemorySubscriptionStore implements SubscriptionStore, AlertDeliveryStore {
   readonly subscriptions: StoredSubscription[] = [];
+  readonly deliveries: StoredDelivery[] = [];
+  readonly alertCounts = new Map<string, DeliveryCounts>();
   private nextId = 1;
 
   upsert(subscription: NewSubscription): Promise<{ id: string }> {
@@ -69,6 +84,67 @@ export class InMemorySubscriptionStore implements SubscriptionStore {
       found.revokeReason = reason;
     }
     return Promise.resolve();
+  }
+
+  confirmReceipt(alertId: string, subscriptionId: string, at: Date): Promise<boolean> {
+    const delivery = this.deliveries.find(
+      (d) => d.alertId === alertId && d.subscriptionId === subscriptionId,
+    );
+    if (delivery === undefined) return Promise.resolve(false);
+    delivery.receivedAt ??= at;
+    return Promise.resolve(true);
+  }
+
+  activeTargets(pointId: string): Promise<PushTarget[]> {
+    return Promise.resolve(
+      this.subscriptions
+        .filter((s) => s.pointId === pointId && s.revokedAt === null)
+        .map((s) => ({
+          subscriptionId: s.id,
+          endpoint: s.endpoint,
+          p256dh: s.p256dh,
+          auth: s.auth,
+        })),
+    );
+  }
+
+  recordDelivery(delivery: NewDelivery): Promise<void> {
+    const exists = this.deliveries.some(
+      (d) => d.alertId === delivery.alertId && d.subscriptionId === delivery.subscriptionId,
+    );
+    if (!exists) this.deliveries.push({ ...delivery, receivedAt: null });
+    return Promise.resolve();
+  }
+
+  markSuccess(subscriptionId: string, at: Date): Promise<void> {
+    const found = this.find(subscriptionId);
+    if (found !== undefined) Object.assign(found, { lastSuccessAt: at, consecutiveFailures: 0 });
+    return Promise.resolve();
+  }
+
+  async markFailure(
+    subscriptionId: string,
+    maxConsecutiveFailures: number,
+    at: Date,
+  ): Promise<boolean> {
+    const found = this.find(subscriptionId);
+    if (found === undefined) return false;
+    found.consecutiveFailures++;
+    if (found.revokedAt !== null || found.consecutiveFailures < maxConsecutiveFailures)
+      return false;
+    await this.revoke(subscriptionId, 'too_many_failures', at);
+    return true;
+  }
+
+  refreshAlertCounts(alertId: string): Promise<DeliveryCounts> {
+    const of = this.deliveries.filter((d) => d.alertId === alertId);
+    const counts = {
+      recipients: of.length,
+      delivered: of.filter((d) => d.status === 'sent').length,
+      failed: of.filter((d) => d.status !== 'sent').length,
+    };
+    this.alertCounts.set(alertId, counts);
+    return Promise.resolve(counts);
   }
 
   find(subscriptionId: string): StoredSubscription | undefined {

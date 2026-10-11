@@ -26,6 +26,8 @@ describe('loadConfig', () => {
       shutdownTimeoutSec: 10,
       trustProxy: false,
       publicRateLimitPerMinute: 20,
+      pushConcurrency: 8,
+      pushMaxConsecutiveFailures: 5,
       vapid: null,
     });
   });
@@ -65,6 +67,8 @@ describe('loadConfig', () => {
       SHUTDOWN_TIMEOUT_SEC: '5',
       TRUST_PROXY: 'true',
       PUBLIC_RATE_LIMIT_PER_MINUTE: '5',
+      PUSH_CONCURRENCY: '4',
+      PUSH_MAX_CONSECUTIVE_FAILURES: '3',
     });
 
     expect(config).toMatchObject({
@@ -77,6 +81,8 @@ describe('loadConfig', () => {
       shutdownTimeoutSec: 5,
       trustProxy: true,
       publicRateLimitPerMinute: 5,
+      pushConcurrency: 4,
+      pushMaxConsecutiveFailures: 3,
     });
   });
 

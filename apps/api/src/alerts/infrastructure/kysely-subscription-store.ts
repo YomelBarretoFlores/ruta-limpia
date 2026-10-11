@@ -57,4 +57,15 @@ export class KyselySubscriptionStore implements SubscriptionStore {
       .where('revoked_at', 'is', null)
       .execute();
   }
+
+  async confirmReceipt(alertId: string, subscriptionId: string, at: Date): Promise<boolean> {
+    if (!isUuid(alertId) || !isUuid(subscriptionId)) return false;
+    const result = await this.db
+      .updateTable('alert_deliveries')
+      .set((eb) => ({ received_at: eb.fn.coalesce('received_at', eb.val(at)) }))
+      .where('alert_id', '=', alertId)
+      .where('subscription_id', '=', subscriptionId)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  }
 }

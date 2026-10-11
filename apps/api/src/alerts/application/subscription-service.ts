@@ -35,6 +35,8 @@ export type SubscribeResult =
 
 export type CancelResult = 'cancelled' | 'not_found' | 'forbidden';
 
+export type ReceiptResult = 'confirmed' | 'not_found' | 'forbidden';
+
 export interface SubscriptionServiceDependencies {
   readonly store: SubscriptionStore;
   readonly points: ReferencePointLookup;
@@ -99,6 +101,28 @@ export class SubscriptionService {
       this.deps.logger.info({ subscriptionId }, 'Push subscription cancelled');
     }
     return 'cancelled';
+  }
+
+  /**
+   * Records that the browser received the alert (its service worker calls this on `push`, when it
+   * can). Idempotent: the first reception time is kept.
+   */
+  async confirmReceipt(
+    alertId: string,
+    subscriptionId: string,
+    managementToken: string,
+  ): Promise<ReceiptResult> {
+    const subscription = await this.deps.store.findManaged(subscriptionId);
+    if (subscription === null) return 'not_found';
+    if (!this.deps.tokens.matches(managementToken, subscription.managementTokenHash)) {
+      return 'forbidden';
+    }
+    const found = await this.deps.store.confirmReceipt(
+      alertId,
+      subscriptionId,
+      this.deps.clock.now(),
+    );
+    return found ? 'confirmed' : 'not_found';
   }
 
   private async findPoints(selector: PointSelector): Promise<PublicReferencePoint[]> {

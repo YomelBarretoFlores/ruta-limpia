@@ -21,6 +21,7 @@ async function main(): Promise<void> {
     steps: [
       { name: 'inactivity job', run: () => api.inactivityJob.stop() },
       { name: 'http server', run: () => api.app.close() },
+      { name: 'alert dispatch', run: () => api.ingestPosition.whenNotificationsSettled() },
       { name: 'database pool', run: () => db.destroy() },
     ],
     timeoutMs: config.shutdownTimeoutSec * 1000,

@@ -32,6 +32,11 @@ export interface SubscriptionStore {
   findManaged(subscriptionId: string): Promise<ManagedSubscription | null>;
   /** Revokes an active subscription (soft delete); an already revoked one keeps its reason. */
   revoke(subscriptionId: string, reason: RevokeReason, at: Date): Promise<void>;
+  /**
+   * Sets `received_at` on the (alert, subscription) delivery unless already set. Returns false when
+   * there is no such delivery.
+   */
+  confirmReceipt(alertId: string, subscriptionId: string, at: Date): Promise<boolean>;
 }
 
 /** Port: issues management tokens and checks them against their stored hash. */

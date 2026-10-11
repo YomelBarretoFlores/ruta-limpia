@@ -9,6 +9,11 @@ import { buildApp } from './app.js';
 import { KyselyHouseholdDirectory } from './field/infrastructure/kysely-household-directory.js';
 import type { AppConfig } from './config.js';
 import type { AlertNotifier } from './alerts/application/alert-notifier.js';
+import { PushAlertNotifier } from './alerts/application/push-alert-notifier.js';
+import type { PushGateway } from './alerts/application/push-ports.js';
+import { DEFAULT_PUSH_DELIVERY_SETTINGS } from './alerts/domain/push-delivery.js';
+import { KyselyAlertDeliveryStore } from './alerts/infrastructure/kysely-alert-delivery-store.js';
+import { WebPushGateway } from './alerts/infrastructure/web-push-gateway.js';
 import { SpeedProfileProvider } from './eta/application/speed-profile-provider.js';
 import { DEFAULT_ETA_SETTINGS } from './eta/domain/eta-settings.js';
 import { KyselyCompletedTripSamples } from './eta/infrastructure/kysely-completed-trip-samples.js';
@@ -42,6 +47,8 @@ export type ApiConfig = Pick<
   | 'trustProxy'
   | 'publicRateLimitPerMinute'
   | 'vapid'
+  | 'pushConcurrency'
+  | 'pushMaxConsecutiveFailures'
 >;
 
 export interface ApiDependencies {
@@ -49,8 +56,13 @@ export interface ApiDependencies {
   readonly db: AppDatabase;
   readonly clock: Clock;
   readonly logger: FastifyBaseLogger;
-  /** Defaults to the logging placeholder until Web Push is wired in. */
+  /** Replaces the whole alert delivery (tests). */
   readonly notifier?: AlertNotifier;
+  /**
+   * Replaces the Web Push client (tests). Defaults to `web-push` when VAPID is configured; without
+   * VAPID and without a gateway, alerts are only logged.
+   */
+  readonly pushGateway?: PushGateway;
 }
 
 export interface Api {
@@ -84,12 +96,31 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     inactivityTimeoutSec: config.tripInactivityTimeoutSec,
   };
 
+  const pushGateway =
+    deps.pushGateway ?? (config.vapid === null ? null : new WebPushGateway(config.vapid));
+  const notifier =
+    deps.notifier ??
+    (pushGateway === null
+      ? new LoggingAlertNotifier(logger.child({ component: 'alerts' }))
+      : new PushAlertNotifier({
+          deliveries: new KyselyAlertDeliveryStore(db),
+          gateway: pushGateway,
+          routes,
+          clock,
+          logger: logger.child({ component: 'push' }),
+          settings: {
+            ...DEFAULT_PUSH_DELIVERY_SETTINGS,
+            concurrency: config.pushConcurrency,
+            maxConsecutiveFailures: config.pushMaxConsecutiveFailures,
+          },
+        }));
+
   const ingestPosition = new IngestPositionService({
     vehicles,
     store,
     routes,
     profiles: speedProfiles,
-    notifier: deps.notifier ?? new LoggingAlertNotifier(logger.child({ component: 'alerts' })),
+    notifier,
     events,
     clock,
     logger: logger.child({ component: 'ingest' }),

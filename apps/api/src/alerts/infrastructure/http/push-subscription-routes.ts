@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import type {
   CancelResult,
+  ReceiptResult,
   SubscribeCommand,
   SubscribeResult,
 } from '../../application/subscription-service.js';
@@ -11,7 +12,18 @@ import type {
 export interface SubscriptionUseCases {
   subscribe(command: SubscribeCommand): Promise<SubscribeResult>;
   cancel(subscriptionId: string, managementToken: string): Promise<CancelResult>;
+  confirmReceipt(
+    alertId: string,
+    subscriptionId: string,
+    managementToken: string,
+  ): Promise<ReceiptResult>;
 }
+
+/**
+ * Receipts arrive in bursts (every household of a point at once), often through one carrier-grade
+ * NAT address, so their per-IP limit is this many times the subscription limit.
+ */
+const RECEIPT_LIMIT_FACTOR = 10;
 
 export interface PushSubscriptionRoutesOptions {
   readonly subscriptions: SubscriptionUseCases;
@@ -54,6 +66,11 @@ const subscribeBodySchema = z
   });
 
 const subscriptionParamsSchema = z.object({ id: z.string().min(1).max(64) });
+const receiptParamsSchema = z.object({ alertId: z.string().min(1).max(64) });
+const receiptBodySchema = z.object({
+  subscriptionId: z.string().min(1).max(64),
+  managementToken: z.string().min(1).max(256),
+});
 
 const UNPROCESSABLE: Record<Exclude<SubscribeResult['status'], 'subscribed'>, string> = {
   unsupported_push_service: 'The subscription endpoint is not a supported browser push service.',
@@ -68,7 +85,9 @@ const UNPROCESSABLE: Record<Exclude<SubscribeResult['status'], 'subscribed'>, st
  * - `GET /push/vapid-public-key` → `{ publicKey }` (503 when push is not configured);
  * - `POST /subscriptions` → 201 `{ subscriptionId, managementToken, point }`; requires `consent: true`;
  *   the same endpoint subscribing again moves to the new point and gets a new token;
- * - `DELETE /subscriptions/:id` with `Authorization: Bearer <managementToken>` → 204.
+ * - `DELETE /subscriptions/:id` with `Authorization: Bearer <managementToken>` → 204;
+ * - `POST /alerts/:alertId/receipts` `{ subscriptionId, managementToken }` → 204: the service worker
+ *   confirms that the push arrived (idempotent).
  */
 export const pushSubscriptionRoutes: FastifyPluginCallback<PushSubscriptionRoutesOptions> = (
   app,
@@ -148,6 +167,35 @@ export const pushSubscriptionRoutes: FastifyPluginCallback<PushSubscriptionRoute
         return reply.code(404).send({ error: 'not_found' });
     }
   });
+
+  app.post(
+    '/alerts/:alertId/receipts',
+    {
+      config: {
+        rateLimit: { ...rateLimit, max: options.mutationsPerMinute * RECEIPT_LIMIT_FACTOR },
+      },
+    },
+    async (request, reply) => {
+      const params = receiptParamsSchema.safeParse(request.params);
+      if (!params.success) return invalidRequest(reply, params.error);
+      const body = receiptBodySchema.safeParse(request.body);
+      if (!body.success) return invalidRequest(reply, body.error);
+
+      const result = await options.subscriptions.confirmReceipt(
+        params.data.alertId,
+        body.data.subscriptionId,
+        body.data.managementToken,
+      );
+      switch (result) {
+        case 'confirmed':
+          return reply.code(204).send();
+        case 'forbidden':
+          return reply.code(403).send({ error: 'forbidden' });
+        case 'not_found':
+          return reply.code(404).send({ error: 'not_found' });
+      }
+    },
+  );
 
   done();
 };

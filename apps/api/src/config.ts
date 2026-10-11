@@ -22,6 +22,8 @@ const configSchema = z
     SHUTDOWN_TIMEOUT_SEC: positiveInt(10),
     TRUST_PROXY: z.stringbool().default(false),
     PUBLIC_RATE_LIMIT_PER_MINUTE: positiveInt(20),
+    PUSH_CONCURRENCY: positiveInt(8),
+    PUSH_MAX_CONSECUTIVE_FAILURES: positiveInt(5),
     VAPID_PUBLIC_KEY: base64Url.length(87, 'VAPID_PUBLIC_KEY must be 87 characters').optional(),
     VAPID_PRIVATE_KEY: base64Url.length(43, 'VAPID_PRIVATE_KEY must be 43 characters').optional(),
     VAPID_SUBJECT: z
@@ -63,6 +65,10 @@ export interface AppConfig {
   readonly trustProxy: boolean;
   /** Per client IP and route, for the public mutating routes (subscriptions). */
   readonly publicRateLimitPerMinute: number;
+  /** Pushes sent at the same time for one alert. */
+  readonly pushConcurrency: number;
+  /** A subscription is revoked after this many failed pushes in a row. */
+  readonly pushMaxConsecutiveFailures: number;
   /** Web Push (VAPID) credentials; null disables push (alerts are then only logged). */
   readonly vapid: VapidConfig | null;
 }
@@ -115,6 +121,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     shutdownTimeoutSec: raw.SHUTDOWN_TIMEOUT_SEC,
     trustProxy: raw.TRUST_PROXY,
     publicRateLimitPerMinute: raw.PUBLIC_RATE_LIMIT_PER_MINUTE,
+    pushConcurrency: raw.PUSH_CONCURRENCY,
+    pushMaxConsecutiveFailures: raw.PUSH_MAX_CONSECUTIVE_FAILURES,
     vapid:
       raw.VAPID_PUBLIC_KEY !== undefined &&
       raw.VAPID_PRIVATE_KEY !== undefined &&

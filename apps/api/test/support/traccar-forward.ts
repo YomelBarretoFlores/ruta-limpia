@@ -1,3 +1,5 @@
+import { ri01PositionAt, stopAndGoChainageAt } from './ri01-tracking.js';
+
 /**
  * A Traccar 6 JSON position forward (OsmAnd device), with the extra fields Traccar sends.
  * Speed is in knots.
@@ -34,3 +36,34 @@ export const sampleForward = {
     disabled: false,
   },
 };
+
+const KNOTS_PER_MPS = 3600 / 1852;
+
+/**
+ * The forward of Traccar position `id`, `seconds` after `t0`, at `chainage` along RI-01, with the
+ * stop-and-go speed (1.5 m/s while moving).
+ */
+export function forwardAt(
+  t0: number,
+  id: number,
+  seconds: number,
+  chainage: number,
+  uniqueId = sampleForward.device.uniqueId,
+) {
+  const at = new Date(t0 + seconds * 1000).toISOString();
+  const position = ri01PositionAt(chainage);
+  const moving = stopAndGoChainageAt(seconds + 1) > stopAndGoChainageAt(seconds);
+  return {
+    position: {
+      ...sampleForward.position,
+      id,
+      fixTime: at,
+      deviceTime: at,
+      serverTime: at,
+      latitude: position.lat,
+      longitude: position.lon,
+      speed: moving ? 1.5 * KNOTS_PER_MPS : 0,
+    },
+    device: { ...sampleForward.device, uniqueId },
+  };
+}

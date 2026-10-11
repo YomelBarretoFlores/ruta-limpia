@@ -4,8 +4,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { ManualClock } from '../fakes/in-memory-tracking-store.js';
 import { TEST_API_CONFIG } from '../support/api-config.js';
-import { RI01_GEOMETRY, ri01PositionAt, stopAndGoChainageAt } from '../support/ri01-tracking.js';
-import { sampleForward } from '../support/traccar-forward.js';
+import { RI01_GEOMETRY, stopAndGoChainageAt } from '../support/ri01-tracking.js';
+import { forwardAt } from '../support/traccar-forward.js';
 import type { EmittedAlert } from '../../src/alerts/application/alert-notifier.js';
 import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
@@ -17,7 +17,6 @@ const TOKEN = TEST_API_CONFIG.ingestToken;
 const DEVICE = 'ruta-limpia-unidad-a';
 /** Tuesday 2026-10-20, 07:05 in Lima (UTC-5). The seeded schedule starts at 07:00. */
 const T0 = Date.parse('2026-10-20T12:05:00Z');
-const KNOTS_PER_MPS = 3600 / 1852;
 
 let db: AppDatabase;
 let seeded: SeedResult;
@@ -47,22 +46,7 @@ async function startApi(): Promise<Api> {
 }
 
 function forward(id: number, seconds: number, chainage: number, uniqueId = DEVICE) {
-  const at = new Date(T0 + seconds * 1000).toISOString();
-  const position = ri01PositionAt(chainage);
-  const moving = stopAndGoChainageAt(seconds + 1) > stopAndGoChainageAt(seconds);
-  return {
-    position: {
-      ...sampleForward.position,
-      id,
-      fixTime: at,
-      deviceTime: at,
-      serverTime: at,
-      latitude: position.lat,
-      longitude: position.lon,
-      speed: moving ? 1.5 * KNOTS_PER_MPS : 0,
-    },
-    device: { ...sampleForward.device, uniqueId },
-  };
+  return forwardAt(T0, id, seconds, chainage, uniqueId);
 }
 
 function post(app: FastifyInstance, body: unknown, token: string | null = TOKEN) {
@@ -168,6 +152,7 @@ describe('RI-01 stop-and-go drive through the HTTP endpoint', () => {
       }
     }
 
+    await Promise.all([apiA, apiB].map((api) => api.ingestPosition.whenNotificationsSettled()));
     expect(statuses.every((status) => status === 200)).toBe(true);
     expect(await db.selectFrom('positions').selectAll().execute()).toHaveLength(ids.size);
 

@@ -205,6 +205,7 @@ describe('IngestPositionService', () => {
     for (let s = 0; s <= 400; s += 20) await ctx.send(stopAndGoChainageAt(s), s);
     // The same fix again under a new Traccar id: ignored by the trip, and alerts are not repeated.
     await ctx.send(stopAndGoChainageAt(400), 400);
+    await ctx.service.whenNotificationsSettled();
 
     const alertedPoints = ctx.store.alerts.map((a) => a.pointId);
     expect(alertedPoints.length).toBeGreaterThan(0);
@@ -214,6 +215,31 @@ describe('IngestPositionService', () => {
       alertedPoints.length,
     );
     expect(ctx.logger.error).toHaveBeenCalledOnce();
+  });
+
+  it('answers without waiting for the alert notifications', async () => {
+    let release!: () => void;
+    ctx.notify.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    for (let s = 0; s <= 400 && ctx.store.alerts.length === 0; s += 20) {
+      await ctx.send(stopAndGoChainageAt(s), s);
+    }
+    expect(ctx.store.alerts.length).toBeGreaterThan(0);
+    let settled = false;
+    const settling = ctx.service.whenNotificationsSettled().then(() => {
+      settled = true;
+    });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    ctx.notify.mockResolvedValue(undefined);
+    release();
+    await settling;
+    expect(settled).toBe(true);
   });
 
   it('suspends ETAs and alerts when the fix is older than the staleness limit', async () => {

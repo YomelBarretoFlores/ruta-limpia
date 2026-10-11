@@ -63,10 +63,12 @@ routes/application       ReferencePointLookup port (public points by id or code)
 routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot), KyselyReferencePointLookup
 eta/application          SpeedProfileProvider (cached per route) over CompletedTripSamplesSource
 eta/infrastructure       KyselyCompletedTripSamples (accepted positions of recent completed trips)
-alerts/application       AlertNotifier port; SubscriptionService (subscribe, cancel) over the
-                         SubscriptionStore and ManagementTokens ports
-alerts/infrastructure    LoggingAlertNotifier, KyselySubscriptionStore, CryptoManagementTokens,
-                         http/ (public subscription routes), vapid-keys-cli
+alerts/application       AlertNotifier port; PushAlertNotifier over the PushGateway and
+                         AlertDeliveryStore ports; SubscriptionService (subscribe, cancel, receipts)
+                         over the SubscriptionStore and ManagementTokens ports
+alerts/infrastructure    WebPushGateway (web-push, VAPID), LoggingAlertNotifier (no VAPID),
+                         KyselySubscriptionStore, KyselyAlertDeliveryStore, CryptoManagementTokens,
+                         http/ (public subscription and receipt routes), vapid-keys-cli
 field/application        HouseholdDirectory port (household registry: codes, never addresses)
 field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
@@ -122,6 +124,21 @@ point by id or by code (plus the route code when a code repeats across routes) a
 code. It issues a random management token and stores only its SHA-256 hash. Upserting by endpoint keeps
 the subscription id, moves it to the new point and rotates the token. `cancel` compares the token in
 constant time and soft-deletes the subscription.
+
+### Alert dispatch (`PushAlertNotifier`)
+
+`IngestPositionService` hands newly inserted alerts to the `AlertNotifier` after the commit, in the
+background: the ingest response never waits for push services, and `whenNotificationsSettled()` lets
+shutdown and tests wait for them. The composition root uses `PushAlertNotifier` with `WebPushGateway`
+when VAPID is configured, and `LoggingAlertNotifier` (with a startup warning) otherwise.
+
+Per alert, `PushAlertNotifier` loads the active subscriptions of the point and sends the payload built by
+`alerts/domain/proximity-alert-message.ts` (Spanish copy, America/Lima time), a few at a time
+(`runWithConcurrency`). `alerts/domain/push-delivery.ts` classifies each answer (`2xx` sent, `404`/`410`
+expired, anything else or no answer failed) and gives the TTL and topic. Each outcome is recorded in
+`alert_deliveries`; expired subscriptions are revoked, and failures revoke a subscription after a streak
+(one SQL statement, safe under concurrency). Finally the alert counts are recomputed from its deliveries.
+Errors are logged per subscription and never reach the ingest.
 
 ### Persistence
 

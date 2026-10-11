@@ -12,6 +12,8 @@ export const TEST_API_CONFIG: ApiConfig = {
   tripInactivityCheckIntervalSec: 60,
   trustProxy: false,
   publicRateLimitPerMinute: 1000,
+  pushConcurrency: 4,
+  pushMaxConsecutiveFailures: 5,
   vapid: { ...vapid, subject: 'mailto:integration@example.org' },
 };
 

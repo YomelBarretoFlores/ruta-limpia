@@ -75,10 +75,19 @@ interface Outcome {
  *
  * Processing is serialized per vehicle twice: an in-process keyed mutex, and row locks inside one
  * database transaction (which also covers several API processes). Events and alert notifications
- * go out only after the transaction commits.
+ * go out only after the transaction commits; notifications run in the background
+ * (`whenNotificationsSettled` waits for them, for example on shutdown).
  */
 export class IngestPositionService {
+  /** Alert notifications still running in the background. */
+  private readonly notifications = new Set<Promise<void>>();
+
   constructor(private readonly deps: IngestPositionDependencies) {}
+
+  /** Resolves when every background alert notification started so far has finished. */
+  async whenNotificationsSettled(): Promise<void> {
+    while (this.notifications.size > 0) await Promise.all(this.notifications);
+  }
 
   async ingest(command: IngestPositionCommand): Promise<IngestResult> {
     const vehicle = await this.deps.vehicles.findByTraccarUniqueId(command.deviceUniqueId);
@@ -96,7 +105,8 @@ export class IngestPositionService {
 
     if (outcome.completedRouteId !== null) this.deps.profiles.invalidate(outcome.completedRouteId);
     publishAll(this.deps.events, outcome.events);
-    await this.notify(outcome.alerts);
+    // Delivery runs in the background: pushing to households never delays or fails the ingest.
+    if (outcome.alerts.length > 0) this.notifyInBackground(outcome.alerts);
     return outcome.result;
   }
 
@@ -339,6 +349,11 @@ export class IngestPositionService {
       match.offsetMeters <= tracking.offRouteThresholdMeters &&
       match.chainage <= startZoneMeters;
     return startsHere ? route : null;
+  }
+
+  private notifyInBackground(alerts: Outcome['alerts']): void {
+    const running = this.notify(alerts).finally(() => this.notifications.delete(running));
+    this.notifications.add(running);
   }
 
   private async notify(alerts: Outcome['alerts']): Promise<void> {

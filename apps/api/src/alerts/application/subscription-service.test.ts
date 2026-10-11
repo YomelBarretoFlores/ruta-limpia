@@ -152,4 +152,39 @@ describe('SubscriptionService', () => {
     expect(await ctx.service.cancel('subscription-9', 'token-1')).toBe('not_found');
     expect(ctx.store.find('subscription-1')?.revokedAt).toBeNull();
   });
+
+  it('confirms the reception of a delivered alert once, with the management token', async () => {
+    await ctx.service.subscribe(command());
+    await ctx.store.recordDelivery({
+      alertId: 'alert-1',
+      subscriptionId: 'subscription-1',
+      status: 'sent',
+      httpStatus: 201,
+      sentAt: NOW,
+    });
+    const later = new Date(NOW.getTime() + 5_000);
+
+    expect(await ctx.service.confirmReceipt('alert-1', 'subscription-1', 'token-1')).toBe(
+      'confirmed',
+    );
+    ctx.clock.set(later);
+    expect(await ctx.service.confirmReceipt('alert-1', 'subscription-1', 'token-1')).toBe(
+      'confirmed',
+    );
+    expect(ctx.store.deliveries[0]?.receivedAt).toEqual(NOW);
+  });
+
+  it('refuses receipts with a wrong token or without a matching delivery', async () => {
+    await ctx.service.subscribe(command());
+
+    expect(await ctx.service.confirmReceipt('alert-1', 'subscription-1', 'token-9')).toBe(
+      'forbidden',
+    );
+    expect(await ctx.service.confirmReceipt('alert-1', 'subscription-1', 'token-1')).toBe(
+      'not_found',
+    );
+    expect(await ctx.service.confirmReceipt('alert-1', 'subscription-9', 'token-1')).toBe(
+      'not_found',
+    );
+  });
 });

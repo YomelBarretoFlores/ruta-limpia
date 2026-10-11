@@ -91,6 +91,8 @@ invalid values. An empty value (`PORT=`) counts as unset, so the default applies
 | `VAPID_PUBLIC_KEY`                   | unset                  | Web Push public key (87 chars). Set all three VAPID vars or none. |
 | `VAPID_PRIVATE_KEY`                  | unset                  | Web Push private key (43 chars). Keep it secret.                  |
 | `VAPID_SUBJECT`                      | unset                  | Contact for the push services: `mailto:…` or `https://…`.         |
+| `PUSH_CONCURRENCY`                   | `8`                    | Pushes sent at the same time for one alert.                       |
+| `PUSH_MAX_CONSECUTIVE_FAILURES`      | `5`                    | Failed pushes in a row before a subscription is revoked.          |
 
 ### Position ingestion
 
@@ -140,6 +142,23 @@ consent: true, consentVersion }`, where `subscription` is the browser's `PushSub
 - Subscribing the same browser endpoint again moves it to the new point, reactivates it, and issues a new
   management token. The old token stops working.
 - The mutating routes are rate-limited per client IP (`PUBLIC_RATE_LIMIT_PER_MINUTE`, `429` beyond).
+
+Each new proximity alert is pushed, after the tracking transaction commits and in the background (it
+never delays or fails the ingest), to every active subscription of its point. The payload is JSON:
+`{ type: 'proximity_alert', alertId, subscriptionId, pointCode, pointName, predictedPassAt,
+secondsRemaining, url: '/?p=<code>', title, body }`, with Spanish copy such as "El camión recolector
+pasará por P08 en ~8 min (aprox. 17:38). Saca tus residuos en bolsas cerradas." (time in America/Lima).
+Pushes use `urgency: high`, a TTL until the predicted pass (at least 60 s), and one topic per point.
+
+- Every push is logged in `alert_deliveries` (`sent`, `failed` or `expired`, HTTP status, time), and the
+  alert's `recipients_count`, `delivered_count` and `failed_count` are updated.
+- A `404`/`410` answer means the browser dropped the subscription: it is revoked as `expired`. Other
+  errors count as failures; after `PUSH_MAX_CONSECUTIVE_FAILURES` in a row it is revoked
+  (`too_many_failures`). A success resets the streak.
+- The service worker confirms reception with `POST /api/alerts/:alertId/receipts`, which sets
+  `received_at` once ("recepción confirmada cuando sea técnicamente posible"). Its per-IP limit is ten
+  times `PUBLIC_RATE_LIMIT_PER_MINUTE`, because a whole point receives an alert at once, often behind
+  one carrier NAT address.
 
 Privacy: the API never stores an address, a name or a phone number. A household is a code from its
 sticker plus a public reference point. A subscription stores the push endpoint and keys, the point, the
