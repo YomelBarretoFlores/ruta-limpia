@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { IncidentForm } from './IncidentForm';
 
-function renderForm(trips: readonly { id: string; label: string }[]) {
+function renderForm(trips: readonly { id: string; label: string }[], tripsLoading = false) {
   const onSubmit = vi.fn(() => Promise.resolve());
   const props = {
     routeCode: 'RI-01',
@@ -16,10 +16,11 @@ function renderForm(trips: readonly { id: string; label: string }[]) {
     onCancel: () => undefined,
     describeError: () => 'error',
   };
-  const view = render(<IncidentForm {...props} trips={trips} />);
+  const view = render(<IncidentForm {...props} trips={trips} tripsLoading={tripsLoading} />);
   return {
     onSubmit,
-    rerender: (next: typeof trips) => view.rerender(<IncidentForm {...props} trips={next} />),
+    rerender: (next: typeof trips, loading = false) =>
+      view.rerender(<IncidentForm {...props} trips={next} tripsLoading={loading} />),
   };
 }
 
@@ -40,5 +41,19 @@ describe('IncidentForm', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Registrar incidencia' }));
 
     expect(onSubmit).toHaveBeenCalledWith(expect.not.objectContaining({ tripId: 'trip-1' }));
+  });
+
+  it('keeps a preset trip while the trips are still loading, then checks it against the list', async () => {
+    const { onSubmit, rerender } = renderForm([], true);
+
+    expect(screen.getByLabelText('Viaje (opcional)')).toHaveValue('trip-1');
+    expect(screen.getByRole('option', { name: 'Cargando viajes…' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Registrar incidencia' }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ tripId: 'trip-1' }));
+
+    rerender([{ id: 'trip-1', label: 'Unidad A' }]);
+    expect(screen.getByLabelText('Viaje (opcional)')).toHaveValue('trip-1');
+    rerender([]);
+    expect(screen.getByLabelText('Viaje (opcional)')).toHaveValue('');
   });
 });

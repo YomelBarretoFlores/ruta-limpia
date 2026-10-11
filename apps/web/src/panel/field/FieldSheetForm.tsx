@@ -57,8 +57,8 @@ export function FieldSheetForm(props: FieldSheetFormProps) {
   const set = <K extends keyof SheetForm>(key: K, value: SheetForm[K]) =>
     setForm({ ...form, [key]: value });
   const formErrors = (sheet: SheetForm) => ({ ...missingFields(sheet), ...numberErrors(sheet) });
-  const missing = checked ? formErrors(form) : {};
-  const messageOf = (key: keyof SheetForm) => missing[key] ?? problems[key];
+  const fieldErrors = checked ? formErrors(form) : {};
+  const messageOf = (key: keyof SheetForm) => fieldErrors[key] ?? problems[key];
   const point = points.find((p) => p.code === form.pointCode);
   const exposure = exposureOf(form);
 

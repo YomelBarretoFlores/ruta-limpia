@@ -1,7 +1,7 @@
 import 'leaflet/dist/leaflet.css';
 import '../../shared/map/route-map.css';
 
-import { divIcon, latLngBounds, type LatLngTuple } from 'leaflet';
+import { canvas, divIcon, latLngBounds, type LatLngTuple } from 'leaflet';
 import { useMemo } from 'react';
 import {
   AttributionControl,
@@ -17,7 +17,13 @@ import { FitRouteBounds } from '../../shared/map/FitRouteBounds';
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_SNAP, type RouteShape } from '../../shared/map/map-view';
 import { MAP_COLORS, TRUCK_ICON_SIZE, truckIconSvg } from '../../shared/map/truck-icon';
 import { formatLocalTime } from '../../shared/time';
-import { plannedRouteStyle, TRACK_LINE, TRACK_VERTEX, TRACK_VERTEX_RADIUS } from './map-styles';
+import {
+  decimateTrack,
+  plannedRouteStyle,
+  TRACK_LINE,
+  TRACK_VERTEX,
+  TRACK_VERTEX_RADIUS,
+} from './map-styles';
 
 export interface PanelMapTruck {
   readonly lat: number;
@@ -41,8 +47,9 @@ export interface PanelRouteMapProps {
   };
   readonly truck?: PanelMapTruck | null;
   /**
-   * A recorded trip's track (`[lon, lat]`): a solid ink line with a dot at each position, over a
-   * lighter planned route; the map fits the route and the track together.
+   * A recorded trip's track (`[lon, lat]`): a solid ink line through every position, with dots at
+   * up to 200 evenly spaced ones (drawn on one canvas), over a lighter planned route; the map fits
+   * the route and the track together.
    */
   readonly track?: readonly (readonly [number, number])[] | null;
   readonly label: string;
@@ -62,8 +69,14 @@ export default function PanelRouteMap({
   label,
 }: PanelRouteMapProps) {
   const line: LatLngTuple[] = route.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
-  const trackLine: LatLngTuple[] = (track ?? []).map(([lon, lat]) => [lat, lon]);
+  const trackLine = useMemo(
+    () => (track ?? []).map(([lon, lat]): LatLngTuple => [lat, lon]),
+    [track],
+  );
   const hasTrack = trackLine.length > 1;
+  const vertices = useMemo(() => decimateTrack(trackLine), [trackLine]);
+  // One canvas for every dot, instead of an SVG element per dot.
+  const vertexStyle = useMemo(() => ({ ...TRACK_VERTEX, renderer: canvas() }), []);
   const planned = plannedRouteStyle(hasTrack);
   const stale = truck?.stale ?? false;
   const course = truck?.course ?? null;
@@ -103,12 +116,12 @@ export default function PanelRouteMap({
         {hasTrack && (
           <>
             <Polyline positions={trackLine} pathOptions={TRACK_LINE} interactive={false} />
-            {trackLine.map((position, index) => (
+            {vertices.map((position, index) => (
               <CircleMarker
                 key={index}
                 center={position}
                 radius={TRACK_VERTEX_RADIUS}
-                pathOptions={TRACK_VERTEX}
+                pathOptions={vertexStyle}
                 interactive={false}
               />
             ))}

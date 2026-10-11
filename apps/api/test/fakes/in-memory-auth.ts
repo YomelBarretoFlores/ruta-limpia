@@ -16,6 +16,7 @@ import {
 } from '../../src/auth/domain/lockout-policy.js';
 import type { SessionTimes, UserAgentClass } from '../../src/auth/domain/session-policy.js';
 import type { AuditEvent, AuditLog } from '../../src/shared/application/audit-log.js';
+import type { Stopwatch } from '../../src/shared/application/stopwatch.js';
 
 interface UserRow {
   user: PanelUser;
@@ -200,23 +201,22 @@ export class InMemoryKnownNetworkStore implements KnownNetworkStore {
 export class FakePasswordHasher implements PasswordHasher {
   verifications = 0;
   dummyVerifications = 0;
-  onVerify: (password: string) => void = () => undefined;
+  onVerify: (password: string) => void | Promise<void> = () => undefined;
 
   hash(password: string): Promise<string> {
     return Promise.resolve(`hashed:${password}`);
   }
 
-  verify(password: string, encodedHash: string): Promise<boolean> {
+  async verify(password: string, encodedHash: string): Promise<boolean> {
     this.verifications += 1;
-    this.onVerify(password);
-    return Promise.resolve(encodedHash === `hashed:${password}`);
+    await this.onVerify(password);
+    return encodedHash === `hashed:${password}`;
   }
 
-  verifyDummy(password: string): Promise<void> {
+  async verifyDummy(password: string): Promise<void> {
     this.verifications += 1;
     this.dummyVerifications += 1;
-    this.onVerify(password);
-    return Promise.resolve();
+    await this.onVerify(password);
   }
 }
 
@@ -243,5 +243,35 @@ export class InMemoryAuditLog implements AuditLog {
 
   actions(): string[] {
     return this.events.map((e) => e.action);
+  }
+}
+
+/**
+ * A stopwatch whose time only moves when a test says so; `sleep` records each wait and resolves
+ * at once, or when `release()` is called while `holding`.
+ */
+export class FakeStopwatch implements Stopwatch {
+  readonly sleeps: number[] = [];
+  holding = false;
+  private time = 0;
+  private readonly held: (() => void)[] = [];
+
+  now(): number {
+    return this.time;
+  }
+
+  advance(ms: number): void {
+    this.time += ms;
+  }
+
+  sleep(ms: number): Promise<void> {
+    this.sleeps.push(ms);
+    if (!this.holding) return Promise.resolve();
+    return new Promise((resolve) => this.held.push(resolve));
+  }
+
+  release(): void {
+    this.holding = false;
+    for (const resolve of this.held.splice(0)) resolve();
   }
 }

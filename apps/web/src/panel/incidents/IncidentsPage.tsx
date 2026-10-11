@@ -165,6 +165,7 @@ export function IncidentsPage() {
                 id: trip.id,
                 label: `${formatDateTime(trip.startedAt)} · ${trip.vehicleLabel}`,
               }))}
+              tripsLoading={context.data === undefined && context.status === 'loading'}
               editing={editing.mode === 'edit'}
               initial={
                 editing.mode === 'edit'
@@ -270,7 +271,7 @@ export function IncidentsPage() {
             canUpdate={canUpdate}
             onEdit={(incident) => setEditing({ mode: 'edit', incident })}
             onResolve={(incident) => setEditing({ mode: 'resolve', incident })}
-            reopeningId={reopening}
+            reopening={reopening !== null}
             onReopen={(incident) => void reopen(incident)}
           />
           <Pagination

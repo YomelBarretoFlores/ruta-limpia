@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   FakePasswordHasher,
+  FakeStopwatch,
   InMemoryAuditLog,
   InMemoryKnownNetworkStore,
   InMemorySessionStore,
@@ -11,7 +12,10 @@ import {
 import { ManualClock } from '../../../test/fakes/in-memory-tracking-store.js';
 import type { Logger } from '../../shared/application/logger.js';
 import { InMemoryLoginSourceStore } from '../infrastructure/in-memory-login-source-store.js';
+import { ScryptPasswordHasher } from '../infrastructure/scrypt-password-hasher.js';
+import { PasswordHasherBusyError, type PasswordHasher } from './auth-ports.js';
 import { AuthService } from './auth-service.js';
+import { VerificationTiming } from './verification-timing.js';
 
 const T0 = new Date('2026-10-20T12:00:00Z');
 const minutes = (n: number) => new Date(T0.getTime() + n * 60_000);
@@ -23,6 +27,8 @@ let sessions: InMemorySessionStore;
 let hasher: FakePasswordHasher;
 let audit: InMemoryAuditLog;
 let knownNetworks: InMemoryKnownNetworkStore;
+let sources: InMemoryLoginSourceStore;
+let stopwatch: FakeStopwatch;
 let warnings: { context: object; message: string | undefined }[];
 let auth: AuthService;
 let userId: string;
@@ -37,25 +43,10 @@ beforeEach(async () => {
   hasher = new FakePasswordHasher();
   audit = new InMemoryAuditLog();
   knownNetworks = new InMemoryKnownNetworkStore();
+  sources = new InMemoryLoginSourceStore(() => clock.now());
+  stopwatch = new FakeStopwatch();
   warnings = [];
-  const logger: Logger = {
-    debug: () => undefined,
-    info: () => undefined,
-    warn: (context, message) => warnings.push({ context, message }),
-    error: () => undefined,
-  };
-  auth = new AuthService({
-    users,
-    sessions,
-    sources: new InMemoryLoginSourceStore(() => clock.now()),
-    knownNetworks,
-    hasher,
-    tokens: new SequentialSessionTokens(),
-    audit,
-    clock,
-    logger,
-    sessionPolicy: { idleMinutes: 30, absoluteHours: 2, touchIntervalSec: 60 },
-  });
+  auth = authWith(hasher);
   const created = await users.create({
     username: 'ana',
     displayName: 'Ana',
@@ -64,6 +55,28 @@ beforeEach(async () => {
   });
   userId = created?.id ?? '';
 });
+
+function authWith(passwordHasher: PasswordHasher): AuthService {
+  const logger: Logger = {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: (context, message) => warnings.push({ context, message }),
+    error: () => undefined,
+  };
+  return new AuthService({
+    users,
+    sessions,
+    sources,
+    knownNetworks,
+    hasher: passwordHasher,
+    timing: new VerificationTiming(stopwatch),
+    tokens: new SequentialSessionTokens(),
+    audit,
+    clock,
+    logger,
+    sessionPolicy: { idleMinutes: 30, absoluteHours: 2, touchIntervalSec: 60 },
+  });
+}
 
 describe('AuthService.login', () => {
   it('opens a session for a valid, case-insensitive username', async () => {
@@ -119,13 +132,15 @@ describe('AuthService.login', () => {
     expect(audit.events.at(-1)?.details).toEqual({ reason: 'wrong_password', scope: 'source' });
 
     clock.set(minutes(14));
-    // Even the right password is refused from the paused network, at the same cost.
+    // Even the right password is refused from the paused network, after as long a wait as a
+    // check takes, without hashing.
     expect(await attempt(PASSWORD)).toEqual({ status: 'invalid_credentials' });
     expect(audit.events.at(-1)).toMatchObject({
       action: 'auth.login_blocked',
       details: { reason: 'source_locked' },
     });
-    expect(hasher.verifications).toBe(6);
+    expect(hasher.verifications).toBe(5);
+    expect(stopwatch.sleeps).toHaveLength(1);
 
     clock.set(minutes(15));
     expect((await attempt(PASSWORD)).status).toBe('authenticated');
@@ -144,11 +159,11 @@ describe('AuthService.login', () => {
     for (let n = 0; n < 10; n++) await attempt('wrong password!', `10.0.${n}.0/24`);
     const verifications = hasher.verifications;
 
-    // Even the right password, too early: refused like a wrong one, after the same hashing work
-    // (a dummy verification), so the timing does not reveal that the account exists.
+    // Even the right password, too early: refused like a wrong one, after as long a wait as a
+    // recent check took (no hashing), so the timing does not reveal that the account exists.
     expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
-    expect(hasher.verifications).toBe(verifications + 1);
-    expect(hasher.dummyVerifications).toBe(1);
+    expect(hasher.verifications).toBe(verifications);
+    expect(stopwatch.sleeps).toHaveLength(1);
     expect(audit.events.at(-1)).toMatchObject({
       action: 'auth.login_blocked',
       details: { reason: 'account_throttled' },
@@ -166,19 +181,92 @@ describe('AuthService.login', () => {
     for (let n = 0; n < 10; n++) await attempt('wrong password!', `10.0.${n}.0/24`);
     clock.set(seconds(1));
     const checked: string[] = [];
-    hasher.onVerify = (password) => checked.push(password);
+    hasher.onVerify = (password) => {
+      checked.push(password);
+    };
 
     const results = await Promise.all(
       [1, 2, 3, 4].map((n) => attempt(`wrong password ${n}`, `10.1.${n}.0/24`)),
     );
 
     expect(results.map((r) => r.status)).toEqual(Array<string>(4).fill('invalid_credentials'));
-    expect(hasher.dummyVerifications).toBe(3);
+    expect(stopwatch.sleeps).toHaveLength(3);
     expect(users.rows.get(userId)).toMatchObject({ failedAttempts: 11 });
     expect(audit.events.filter((e) => e.details?.['reason'] === 'account_throttled')).toHaveLength(
       3,
     );
-    expect(checked).toHaveLength(4);
+    expect(checked).toHaveLength(1);
+  });
+
+  it('gives a simultaneous burst from a known network at most its remaining budget of checks', async () => {
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const checked: string[] = [];
+    hasher.onVerify = async (password) => {
+      checked.push(password);
+      await gate;
+    };
+
+    const burst = Array.from({ length: 8 }, (_, n) => attempt(`guess number ${n}`, OFFICE));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    open();
+    const results = await Promise.all(burst);
+
+    expect(results.map((r) => r.status)).toEqual(Array<string>(8).fill('invalid_credentials'));
+    expect(checked).toHaveLength(5);
+    expect(
+      audit.events.filter((e) => e.details?.['reason'] === 'source_locked').map((e) => e.action),
+    ).toEqual(Array<string>(3).fill('auth.login_blocked'));
+    // The five checked failures paused the network; nothing is left in flight.
+    expect(await sources.find(`${userId}|${OFFICE}`)).toMatchObject({ inFlight: 0 });
+    expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
+  });
+
+  it('gives back the reserved slot and the provisional place when the check is shed', async () => {
+    for (let n = 0; n < 10; n++) await attempt('wrong password!', `10.0.${n}.0/24`);
+    clock.set(seconds(1));
+    hasher.onVerify = () => {
+      hasher.onVerify = () => undefined;
+      throw new PasswordHasherBusyError('queue_full');
+    };
+
+    await expect(attempt(PASSWORD, OFFICE)).rejects.toBeInstanceOf(PasswordHasherBusyError);
+    expect(await sources.find(`${userId}|${OFFICE}`)).toMatchObject({ inFlight: 0 });
+
+    // The shed request did not use the interval up: a retry right away is checked.
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+  });
+
+  it('keeps other accounts signing in while a throttled account is flooded', async () => {
+    // A real hasher with one slot and one waiting place: anything more is shed.
+    const scrypt = new ScryptPasswordHasher({
+      params: { logN: 10, r: 1, p: 1 },
+      maxConcurrent: 1,
+      maxQueued: 1,
+    });
+    auth = authWith(scrypt);
+    const bob = await users.create({
+      username: 'bob',
+      displayName: 'Bob',
+      role: 'supervisor',
+      passwordHash: await scrypt.hash(PASSWORD),
+    });
+    const ana = users.rows.get(userId);
+    if (ana === undefined || bob === null) throw new Error('missing users');
+    Object.assign(ana, { failedAttempts: 16, windowFailures: 16, lastAttemptAt: T0 });
+    stopwatch.holding = true;
+
+    const flood = Array.from({ length: 20 }, (_, n) => attempt(PASSWORD, `10.2.${n}.0/24`));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const owner = await auth.login({ username: 'bob', password: PASSWORD, clientNetwork: OFFICE });
+    stopwatch.release();
+
+    expect(owner.status).toBe('authenticated');
+    expect((await Promise.all(flood)).map((r) => r.status)).toEqual(
+      Array<string>(20).fill('invalid_credentials'),
+    );
+    expect(stopwatch.sleeps).toHaveLength(20);
   });
 
   it('lets the owner sign in from a known network while an attacker keeps the interval running', async () => {
@@ -262,7 +350,9 @@ describe('AuthService.login', () => {
 
   it('bounds oversized input: no lookup, a bounded dummy verification, a generic failure', async () => {
     const seen: string[] = [];
-    hasher.onVerify = (password) => seen.push(password);
+    hasher.onVerify = (password) => {
+      seen.push(password);
+    };
 
     const longName = await auth.login({ username: 'a'.repeat(100_000), password: PASSWORD });
     const longPassword = await auth.login({ username: 'ana', password: 'p'.repeat(100_000) });

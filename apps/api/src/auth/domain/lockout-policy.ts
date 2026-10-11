@@ -91,16 +91,68 @@ export function registerFailedLogin(
   return { failedAttempts, lockedUntil: null, lockedNow: false };
 }
 
+/**
+ * The per-source state: the counted failures, the pause, and the attempts of that source whose
+ * password check is still running (`inFlight`).
+ */
+export interface SourceLoginState extends LoginState {
+  readonly inFlight: number;
+}
+
+export const CLEAN_SOURCE_LOGIN_STATE: SourceLoginState = Object.freeze({
+  failedAttempts: 0,
+  lockedUntil: null,
+  inFlight: 0,
+});
+
+/**
+ * Admits an attempt from one source (account and client network) to the password check, counting
+ * every attempt still being checked as a provisional failure: a burst of simultaneous attempts
+ * gets at most the source's remaining budget of password checks, never more. The caller settles
+ * each admitted attempt with `settleSourceAttempt`.
+ */
+export function admitSourceAttempt(
+  state: SourceLoginState,
+  now: Date,
+  threshold: LockoutThreshold,
+): SourceLoginState & { readonly admitted: boolean } {
+  const exhausted = state.failedAttempts + state.inFlight >= threshold.maxFailedAttempts;
+  if (isLocked(state, now) || exhausted) return { ...state, admitted: false };
+  return { ...state, inFlight: state.inFlight + 1, admitted: true };
+}
+
+/**
+ * Settles an admitted attempt: a failure is counted (and may pause the source), a success clears
+ * the failures unless a parallel attempt paused the source meanwhile, and an abandoned attempt
+ * (its check never ran) only gives its provisional place back.
+ */
+export function settleSourceAttempt(
+  state: SourceLoginState,
+  now: Date,
+  threshold: LockoutThreshold,
+  outcome: 'failed' | 'succeeded' | 'abandoned',
+): SourceLoginState & { readonly lockedNow: boolean } {
+  const inFlight = Math.max(0, state.inFlight - 1);
+  if (outcome === 'failed') return { ...registerFailedLogin(state, now, threshold), inFlight };
+  if (outcome === 'succeeded' && !isLocked(state, now)) {
+    return { ...registerSuccessfulLogin(), inFlight, lockedNow: false };
+  }
+  return { ...state, inFlight, lockedNow: false };
+}
+
 /** A successful login clears the failures and any expired lock. */
 export function registerSuccessfulLogin(): LoginState {
   return CLEAN_LOGIN_STATE;
 }
 
 /**
- * The login state of an account. `failedAttempts` counts the consecutive failures since the last
- * successful sign-in (it drives the spacing); `windowFailures` counts every failure of the current
- * 24 h window (it drives the hard pause) and survives a successful sign-in, so an owner who signs
- * in during an attack does not hand the attacker a fresh daily budget.
+ * The login state of an account. `failedAttempts` counts the consecutive failures of the current
+ * 24 h window since the last successful sign-in (it drives the spacing): a successful sign-in, the
+ * start of a new window and a pause all restart it. `windowFailures` counts every failure of the
+ * current window (it drives the hard pause) and survives a successful sign-in, so an owner who
+ * signs in during an attack does not hand the attacker a fresh daily budget. A window starts at
+ * its first failure and lasts `windowHours`, so the cap of `maxFailures` per window holds whatever
+ * the spacing count is.
  */
 export interface AccountLoginState extends LoginState {
   readonly windowFailures: number;
@@ -135,23 +187,53 @@ export function isThrottled(state: AccountLoginState, now: Date, throttle: Accou
   return now.getTime() - state.lastAttemptAt.getTime() < interval * 1000;
 }
 
+/** The slot an admitted attempt took, so it can be given back if the check never ran. */
+export interface AttemptReservation {
+  readonly at: Date;
+  /** The `lastAttemptAt` the reservation replaced. */
+  readonly previous: Date | null;
+}
+
 /**
  * Admits an attempt to the password check, or refuses it, atomically with the stored state (the
  * caller runs it under the account's row lock, before any hashing). An admitted attempt while the
- * spacing applies reserves its slot (`lastAttemptAt = now`), so concurrent attempts arriving when
- * an interval ends get at most one password check between them. A paused account admits nothing
- * and changes nothing.
+ * spacing applies reserves its slot (`lastAttemptAt = now`, returned as `reservation`), so
+ * concurrent attempts arriving when an interval ends get at most one password check between them.
+ * A paused account admits nothing and changes nothing.
  */
 export function reserveAttempt(
   state: AccountLoginState,
   now: Date,
   throttle: AccountThrottle,
-): AccountLoginState & { readonly admitted: boolean } {
+): AccountLoginState & {
+  readonly admitted: boolean;
+  readonly reservation: AttemptReservation | null;
+} {
   if (isLocked(state, now) || isThrottled(state, now, throttle)) {
-    return { ...state, admitted: false };
+    return { ...state, admitted: false, reservation: null };
   }
-  if (attemptIntervalSec(state.failedAttempts, throttle) === 0) return { ...state, admitted: true };
-  return { ...state, lastAttemptAt: now, admitted: true };
+  if (attemptIntervalSec(state.failedAttempts, throttle) === 0) {
+    return { ...state, admitted: true, reservation: null };
+  }
+  return {
+    ...state,
+    lastAttemptAt: now,
+    admitted: true,
+    reservation: { at: now, previous: state.lastAttemptAt },
+  };
+}
+
+/**
+ * Gives back a reserved slot whose password check never ran (the hasher shed the request, for
+ * instance), so a refused request does not use up the interval. Nothing changes when a later
+ * failure or attempt has replaced the slot since.
+ */
+export function releaseAttempt(
+  state: AccountLoginState,
+  reservation: AttemptReservation,
+): AccountLoginState {
+  if (state.lastAttemptAt?.getTime() !== reservation.at.getTime()) return state;
+  return { ...state, lastAttemptAt: reservation.previous };
 }
 
 /**

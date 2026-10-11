@@ -8,6 +8,7 @@ import { KyselySubscriptionStore } from './alerts/infrastructure/kysely-subscrip
 import { buildApp, type PanelRouteRegistration } from './app.js';
 import type { PasswordHasher } from './auth/application/auth-ports.js';
 import { AuthService } from './auth/application/auth-service.js';
+import { VerificationTiming } from './auth/application/verification-timing.js';
 import { UserAdminService } from './auth/application/user-admin-service.js';
 import { DEFAULT_LOCKOUT_POLICY } from './auth/domain/lockout-policy.js';
 import { CryptoSessionTokens } from './auth/infrastructure/crypto-session-tokens.js';
@@ -44,6 +45,7 @@ import type { EventBus } from './shared/application/event-bus.js';
 import { KeyedMutex } from './shared/application/keyed-mutex.js';
 import type { AppDatabase } from './shared/infrastructure/db/database.js';
 import { InMemoryEventBus } from './shared/infrastructure/events/in-memory-event-bus.js';
+import { systemStopwatch } from './shared/infrastructure/system-stopwatch.js';
 import { KyselyAuditLog } from './shared/infrastructure/audit/kysely-audit-log.js';
 import { KyselyUnitOfWork } from './shared/infrastructure/db/kysely-unit-of-work.js';
 import { IngestPositionService } from './tracking/application/ingest-position-service.js';
@@ -286,6 +288,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     sources: new InMemoryLoginSourceStore(() => clock.now()),
     knownNetworks: new KyselyKnownNetworkStore(db),
     hasher,
+    timing: new VerificationTiming(systemStopwatch),
     tokens: new CryptoSessionTokens(),
     audit,
     clock,

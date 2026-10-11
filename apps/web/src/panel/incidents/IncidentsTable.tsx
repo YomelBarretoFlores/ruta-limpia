@@ -9,8 +9,8 @@ export interface IncidentsTableProps {
   readonly onEdit: (incident: Incident) => void;
   readonly onResolve: (incident: Incident) => void;
   readonly onReopen: (incident: Incident) => void;
-  /** The incident being reopened, whose button waits for the answer. */
-  readonly reopeningId?: string | null;
+  /** A reopen is waiting for its answer: every Reabrir button waits too (one at a time). */
+  readonly reopening?: boolean;
 }
 
 export function IncidentsTable({
@@ -19,7 +19,7 @@ export function IncidentsTable({
   onEdit,
   onResolve,
   onReopen,
-  reopeningId = null,
+  reopening = false,
 }: IncidentsTableProps) {
   if (incidents.length === 0) {
     return <p className="table-empty">No hay incidencias con estos filtros.</p>;
@@ -84,7 +84,7 @@ export function IncidentsTable({
                       <button
                         type="button"
                         className="link-button"
-                        disabled={reopeningId !== null}
+                        disabled={reopening}
                         onClick={() => onReopen(incident)}
                       >
                         Reabrir <span className="visually-hidden">{kind}</span>

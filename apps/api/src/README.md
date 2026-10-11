@@ -225,11 +225,15 @@ The domain holds the rules: `credentials` (12–256 characters, case-insensitive
 are spaced out after ten failures and 100 failures in 24 hours pause the account),
 `session-policy` (idle and absolute lifetimes, touch interval), `role` (the permission matrix;
 code asks `can(role, permission)`, never compares role names) and `csrf-policy` (custom header
-plus `Origin` check). `AuthService` burns one password verification on every failed path
-(unknown, inactive, paused and throttled users included); it decides the account's spacing and
-reserves the attempt's slot under the row lock before hashing (`reserveAttempt` through
-`modifyLoginState`), skips the spacing for the account's known networks (`KnownNetworkStore`, a
-successful sign-in within 30 days), counts failures under the row lock,
+plus `Origin` check). `AuthService` burns one password verification for unknown and inactive
+users; a paused or throttled attempt waits as long as a recent real verification instead
+(`VerificationTiming`, fed by every real verification), so it costs no hashing. Before hashing it
+takes a provisional place in the source's budget (`admitSourceAttempt`; attempts in flight count as
+failures, settled by `settleSourceAttempt`), decides the account's spacing and reserves the
+attempt's slot under the row lock (`reserveAttempt` through `modifyLoginState`), skips the spacing
+for the account's known networks (`KnownNetworkStore`, a successful sign-in within 30 days), gives
+the slot and the place back when the hasher sheds the check (`releaseAttempt`), counts failures
+under the row lock,
 opens a fresh session at each login and revokes the presented one. `UserAdminService` revokes a
 user's sessions on a role change, a deactivation or a password reset.
 
@@ -264,3 +268,13 @@ creates the `instrument1_export` view (system and baseline rows, `source` column
 The `instrument1_route_log` view
 produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null
 when no alert was sent.
+
+#### Deploy notes
+
+- **Stop the old API before migrating (from `0013-known-networks` on).** `0013` renames
+  `users.last_failed_at` to `last_attempt_at` in place instead of expanding and contracting the
+  schema. An API process of an earlier build still reads and writes `last_failed_at`, so once the
+  migration commits every sign-in on that process fails with a database error. The pilot runs a
+  single API instance, so the order is: stop the API, run `db:migrate` (or start the new build,
+  which migrates on start), then start the new build. Rolling the code back likewise needs the
+  migration's `down` first.

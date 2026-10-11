@@ -36,3 +36,17 @@ export const TRACK_VERTEX = {
   fillOpacity: 1,
 } as const satisfies PathOptions;
 export const TRACK_VERTEX_RADIUS = 2;
+
+/** The most dots a track draws; a longer track shows evenly spaced ones. */
+export const MAX_TRACK_VERTICES = 200;
+
+/**
+ * At most `max` of the positions, evenly spaced and always with the first and the last, so a trip
+ * of thousands of fixes draws a bounded number of dots while the line keeps every position.
+ */
+export function decimateTrack<T>(positions: readonly T[], max = MAX_TRACK_VERTICES): readonly T[] {
+  if (positions.length <= max) return positions;
+  if (max < 2) return positions.slice(0, max);
+  const step = (positions.length - 1) / (max - 1);
+  return Array.from({ length: max }, (_, i) => positions[Math.round(i * step)] as T);
+}

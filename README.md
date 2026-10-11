@@ -352,15 +352,23 @@ Administrators then manage every other account from the panel.
   users, wrong passwords, throttled and paused sign-in. Lockout policy (`DEFAULT_LOCKOUT_POLICY`),
   throttling in the manner of NIST SP 800-63B (5.2.2) rather than a low hard lock:
   - **per network**: five consecutive failures against one account from one client network
-    (IPv4 /24, IPv6 /64) pause that network's sign-in on that account for 15 minutes;
-  - **per account, throttling**: the first ten consecutive failures from any networks are free;
-    after the n-th failure (n ≥ 10) the next attempt must wait 2^(n−10) seconds (1, 2, 4 … at most
-    60 s). An attempt that comes earlier is refused with the same `401` after the same scrypt
-    work as a checked one (a dummy verification through the bounded hashing queue), so its timing
-    does not reveal that the account exists; it is audited as `auth.login_blocked` with `reason:
-account_throttled`. The check and the reservation of the attempt's slot happen under the
-    account's row lock before any hashing, so attempts arriving together when an interval ends get
-    one password check between them (an integration test fires eight at once);
+    (IPv4 /24, IPv6 /64) pause that network's sign-in on that account for 15 minutes. Before any
+    hashing, each attempt takes a provisional place in that budget (attempts still being checked
+    count as failures), so a simultaneous burst from one network, a known one included, gets at
+    most the remaining budget of password checks;
+  - **per account, throttling**: the first ten consecutive failures of the account's 24-hour
+    window are free (a successful sign-in, a new window and a pause restart the count); after the
+    n-th failure (n ≥ 10) the next attempt must wait 2^(n−10) seconds (1, 2, 4 … at most 60 s).
+    An attempt that comes earlier is refused with the same `401` after a wait as long as a recent
+    real verification (one of the last 32 measured durations, queue wait included, picked at
+    random; 400 ms before any), without hashing, so its timing does not reveal that the account
+    exists and a flood of refused attempts takes no place in the hashing queue (a unit test floods
+    a throttled account while another account signs in); it is audited as `auth.login_blocked`
+    with `reason: account_throttled`. The check and the reservation of the attempt's slot happen
+    under the account's row lock before any hashing, so attempts arriving together when an
+    interval ends get one password check between them (an integration test fires eight at once).
+    When the hashing queue sheds the checked attempt (`503`), its slot and its provisional place
+    are given back;
   - **known networks**: the spacing does not apply to an attempt from a network (IPv4 /24, IPv6
     /64) from which the account signed in successfully within the last 30 days, so an attacker
     who keeps the interval running from elsewhere cannot starve the owner out (an integration test
@@ -376,9 +384,10 @@ account_throttled`. The check and the reservation of the attempt's slot happen u
     reset the attacker's daily budget; an administrator's password reset clears the account's
     counts, throttle and pause (an integration test proves it), though not the per-network pauses.
 
-  Tradeoffs: one generic answer at one cost, so neither the message nor the timing reveals a
-  pause or a throttle; the price is that every early guess still costs one scrypt verification,
-  bounded by the hashing queue (a flood is shed with `503 auth_busy`, as for unknown usernames).
+  Tradeoffs: one generic answer, with the response time of a real check, so neither the message
+  nor the timing reveals a pause or a throttle; a refused attempt holds its request open for that
+  time (bounded by the per-IP rate limit) but costs no hashing. Unknown usernames still burn a
+  dummy verification through the bounded queue (a flood of them is shed with `503 auth_busy`).
   Guessing is slow and capped (after ten free tries, about one per minute, and at most 100 per
   account per window), while a few failures never lock the owner out, and the owner's known
   networks are not spaced out during an attack; from a new network the owner may wait up to a

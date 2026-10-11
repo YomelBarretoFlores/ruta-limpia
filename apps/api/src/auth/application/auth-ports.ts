@@ -1,4 +1,4 @@
-import type { AccountLoginState, LoginState } from '../domain/lockout-policy.js';
+import type { AccountLoginState, SourceLoginState } from '../domain/lockout-policy.js';
 import type { Role } from '../domain/role.js';
 import type { SessionTimes, UserAgentClass } from '../domain/session-policy.js';
 
@@ -54,14 +54,20 @@ export interface UserStore {
 }
 
 /**
- * Port: login failures per (account, client network), the "per source" layer of the lockout
- * policy. It may live in process memory: losing it on a restart only resets the per-source counts,
- * while the per-account count stays in the user store.
+ * Port: login failures and attempts being checked per (account, client network), the "per
+ * source" layer of the lockout policy. It may live in process memory: losing it on a restart only
+ * resets the per-source counts, while the per-account count stays in the user store.
  */
 export interface LoginSourceStore {
-  find(key: string): Promise<LoginState>;
-  /** Read-modify-write of one key's state; returns what `change` returned. */
-  modify<T extends LoginState>(key: string, change: (current: LoginState) => T): Promise<T>;
+  find(key: string): Promise<SourceLoginState>;
+  /**
+   * Atomic read-modify-write of one key's state (no other change to the key runs in between);
+   * returns what `change` returned.
+   */
+  modify<T extends SourceLoginState>(
+    key: string,
+    change: (current: SourceLoginState) => T,
+  ): Promise<T>;
 }
 
 /**

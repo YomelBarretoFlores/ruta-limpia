@@ -20,6 +20,8 @@ export interface IncidentFormProps {
   readonly points: readonly { readonly code: string; readonly name: string }[];
   /** Trips the incident may belong to (the active one in the live view). */
   readonly trips: readonly { readonly id: string; readonly label: string }[];
+  /** The trips are still loading: a preset trip is kept until the list arrives. */
+  readonly tripsLoading?: boolean;
   readonly initial?: Partial<IncidentFormValues>;
   /** Editing keeps the route, the point, the trip and the time (the API changes kind and text). */
   readonly editing?: boolean;
@@ -32,7 +34,7 @@ export interface IncidentFormProps {
 
 /** An incident: kind, optional point and trip, when it happened, and what happened. */
 export function IncidentForm(props: IncidentFormProps) {
-  const { routeCode, points, trips, initial, editing = false, now } = props;
+  const { routeCode, points, trips, initial, editing = false, tripsLoading = false, now } = props;
   const [values, setValues] = useState<IncidentFormValues>({
     kind: '',
     pointCode: '',
@@ -46,8 +48,11 @@ export function IncidentForm(props: IncidentFormProps) {
   const [working, setWorking] = useState(false);
   const occurredAt = fromLocalDateTimeInput(values.occurredAt);
   // A trip that is no longer offered (it ended while the form was open) is not chosen anymore:
-  // the select shows "Sin viaje" and nothing stale is sent. Editing never sends the trip.
-  const tripId = editing || trips.some((trip) => trip.id === values.tripId) ? values.tripId : '';
+  // the select shows "Sin viaje" and nothing stale is sent. Editing never sends the trip. While
+  // the trips are still loading, a preset trip is kept (the list cannot tell yet).
+  const offered = trips.some((trip) => trip.id === values.tripId);
+  const tripId = editing || tripsLoading || offered ? values.tripId : '';
+  const pendingTrip = tripId !== '' && !offered;
   const kindError = checked && values.kind === '' ? 'Elige el tipo de incidencia.' : undefined;
   const timeError =
     checked && occurredAt === null
@@ -138,6 +143,11 @@ export function IncidentForm(props: IncidentFormProps) {
             onChange={(event) => setValues({ ...values, tripId: event.target.value })}
           >
             <option value="">Sin viaje</option>
+            {pendingTrip && (
+              <option value={tripId}>
+                {tripsLoading ? 'Cargando viajes…' : 'Viaje registrado'}
+              </option>
+            )}
             {trips.map((trip) => (
               <option key={trip.id} value={trip.id}>
                 {trip.label}

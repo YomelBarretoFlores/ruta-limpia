@@ -11,8 +11,10 @@ import {
 } from './credentials.js';
 import { checkCsrf, CSRF_HEADER_VALUE, isMutatingMethod } from './csrf-policy.js';
 import {
+  admitSourceAttempt,
   attemptIntervalSec,
   CLEAN_ACCOUNT_LOGIN_STATE,
+  CLEAN_SOURCE_LOGIN_STATE,
   DEFAULT_LOCKOUT_POLICY,
   isLocked,
   isThrottled,
@@ -20,9 +22,12 @@ import {
   registerAccountFailure,
   registerAccountSuccess,
   registerFailedLogin,
+  releaseAttempt,
   reserveAttempt,
   registerSuccessfulLogin,
+  settleSourceAttempt,
   type AccountLoginState,
+  type SourceLoginState,
 } from './lockout-policy.js';
 import { can, isRole, permissionsOf, PERMISSIONS } from './role.js';
 import {
@@ -151,11 +156,17 @@ describe('lockout policy', () => {
     expect(reserveAttempt(state, new Date(T0.getTime() + 500), throttle)).toEqual({
       ...state,
       admitted: false,
+      reservation: null,
     });
     // At the end of the interval the first attempt is admitted and takes the slot ...
     const later = new Date(T0.getTime() + 1000);
     const first = reserveAttempt(state, later, throttle);
-    expect(first).toMatchObject({ admitted: true, lastAttemptAt: later, failedAttempts: 10 });
+    expect(first).toMatchObject({
+      admitted: true,
+      lastAttemptAt: later,
+      failedAttempts: 10,
+      reservation: { at: later, previous: T0 },
+    });
     // ... so a concurrent one, serialized after it by the row lock, is refused.
     expect(reserveAttempt(first, later, throttle).admitted).toBe(false);
   });
@@ -163,10 +174,78 @@ describe('lockout policy', () => {
   it('admits free attempts without reserving anything, and nothing while paused', () => {
     const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
     const free = registerAccountFailure(CLEAN_ACCOUNT_LOGIN_STATE, T0, throttle);
-    expect(reserveAttempt(free, T0, throttle)).toEqual({ ...free, admitted: true });
+    expect(reserveAttempt(free, T0, throttle)).toEqual({
+      ...free,
+      admitted: true,
+      reservation: null,
+    });
 
     const paused: AccountLoginState = { ...CLEAN_ACCOUNT_LOGIN_STATE, lockedUntil: at(10) };
-    expect(reserveAttempt(paused, at(5), throttle)).toEqual({ ...paused, admitted: false });
+    expect(reserveAttempt(paused, at(5), throttle)).toEqual({
+      ...paused,
+      admitted: false,
+      reservation: null,
+    });
+  });
+
+  it('gives back a reserved slot unless a later attempt replaced it', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    let state: AccountLoginState = CLEAN_ACCOUNT_LOGIN_STATE;
+    for (let i = 0; i < 10; i++) state = registerAccountFailure(state, T0, throttle);
+    const later = new Date(T0.getTime() + 1000);
+    const { reservation, ...reserved } = reserveAttempt(state, later, throttle);
+    if (reservation === null) throw new Error('no reservation');
+
+    const released = releaseAttempt(reserved, reservation);
+    expect(released.lastAttemptAt).toEqual(T0);
+    expect(reserveAttempt(released, later, throttle).admitted).toBe(true);
+
+    const replaced = registerAccountFailure(reserved, at(1), throttle);
+    expect(releaseAttempt(replaced, reservation)).toBe(replaced);
+  });
+
+  it('counts the attempts of a source still being checked against its budget', () => {
+    const threshold = DEFAULT_LOCKOUT_POLICY.perSource;
+    let state: SourceLoginState = { ...CLEAN_SOURCE_LOGIN_STATE, failedAttempts: 2 };
+    const admitted = [];
+    for (let i = 0; i < 4; i++) {
+      const next = admitSourceAttempt(state, T0, threshold);
+      admitted.push(next.admitted);
+      state = next;
+    }
+
+    expect(admitted).toEqual([true, true, true, false]);
+    expect(state).toMatchObject({ failedAttempts: 2, inFlight: 3 });
+  });
+
+  it('settles a checked attempt: failures count, a success clears, an abandoned one is undone', () => {
+    const threshold = DEFAULT_LOCKOUT_POLICY.perSource;
+    const checking: SourceLoginState = { failedAttempts: 4, lockedUntil: null, inFlight: 2 };
+
+    expect(settleSourceAttempt(checking, T0, threshold, 'failed')).toEqual({
+      failedAttempts: 0,
+      lockedUntil: at(15),
+      inFlight: 1,
+      lockedNow: true,
+    });
+    expect(settleSourceAttempt(checking, T0, threshold, 'succeeded')).toEqual({
+      failedAttempts: 0,
+      lockedUntil: null,
+      inFlight: 1,
+      lockedNow: false,
+    });
+    expect(settleSourceAttempt(checking, T0, threshold, 'abandoned')).toEqual({
+      ...checking,
+      inFlight: 1,
+      lockedNow: false,
+    });
+    // A success does not end a pause that a parallel failure started meanwhile.
+    const paused: SourceLoginState = { failedAttempts: 0, lockedUntil: at(15), inFlight: 1 };
+    expect(settleSourceAttempt(paused, at(1), threshold, 'succeeded')).toMatchObject({
+      lockedUntil: at(15),
+      inFlight: 0,
+    });
+    expect(admitSourceAttempt(paused, at(1), threshold).admitted).toBe(false);
   });
 
   it('ends the spacing on success but keeps the failures of the window for the daily cap', () => {
