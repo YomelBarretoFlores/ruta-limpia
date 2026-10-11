@@ -458,6 +458,20 @@
   font-size: var(--text-sm);
 }
 
+/* Ready-made periods next to the date filters; the chosen one is underlined in ink */
+.filters__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  padding-bottom: var(--space-2);
+}
+
+.filters__presets .link-button[aria-pressed='true'] {
+  color: var(--ink);
+  font-weight: var(--weight-title);
+  text-decoration: none;
+}
+
 /* Forms */
 .form-grid {
   display: grid;
@@ -816,4 +830,9 @@ textarea.input {
 
 .cell-error {
   border-left: var(--notice-bar) solid var(--danger);
+}
+
+/* Indicators (Tabla 16): the state column stays on one line */
+.indicators-table td:last-child {
+  white-space: nowrap;
 }

@@ -18,6 +18,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/panel/hogares', label: 'Hogares', anyOf: ['households:read'] },
   { to: '/panel/fichas', label: 'Fichas de campo', anyOf: FIELD_READ },
   { to: '/panel/linea-base', label: 'Línea base', anyOf: FIELD_READ },
+  { to: '/panel/indicadores', label: 'Indicadores', anyOf: ['indicators:read'] },
   { to: '/panel/usuarios', label: 'Usuarios', anyOf: ['users:manage'] },
 ];
 

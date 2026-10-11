@@ -22,6 +22,10 @@ export type Permission =
   | 'field:write_own'
   | 'field:read_all'
   | 'field:write_all'
+  | 'indicators:read'
+  | 'surveys:read'
+  | 'surveys:write'
+  | 'exports:read'
   | 'users:manage';
 
 export interface PanelUser {
@@ -406,4 +410,69 @@ export interface UserChanges {
   readonly role?: Role;
   readonly active?: boolean;
   readonly password?: string;
+}
+
+// Impact indicators (Tabla 16): `GET /api/panel/indicators?route=&from=&to=`
+
+export type IndicatorId = 'I1' | 'I2' | 'I3' | 'I4' | 'I5' | 'I6' | 'I7' | 'I8' | 'I9';
+export type IndicatorUnit = 'minutes' | 'ratio' | 'percent' | 'seconds' | 'score';
+export type IndicatorStatus = 'met' | 'not_met' | 'no_data' | 'exploratory';
+
+export type IndicatorTarget =
+  | { readonly kind: 'at_most' | 'at_least'; readonly value: number }
+  | { readonly kind: 'reduction'; readonly percent: number }
+  | { readonly kind: 'increase_points'; readonly points: number }
+  | { readonly kind: 'none' };
+
+export interface IndicatorMeasure {
+  readonly value: number | null;
+  readonly nValid: number;
+  readonly nMissing: number;
+  readonly nIncomplete: number;
+}
+
+export type IndicatorChange =
+  | { readonly kind: 'relative'; readonly percent: number | null }
+  | { readonly kind: 'absolute' | 'points'; readonly difference: number | null };
+
+export interface PairedTest {
+  readonly kind: 'wilcoxon' | 'mcnemar';
+  readonly pairs: number;
+  readonly pValue: number | null;
+}
+
+export interface Indicator extends IndicatorMeasure {
+  readonly id: IndicatorId;
+  readonly name: string;
+  readonly unit: IndicatorUnit;
+  readonly target: IndicatorTarget;
+  readonly status: IndicatorStatus;
+  readonly phases: { readonly before: 'baseline' | 'pre'; readonly after: 'post' } | null;
+  readonly before: IndicatorMeasure | null;
+  readonly after: IndicatorMeasure | null;
+  readonly change: IndicatorChange | null;
+  readonly paired: PairedTest | null;
+  readonly details: Readonly<Record<string, number | null>>;
+}
+
+export interface AdoptionWeek {
+  readonly weekStart: string;
+  readonly enrolled: number;
+  readonly active: number;
+  readonly activeConfirmed: number;
+}
+
+export interface IndicatorReport {
+  readonly routeCode: string;
+  readonly from: string;
+  readonly to: string;
+  readonly generatedAt: string;
+  readonly indicators: readonly Indicator[];
+  readonly adoptionWeeks: readonly AdoptionWeek[];
+}
+
+export interface IndicatorQuery {
+  readonly route: string;
+  readonly from: string;
+  readonly to: string;
 }

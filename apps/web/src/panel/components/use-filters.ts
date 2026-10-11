@@ -14,19 +14,26 @@ export function useFilters<K extends string>(keys: readonly K[]) {
   >;
   const page = Math.max(1, Number.parseInt(params.get('pagina') ?? '1', 10) || 1);
 
-  const setFilter = useCallback(
-    (key: K, value: string) =>
+  /** Sets several filters in one address change (two separate changes would lose the first). */
+  const setFilters = useCallback(
+    (changes: Partial<Record<K, string>>) =>
       setParams(
         (previous) => {
           const next = new URLSearchParams(previous);
-          if (value === '') next.delete(key);
-          else next.set(key, value);
+          for (const [key, value] of Object.entries(changes) as [K, string | undefined][]) {
+            if (value === undefined || value === '') next.delete(key);
+            else next.set(key, value);
+          }
           next.delete('pagina');
           return next;
         },
         { replace: true },
       ),
     [setParams],
+  );
+  const setFilter = useCallback(
+    (key: K, value: string) => setFilters({ [key]: value } as Partial<Record<K, string>>),
+    [setFilters],
   );
   const setPage = useCallback(
     (value: number) =>
@@ -38,5 +45,5 @@ export function useFilters<K extends string>(keys: readonly K[]) {
       }),
     [setParams],
   );
-  return { values, page, setFilter, setPage };
+  return { values, page, setFilter, setFilters, setPage };
 }

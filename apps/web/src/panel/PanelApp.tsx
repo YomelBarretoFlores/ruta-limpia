@@ -11,6 +11,7 @@ import { FieldSheetsPage } from './field/FieldSheetsPage';
 import { HouseholdsPage } from './households/HouseholdsPage';
 import { StickerSheetPage } from './households/StickerSheetPage';
 import { IncidentsPage } from './incidents/IncidentsPage';
+import { IndicatorsPage } from './indicators/IndicatorsPage';
 import { LivePage } from './live/LivePage';
 import { LoginPage } from './session/LoginPage';
 import { RequireSession } from './session/RequireSession';
@@ -151,6 +152,14 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={FIELD_READ}>
                   <BaselineEditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="indicadores"
+              element={
+                <RequirePermission anyOf={['indicators:read']}>
+                  <IndicatorsPage />
                 </RequirePermission>
               }
             />

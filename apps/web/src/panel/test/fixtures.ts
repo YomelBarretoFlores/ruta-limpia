@@ -17,6 +17,10 @@ const PERMISSIONS: Record<Role, readonly Permission[]> = {
     'field:write_own',
     'field:read_all',
     'field:write_all',
+    'indicators:read',
+    'surveys:read',
+    'surveys:write',
+    'exports:read',
     'users:manage',
   ],
   supervisor: [
@@ -33,8 +37,18 @@ const PERMISSIONS: Record<Role, readonly Permission[]> = {
     'field:write_own',
     'field:read_all',
     'field:write_all',
+    'indicators:read',
+    'surveys:read',
+    'surveys:write',
+    'exports:read',
   ],
-  observer: ['live:read', 'incidents:create', 'field:read_own', 'field:write_own'],
+  observer: [
+    'live:read',
+    'incidents:create',
+    'field:read_own',
+    'field:write_own',
+    'indicators:read',
+  ],
 };
 
 /** A panel user with the permissions of the role, as `/auth/me` answers. */

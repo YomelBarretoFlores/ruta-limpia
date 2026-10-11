@@ -9,6 +9,8 @@ import type {
   HouseholdListItem,
   HouseholdQuery,
   Incident,
+  IndicatorQuery,
+  IndicatorReport,
   IncidentChanges,
   IncidentQuery,
   NewHousehold,
@@ -85,6 +87,9 @@ export interface PanelApi {
   createBaselineLog(log: BaselineLogInput): Promise<BaselineLog>;
   updateBaselineLog(id: string, log: BaselineLogInput): Promise<BaselineLog>;
   deleteBaselineLog(id: string): Promise<void>;
+  getIndicators(query: IndicatorQuery): Promise<IndicatorReport>;
+  /** The URL of a CSV export (a plain link: the session cookie travels with it). */
+  exportUrl(file: string, query?: object): string;
   listUsers(): Promise<readonly PanelUser[]>;
   createUser(user: NewUser): Promise<PanelUser>;
   updateUser(id: string, changes: UserChanges): Promise<PanelUser>;
@@ -204,6 +209,8 @@ export function createPanelApi({ fetch, onUnauthorized, baseUrl = '' }: PanelApi
     updateBaselineLog: async (id, log) =>
       (await send<{ log: BaselineLog }>('PUT', `${panel}/baseline-logs/${path(id)}`, log)).log,
     deleteBaselineLog: (id) => send<void>('DELETE', `${panel}/baseline-logs/${path(id)}`),
+    getIndicators: (query) => request<IndicatorReport>(`${panel}/indicators${queryString(query)}`),
+    exportUrl: (file, query = {}) => `${panel}/exports/${path(file)}${queryString(query)}`,
     listUsers: async () => (await request<{ users: PanelUser[] }>(`${panel}/users`)).users,
     createUser: async (user) =>
       (await send<{ user: PanelUser }>('POST', `${panel}/users`, user)).user,

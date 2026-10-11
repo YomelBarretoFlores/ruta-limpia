@@ -37,6 +37,7 @@ describe('visibleNavItems', () => {
       'Hogares',
       'Fichas de campo',
       'Línea base',
+      'Indicadores',
       'Usuarios',
     ]);
     expect(labels('supervisor', NAV_ITEMS)).toEqual([
@@ -46,7 +47,13 @@ describe('visibleNavItems', () => {
       'Hogares',
       'Fichas de campo',
       'Línea base',
+      'Indicadores',
     ]);
-    expect(labels('observer', NAV_ITEMS)).toEqual(['En vivo', 'Fichas de campo', 'Línea base']);
+    expect(labels('observer', NAV_ITEMS)).toEqual([
+      'En vivo',
+      'Fichas de campo',
+      'Línea base',
+      'Indicadores',
+    ]);
   });
 });

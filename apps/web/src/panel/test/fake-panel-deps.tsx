@@ -40,6 +40,8 @@ const METHODS: readonly (keyof PanelApi)[] = [
   'createBaselineLog',
   'updateBaselineLog',
   'deleteBaselineLog',
+  'getIndicators',
+  'exportUrl',
   'listUsers',
   'createUser',
   'updateUser',
@@ -62,6 +64,7 @@ export function fakePanelApi(user: PanelUser | null = panelUser()): FakePanelApi
   api.listRoutes.mockResolvedValue([PANEL_ROUTE]);
   api.getRoute.mockResolvedValue(PANEL_ROUTE);
   api.liveStreamUrl.mockImplementation((code) => `/api/live/routes/${code}/stream`);
+  api.exportUrl.mockImplementation((file) => `/api/panel/exports/${file}`);
   for (const list of [
     'listTrips',
     'listIncidents',
