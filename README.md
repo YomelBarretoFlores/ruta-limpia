@@ -170,14 +170,15 @@ for the indicators.
 
 ### Public read API
 
-The citizen PWA and the municipal panel read the route catalog from these public
+The citizen PWA and the municipal panel read the route catalog and the live state from these public
 endpoints (no authentication, no personal data). Route codes are case-insensitive. An unknown or
 inactive route answers `404 { error: "route_not_found" }`, a malformed code `400`.
 
-| Endpoint                | Cache-Control         | Description                                                                        |
-| ----------------------- | --------------------- | ---------------------------------------------------------------------------------- |
-| `GET /api/routes`       | `public, max-age=300` | Active routes: `{ routes: [{ code, name, district, lengthMeters, pointCount }] }`. |
-| `GET /api/routes/:code` | `public, max-age=300` | Route detail: geometry, reference points, weekly schedule.                         |
+| Endpoint                     | Cache-Control         | Description                                                                        |
+| ---------------------------- | --------------------- | ---------------------------------------------------------------------------------- |
+| `GET /api/routes`            | `public, max-age=300` | Active routes: `{ routes: [{ code, name, district, lengthMeters, pointCount }] }`. |
+| `GET /api/routes/:code`      | `public, max-age=300` | Route detail: geometry, reference points, weekly schedule.                         |
+| `GET /api/live/routes/:code` | `no-store`            | Live snapshot: active trips, truck, signal, ETAs, passes, alerts.                  |
 
 Route detail (`GET /api/routes/RI-01`):
 
@@ -193,6 +194,63 @@ Route detail (`GET /api/routes/RI-01`):
   "schedule": [{ "weekday": 1, "plannedStart": "07:00" }] // 0 = Sunday … 6 = Saturday, local time
 }
 ```
+
+Live snapshot (`GET /api/live/routes/RI-01`). `trips` is empty when no truck runs the route (show the
+printed schedule); it holds one entry per active trip otherwise:
+
+```jsonc
+{
+  "route": { "code": "RI-01", "name": "…" },
+  "generatedAt": "2026-10-20T12:15:01.000Z",
+  "staleAfterSeconds": 60,
+  "trips": [
+    {
+      "tripId": "…",
+      "startedAt": "…",
+      "startMode": "auto",
+      "vehicle": { "code": "UNIDAD-A", "label": "Unidad A (compactadora)" },
+      "signal": "live", // live | stale (no fix for 60 s) | none (no fix yet)
+      "lastFixAt": "…",
+      "lastPosition": { "lat": -9.52, "lon": -77.53, "fixTime": "…" },
+      "progress": { "chainageMeters": 412.5, "percent": 31.2, "offRoute": false },
+      "etas": [
+        { "pointId": "…", "pointCode": "P01", "status": "passed" },
+        {
+          "pointId": "…",
+          "pointCode": "P08",
+          "status": "live",
+          "predictedPassAt": "…",
+          "secondsRemaining": 600,
+          "window": { "minMinutes": 8, "maxMinutes": 12 },
+        },
+        { "pointId": "…", "pointCode": "P09", "status": "stale" }, // never a prediction
+      ],
+      "passes": [
+        { "pointId": "…", "pointCode": "P01", "passedAt": "…", "precision": "interpolated" },
+      ],
+      "alerts": [
+        {
+          "pointId": "…",
+          "pointCode": "P05",
+          "emittedAt": "…",
+          "communicatedPredictedPassAt": "…",
+          "recipients": 12,
+          "delivered": 11,
+        },
+      ],
+    },
+  ],
+}
+```
+
+- ETAs are recomputed at request time from the persisted trip state, so a truck that stopped
+  reporting turns `stale` without a new fix. `status` is `live`, `stale`, `passed` or `not_started`
+  (trip started, no on-route fix yet). Only `live` entries have `predictedPassAt`,
+  `secondsRemaining` and `window`.
+- `window` is the arrival range shown to citizens ("Llegada estimada: 8 a 12 minutos"): the
+  remaining time ±max(1 min, 20 %), in whole minutes.
+- `alerts` holds the alert of each point in the current trip (at most one per point) with its push
+  delivery counts.
 
 ## Scripts
 

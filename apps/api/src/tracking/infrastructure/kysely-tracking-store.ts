@@ -1,4 +1,4 @@
-import { sql, type Selectable, type Transaction } from 'kysely';
+import { sql, type Kysely, type Selectable, type Transaction } from 'kysely';
 
 import type { AlertDecision } from '../../alerts/domain/alert-policy.js';
 import { INITIAL_RECENT_SPEED, type RecentSpeed } from '../../eta/domain/recent-speed.js';
@@ -30,7 +30,7 @@ export class KyselyTrackingStore implements TrackingStore {
   }
 }
 
-type TripRow = Selectable<TripsTable>;
+export type TripRow = Selectable<TripsTable>;
 
 class KyselyTrackingTransaction implements TrackingTransaction {
   constructor(private readonly trx: Transaction<Database>) {}
@@ -193,32 +193,37 @@ class KyselyTrackingTransaction implements TrackingTransaction {
     });
   }
 
-  private async toRecord(row: TripRow): Promise<TripRecord> {
-    const passes = await this.trx
-      .selectFrom('trip_point_passes')
-      .select('point_id')
-      .where('trip_id', '=', row.id)
-      .orderBy('passed_at')
-      .execute();
-    return {
-      state: {
-        tripId: row.id,
-        status: row.status,
-        progressChainage: row.progress_chainage_m,
-        progressAt: row.progress_at,
-        lastFixAt: row.last_fix_at,
-        offRoute: row.off_route,
-        passedPointIds: passes.map((p) => p.point_id),
-        endedAt: row.ended_at,
-      },
-      routeId: row.route_id,
-      vehicleId: row.vehicle_id,
-      startMode: row.start_mode,
-      startedAt: row.started_at,
-      endReason: row.end_reason,
-      recentSpeed: deserializeRecentSpeed(row.recent_speed),
-    };
+  private toRecord(row: TripRow): Promise<TripRecord> {
+    return loadTripRecord(this.trx, row);
   }
+}
+
+/** Builds the trip record of a `trips` row (its passed points are read in pass order). */
+export async function loadTripRecord(db: Kysely<Database>, row: TripRow): Promise<TripRecord> {
+  const passes = await db
+    .selectFrom('trip_point_passes')
+    .select('point_id')
+    .where('trip_id', '=', row.id)
+    .orderBy('passed_at')
+    .execute();
+  return {
+    state: {
+      tripId: row.id,
+      status: row.status,
+      progressChainage: row.progress_chainage_m,
+      progressAt: row.progress_at,
+      lastFixAt: row.last_fix_at,
+      offRoute: row.off_route,
+      passedPointIds: passes.map((p) => p.point_id),
+      endedAt: row.ended_at,
+    },
+    routeId: row.route_id,
+    vehicleId: row.vehicle_id,
+    startMode: row.start_mode,
+    startedAt: row.started_at,
+    endReason: row.end_reason,
+    recentSpeed: deserializeRecentSpeed(row.recent_speed),
+  };
 }
 
 function serializeRecentSpeed(speed: RecentSpeed): StoredRecentSpeed {

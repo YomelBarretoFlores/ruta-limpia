@@ -10,6 +10,7 @@ import {
   pushSubscriptionRoutes,
   type PushSubscriptionRoutesOptions,
 } from './alerts/infrastructure/http/push-subscription-routes.js';
+import { liveRoutes, type LiveRoutesOptions } from './live/infrastructure/http/live-routes.js';
 import {
   publicRouteRoutes,
   type PublicRouteRoutesOptions,
@@ -29,9 +30,10 @@ export interface BuildAppOptions {
   readonly ingest?: { readonly token: string; readonly ingestor: PositionIngestor };
   /** Registers the public citizen API under `/api` when present. */
   readonly publicApi?: PushSubscriptionRoutesOptions;
-  /** Registers the public read API (route catalog) under `/api` when present. */
+  /** Registers the public read API (route catalog, live snapshot) under `/api` when present. */
   readonly publicRead?: {
     readonly catalog: PublicRouteRoutesOptions;
+    readonly live: LiveRoutesOptions;
   };
   /** Trust `X-Forwarded-*` headers from the reverse proxy. */
   readonly trustProxy?: boolean;
@@ -64,6 +66,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
   if (options.publicRead !== undefined) {
     await app.register(publicRouteRoutes, { ...options.publicRead.catalog, prefix: '/api' });
+    await app.register(liveRoutes, { ...options.publicRead.live, prefix: '/api' });
   }
 
   return app;

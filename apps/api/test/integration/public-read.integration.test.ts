@@ -3,8 +3,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { ManualClock } from '../fakes/in-memory-tracking-store.js';
 import { TEST_API_CONFIG } from '../support/api-config.js';
-import { RI01_GEOMETRY, RI01_SNAPSHOT } from '../support/ri01-tracking.js';
+import { RI01_GEOMETRY, RI01_SNAPSHOT, stopAndGoChainageAt } from '../support/ri01-tracking.js';
+import { forwardAt } from '../support/traccar-forward.js';
 import { composeApi, type Api } from '../../src/composition-root.js';
+import type { LiveSnapshotResponse } from '../../src/live/infrastructure/http/live-schemas.js';
 import type { RouteDetailResponse } from '../../src/routes/infrastructure/http/public-route-routes.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
@@ -19,6 +21,22 @@ const clock = new ManualClock(new Date(T0));
 
 function get(url: string) {
   return api.app.inject({ method: 'GET', url });
+}
+
+/** Drives RI-01 stop-and-go through the ingest endpoint for `seconds`, one fix every 20 s. */
+async function drive(seconds: number) {
+  let id = 1;
+  for (let s = 0; s <= seconds; s += 20) {
+    clock.set(new Date(T0 + s * 1000 + 1000));
+    const response = await api.app.inject({
+      method: 'POST',
+      url: '/ingest/traccar/positions',
+      headers: { 'x-ingest-token': TEST_API_CONFIG.ingestToken },
+      payload: forwardAt(T0, id++, s, stopAndGoChainageAt(s)),
+    });
+    expect(response.statusCode).toBe(200);
+  }
+  await api.ingestPosition.whenNotificationsSettled();
 }
 
 beforeAll(async () => {
@@ -98,5 +116,73 @@ describe('public route catalog (PostGIS)', () => {
     expect((await get('/api/routes/RI-01')).statusCode).toBe(404);
     expect((await get('/api/routes/XX-99')).statusCode).toBe(404);
     expect((await get('/api/routes/bad%20code')).statusCode).toBe(400);
+  });
+});
+
+describe('live route snapshot (PostGIS)', () => {
+  it('has no trip before the truck starts', async () => {
+    const response = await get('/api/live/routes/RI-01');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json()).toEqual({
+      route: { code: 'RI-01', name: 'Av. Centenario – Independencia' },
+      generatedAt: new Date(T0).toISOString(),
+      staleAfterSeconds: 60,
+      trips: [],
+    });
+    expect((await get('/api/live/routes/XX-99')).statusCode).toBe(404);
+  });
+
+  it('shows the truck, passes, alerts and live ETAs during a drive', async () => {
+    await drive(600);
+
+    const snapshot = (await get('/api/live/routes/RI-01')).json<LiveSnapshotResponse>();
+
+    expect(snapshot.generatedAt).toBe(clock.now().toISOString());
+    expect(snapshot.trips).toHaveLength(1);
+    const [trip] = snapshot.trips;
+    expect(trip).toMatchObject({
+      startMode: 'auto',
+      vehicle: { code: 'UNIDAD-A', label: 'Unidad A (compactadora)' },
+      signal: 'live',
+      lastFixAt: new Date(T0 + 600_000).toISOString(),
+      lastPosition: { fixTime: new Date(T0 + 600_000).toISOString() },
+    });
+    expect(trip!.progress.chainageMeters).toBeCloseTo(stopAndGoChainageAt(600), 0);
+    expect(trip!.progress.percent).toBeGreaterThan(0);
+    const passed = trip!.etas.filter((e) => e.status === 'passed').map((e) => e.pointCode);
+    expect(trip!.passes.map((p) => p.pointCode)).toEqual(passed);
+    expect(passed.length).toBeGreaterThan(0);
+    const live = trip!.etas.filter((e) => e.status === 'live');
+    expect(live.length).toBe(15 - passed.length);
+    for (const eta of live) {
+      expect(eta.window.minMinutes).toBeLessThan(eta.window.maxMinutes);
+      expect(Date.parse(eta.predictedPassAt)).toBeGreaterThanOrEqual(clock.now().getTime());
+    }
+    expect(trip!.alerts.length).toBeGreaterThan(0);
+    expect(trip!.alerts[0]).toEqual({
+      pointId: expect.any(String) as unknown,
+      pointCode: expect.stringMatching(/^P\d{2}$/) as unknown,
+      emittedAt: expect.any(String) as unknown,
+      communicatedPredictedPassAt: expect.any(String) as unknown,
+      recipients: 0,
+      delivered: 0,
+    });
+  });
+
+  it('withholds every prediction once the telemetry is stale', async () => {
+    await drive(300);
+    clock.set(new Date(T0 + 300_000 + 61_000));
+
+    const response = await get('/api/live/routes/RI-01');
+
+    const [trip] = response.json<LiveSnapshotResponse>().trips;
+    expect(trip?.signal).toBe('stale');
+    const pending = trip!.etas.filter((e) => e.status !== 'passed');
+    expect(pending.length).toBeGreaterThan(0);
+    expect(pending.every((e) => e.status === 'stale')).toBe(true);
+    expect(response.body).not.toContain('"predictedPassAt"');
+    expect(response.body).not.toContain('"window"');
   });
 });

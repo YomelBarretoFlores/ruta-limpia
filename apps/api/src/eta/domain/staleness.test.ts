@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isStale } from './staleness.js';
+import { isStale, telemetrySignal } from './staleness.js';
 
 describe('isStale', () => {
   const lastFixAt = new Date('2026-10-20T07:00:00Z');
@@ -19,5 +19,17 @@ describe('isStale', () => {
 
   it('accepts a custom maximum age', () => {
     expect(isStale(lastFixAt, new Date('2026-10-20T07:00:31Z'), 30)).toBe(true);
+  });
+});
+
+describe('telemetrySignal', () => {
+  const lastFixAt = new Date('2026-10-20T07:00:00Z');
+
+  it.each([
+    ['live', lastFixAt, '2026-10-20T07:01:00Z'],
+    ['stale', lastFixAt, '2026-10-20T07:01:00.001Z'],
+    ['none', null, '2026-10-20T07:01:00Z'],
+  ] as const)('is %s', (signal, fixAt, now) => {
+    expect(telemetrySignal(fixAt, new Date(now))).toBe(signal);
   });
 });

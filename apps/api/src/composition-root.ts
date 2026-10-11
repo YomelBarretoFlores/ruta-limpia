@@ -17,6 +17,8 @@ import { WebPushGateway } from './alerts/infrastructure/web-push-gateway.js';
 import { SpeedProfileProvider } from './eta/application/speed-profile-provider.js';
 import { DEFAULT_ETA_SETTINGS } from './eta/domain/eta-settings.js';
 import { KyselyCompletedTripSamples } from './eta/infrastructure/kysely-completed-trip-samples.js';
+import { LiveSnapshotService } from './live/application/live-snapshot-service.js';
+import { KyselyLiveRouteReadModel } from './live/infrastructure/kysely-live-read-model.js';
 import { RouteCatalog } from './routes/application/route-catalog.js';
 import { KyselyPublicRouteQueries } from './routes/infrastructure/kysely-public-route-queries.js';
 import { KyselyReferencePointLookup } from './routes/infrastructure/kysely-reference-point-lookup.js';
@@ -75,6 +77,7 @@ export interface Api {
   readonly speedProfiles: SpeedProfileProvider;
   readonly inactivityJob: InactivityJob;
   readonly subscriptions: SubscriptionService;
+  readonly liveSnapshots: LiveSnapshotService;
 }
 
 /**
@@ -165,6 +168,15 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
   }
 
   const routeQueries = new KyselyPublicRouteQueries(db);
+  const liveSnapshots = new LiveSnapshotService({
+    routeIds: routeQueries,
+    routes,
+    readModel: new KyselyLiveRouteReadModel(db),
+    profiles: speedProfiles,
+    clock,
+    logger: logger.child({ component: 'live' }),
+    etaSettings: DEFAULT_ETA_SETTINGS,
+  });
 
   const app = await buildApp({
     loggerInstance: logger,
@@ -177,6 +189,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     },
     publicRead: {
       catalog: { queries: routeQueries },
+      live: { snapshots: liveSnapshots },
     },
   });
 
@@ -189,5 +202,6 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     speedProfiles,
     inactivityJob,
     subscriptions,
+    liveSnapshots,
   };
 }

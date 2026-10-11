@@ -3,16 +3,17 @@
 The API follows a hexagonal architecture organized by bounded context ("screaming" layout): the top-level
 folders name what the system does, not the technical layers.
 
-| Context      | Responsibility                                                                          |
-| ------------ | --------------------------------------------------------------------------------------- |
-| `routes`     | Route catalog: route geometry and public reference points (for example RI-01, P01–P15). |
-| `tracking`   | Vehicles, positions ingested from Traccar, trips, and point-pass detection.             |
-| `eta`        | ETA estimation per reference point and telemetry staleness.                             |
-| `alerts`     | Point subscriptions with consent, Web Push dispatch, and the alert log.                 |
-| `field`      | Field instruments: point observations, household registry, incidents.                   |
-| `indicators` | Impact indicators (ETA error, availability, adoption, ...) and CSV exports.             |
-| `auth`       | Panel users, sessions, and role-based access.                                           |
-| `shared`     | Cross-context kernel: common value objects, ports, and HTTP plumbing (`/health`).       |
+| Context      | Responsibility                                                                           |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| `routes`     | Route catalog: route geometry and public reference points (for example RI-01, P01–P15).  |
+| `tracking`   | Vehicles, positions ingested from Traccar, trips, and point-pass detection.              |
+| `eta`        | ETA estimation per reference point and telemetry staleness.                              |
+| `alerts`     | Point subscriptions with consent, Web Push dispatch, and the alert log.                  |
+| `live`       | Public live views of a route: snapshot (trips, signal, ETAs, passes, alerts) and stream. |
+| `field`      | Field instruments: point observations, household registry, incidents.                    |
+| `indicators` | Impact indicators (ETA error, availability, adoption, ...) and CSV exports.              |
+| `auth`       | Panel users, sessions, and role-based access.                                            |
+| `shared`     | Cross-context kernel: common value objects, ports, and HTTP plumbing (`/health`).        |
 
 Each context has three layers:
 
@@ -39,7 +40,9 @@ PositionFix → advanceTrip (tracking) → TripState + TripEvents (point_passed,
 - `routes/domain`: `Route`, `ReferencePoint`, route geometry (chainage, lateral offset, chainage
   windows) and point validation.
 - `tracking/domain`: `PositionFix`, the trip state and lifecycle, progress and pass detection.
-- `eta/domain`: staleness, recent and historical speed, ETA estimation.
+- `eta/domain`: staleness and the public telemetry signal (`live`/`stale`/`none`), recent and
+  historical speed, ETA estimation, and the citizen display window (`etaDisplayWindow`: remaining
+  time ±max(1 min, 20 %) in whole minutes).
 - `alerts/domain`: the alert policy and the ETA error indicator.
 
 Every context exports its tunables as a typed `DEFAULT_*_SETTINGS` object that the application
@@ -63,6 +66,10 @@ routes/application       ReferencePointLookup port (public points by id or code)
 routes/application       PublicRouteQueries port (active catalog: summaries, detail, schedule)
 routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot), KyselyReferencePointLookup,
                          KyselyPublicRouteQueries, http/ (GET /api/routes, /api/routes/:code)
+live/application         LiveSnapshotService over the LiveRouteReadModel port; live-views (pure
+                         mapping to the public JSON views, shared by the snapshot and the stream)
+live/infrastructure      KyselyLiveRouteReadModel, http/ (GET /api/live/routes/:code, zod response
+                         schemas)
 eta/application          SpeedProfileProvider (cached per route) over CompletedTripSamplesSource
 eta/infrastructure       KyselyCompletedTripSamples (accepted positions of recent completed trips)
 alerts/application       AlertNotifier port; PushAlertNotifier over the PushGateway and
