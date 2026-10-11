@@ -1,4 +1,4 @@
-import { act, screen } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -17,17 +17,15 @@ describe('panel sign-in and session', () => {
   it('sends a signed-out visitor to the sign-in page and back to the page they asked for', async () => {
     const api = fakePanelApi(null);
     api.login.mockResolvedValue(panelUser('admin'));
-    const router = renderPanel('/panel/viajes', fakePanelDeps(api));
+    const router = renderPanel('/panel/usuarios', fakePanelDeps(api));
 
     expect(await screen.findByRole('heading', { name: 'Ingresar al panel' })).toBeInTheDocument();
-    expect(router.state.location.search).toBe('?volver=%2Fpanel%2Fviajes');
+    expect(router.state.location.search).toBe('?volver=%2Fpanel%2Fusuarios');
     await signIn();
 
-    expect(
-      await screen.findByRole('navigation', { name: 'Secciones del panel' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Usuarios' })).toBeInTheDocument();
     expect(api.login).toHaveBeenCalledWith('ana.torres', 'a long passphrase');
-    expect(router.state.location.pathname).toBe('/panel/viajes');
+    expect(router.state.location.pathname).toBe('/panel/usuarios');
   });
 
   it('says the same thing for every wrong sign-in, and asks to wait when the service is busy', async () => {
@@ -55,24 +53,25 @@ describe('panel sign-in and session', () => {
 
   it('goes back to the sign-in page, keeping the page, when the session ends', async () => {
     const deps = fakePanelDeps(fakePanelApi(panelUser('admin')));
-    const router = renderPanel('/panel/viajes', deps);
-    await screen.findByRole('navigation', { name: 'Secciones del panel' });
+    const router = renderPanel('/panel/usuarios', deps);
+    await screen.findByRole('heading', { level: 1, name: 'Usuarios' });
 
     act(() => deps.expireSession());
 
     expect(
       await screen.findByText('Tu sesión terminó. Ingresa de nuevo para continuar.'),
     ).toBeInTheDocument();
-    expect(new URLSearchParams(router.state.location.search).get('volver')).toBe('/panel/viajes');
+    expect(new URLSearchParams(router.state.location.search).get('volver')).toBe('/panel/usuarios');
   });
 
-  it('shows the user and the role, and signs out', async () => {
+  it('shows only the sections of the role, and signs out', async () => {
     const api = fakePanelApi(panelUser('observer'));
-    const router = renderPanel('/panel/viajes', fakePanelDeps(api));
+    const router = renderPanel('/panel/usuarios', fakePanelDeps(api));
 
-    await screen.findByRole('navigation', { name: 'Secciones del panel' });
+    const nav = await screen.findByRole('navigation', { name: 'Secciones del panel' });
+    expect(within(nav).queryByRole('link', { name: 'Usuarios' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Sin acceso')).toBeInTheDocument();
     expect(screen.getByText('Rosa Quispe')).toBeInTheDocument();
-    expect(screen.getByText(/Observador/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Salir' }));
 

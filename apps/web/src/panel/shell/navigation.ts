@@ -8,8 +8,10 @@ export interface NavItem {
   readonly anyOf: readonly Permission[];
 }
 
-/** The panel's sections, in navigation order (each arrives with its screen). */
-export const NAV_ITEMS: readonly NavItem[] = [];
+/** The panel's sections, in navigation order. */
+export const NAV_ITEMS: readonly NavItem[] = [
+  { to: '/panel/usuarios', label: 'Usuarios', anyOf: ['users:manage'] },
+];
 
 /** The sections the user's role may open; the others are not shown at all. */
 export function visibleNavItems(

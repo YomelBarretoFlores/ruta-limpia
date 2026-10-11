@@ -227,6 +227,35 @@
   width: 100%;
 }
 
+/* Page header */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border) solid var(--rule);
+}
+
+.page-header__kicker {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.page-header__title {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+
+.page-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
 /* Compact buttons and text buttons */
 .button--compact {
   min-height: var(--touch);
@@ -259,4 +288,195 @@
 
 .link-button--danger {
   color: var(--danger);
+}
+
+/* Sections of a page: flat, ruled */
+.panel-section {
+  margin-top: var(--space-5);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  background: var(--surface);
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.panel-section__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.panel-section__title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+}
+
+.panel-section__header .panel-section__title {
+  margin: 0;
+}
+
+.panel-section__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+/* Data tables */
+.table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: var(--border) solid var(--rule-strong);
+  border-radius: var(--radius-sm);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.data-table caption {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-weight: var(--weight-title);
+  border-bottom: var(--border) solid var(--rule);
+}
+
+.data-table th,
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: var(--border) solid var(--rule);
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--fill);
+  font-weight: var(--weight-title);
+  white-space: nowrap;
+}
+
+.data-table tbody th {
+  font-weight: var(--weight-title);
+}
+
+.data-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.data-table .is-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.data-table tr.is-selected > * {
+  background: var(--accent-tint);
+}
+
+.data-table .cell-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.data-table .cell-actions > * + * {
+  margin-left: var(--space-3);
+}
+
+.cell-note {
+  font-weight: var(--weight-body);
+  color: var(--ink-2);
+}
+
+.cell-muted {
+  color: var(--ink-2);
+}
+
+.table-empty {
+  padding: var(--space-4);
+  color: var(--ink-2);
+}
+
+/* Filters above a table */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.filters .field {
+  margin: 0;
+  min-width: 10rem;
+}
+
+.filters .field__label {
+  font-size: var(--text-sm);
+}
+
+/* Forms */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0 var(--space-5);
+  align-items: start;
+}
+
+.form-grid--separated {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border) solid var(--rule);
+}
+
+.form-grid .field__label {
+  font-size: var(--text-sm);
+}
+
+.form-grid .field__hint {
+  font-size: var(--text-xs);
+}
+
+.form-wide {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding-top: var(--space-1);
+}
+
+textarea.input {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.pagination__status {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.pagination__buttons {
+  display: flex;
+  gap: var(--space-2);
 }

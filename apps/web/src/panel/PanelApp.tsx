@@ -9,6 +9,8 @@ import { RequireSession } from './session/RequireSession';
 import { SessionProvider } from './session/SessionProvider';
 import { PanelIndex } from './shell/PanelIndex';
 import { PanelShell } from './shell/PanelShell';
+import { RequirePermission } from './shell/RequirePermission';
+import { UsersPage } from './users/UsersPage';
 
 const renderFailure = (
   <div className="panel-failure" data-density="panel">
@@ -44,6 +46,14 @@ export default function PanelApp() {
             }
           >
             <Route index element={<PanelIndex />} />
+            <Route
+              path="usuarios"
+              element={
+                <RequirePermission anyOf={['users:manage']}>
+                  <UsersPage />
+                </RequirePermission>
+              }
+            />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
