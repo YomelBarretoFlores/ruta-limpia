@@ -97,6 +97,17 @@ export class KyselyIncidentStore implements IncidentStore {
     return record ?? null;
   }
 
+  async lock(id: string): Promise<boolean> {
+    if (!isUuid(id)) return false;
+    const row = await this.db
+      .selectFrom('incidents')
+      .select('id')
+      .where('id', '=', id)
+      .forUpdate()
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
   async update(id: string, changes: IncidentChanges, at: Date): Promise<IncidentRecord | null> {
     if (!isUuid(id)) return null;
     const resolution = changes.resolution;

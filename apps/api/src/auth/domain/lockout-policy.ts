@@ -23,7 +23,7 @@ export interface LockoutPolicy {
 
 export const DEFAULT_LOCKOUT_POLICY: LockoutPolicy = Object.freeze({
   perSource: Object.freeze({ maxFailedAttempts: 5, lockoutMinutes: 15 }),
-  perAccount: Object.freeze({ maxFailedAttempts: 50, lockoutMinutes: 15 }),
+  perAccount: Object.freeze({ maxFailedAttempts: 20, lockoutMinutes: 15 }),
 });
 
 /** The login-related state of an account, or of one (account, client network) pair. */
@@ -43,12 +43,13 @@ export function isLocked(state: LoginState, now: Date): boolean {
 
 /**
  * A wrong password: counts the failure and, at the threshold, locks and restarts the count. A
- * failure while locked changes nothing (the lock is not extended by the attacker).
+ * failure while locked changes nothing (the lock is not extended by the attacker). The threshold
+ * is required: each call names the layer (per source or per account) it counts for.
  */
 export function registerFailedLogin(
   state: LoginState,
   now: Date,
-  threshold: LockoutThreshold = DEFAULT_LOCKOUT_POLICY.perSource,
+  threshold: LockoutThreshold,
 ): LoginState & { readonly lockedNow: boolean } {
   if (isLocked(state, now)) return { ...state, lockedNow: false };
   const failedAttempts = state.failedAttempts + 1;

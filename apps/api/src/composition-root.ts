@@ -282,7 +282,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
   const auth = new AuthService({
     users,
     sessions,
-    sources: new InMemoryLoginSourceStore(),
+    sources: new InMemoryLoginSourceStore(() => clock.now()),
     hasher,
     tokens: new CryptoSessionTokens(),
     audit,

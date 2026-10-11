@@ -13,6 +13,10 @@ import { composeApi, type Api } from '../../src/composition-root.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
 import { KyselyHouseholdStore } from '../../src/field/infrastructure/kysely-household-store.js';
+import { HouseholdRegistryService } from '../../src/field/application/household-registry.js';
+import { KyselyRoutePointResolver } from '../../src/routes/infrastructure/kysely-route-point-resolver.js';
+import { KyselyAuditLog } from '../../src/shared/infrastructure/audit/kysely-audit-log.js';
+import { KyselyUnitOfWork } from '../../src/shared/infrastructure/db/kysely-unit-of-work.js';
 import { connectTestDatabase, failAuditWritesOf, resetData } from './database.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
@@ -285,6 +289,60 @@ describe('panel household registry (PostGIS)', () => {
       active: false,
     });
 
+    const [event] = await db
+      .selectFrom('audit_events')
+      .select('details')
+      .where('action', '=', 'household.updated')
+      .execute();
+    expect(event?.details).toEqual({ fields: ['active'], active: false });
+  });
+
+  it('writes and audits nothing for a request that changes nothing', async () => {
+    await enroll('P08', { notes: 'Blue gate' });
+
+    const unchanged = await supervisor.patch('/api/panel/households/H-001', {
+      pointCode: 'P08',
+      notes: 'Blue gate',
+      active: true,
+    });
+
+    expect(unchanged.statusCode).toBe(200);
+    expect(unchanged.json()).toMatchObject({ household: { pointCode: 'P08', active: true } });
+    const updates = await db
+      .selectFrom('audit_events')
+      .select('id')
+      .where('action', '=', 'household.updated')
+      .execute();
+    expect(updates).toEqual([]);
+  });
+
+  it('diffs a change against the stored row, not a stale read taken before it', async () => {
+    await enroll('P08');
+    const live = new KyselyHouseholdStore(db);
+    const stored = await live.findByCode('H-001');
+    if (stored === null) throw new Error('H-001 was not enrolled');
+    // The registry's first read sees an older version (inactive); the row says active.
+    const staleReads = Object.assign(Object.create(live) as KyselyHouseholdStore, {
+      findByCode: () => Promise.resolve({ ...stored, active: false }),
+    });
+    const registry = new HouseholdRegistryService({
+      store: staleReads,
+      transactions: new KyselyUnitOfWork(db, (trx) => ({
+        store: new KyselyHouseholdStore(trx),
+        audit: new KyselyAuditLog(trx),
+      })),
+      points: new KyselyRoutePointResolver(db),
+      clock: new ManualClock(NOW),
+    });
+    const actor = {
+      userId: (await db.selectFrom('users').select('id').executeTakeFirstOrThrow()).id,
+      role: 'supervisor' as const,
+    };
+
+    const result = await registry.update('H-001', { active: false }, actor);
+
+    expect(result).toMatchObject({ status: 'ok', household: { active: false } });
+    expect((await live.findByCode('H-001'))?.active).toBe(false);
     const [event] = await db
       .selectFrom('audit_events')
       .select('details')

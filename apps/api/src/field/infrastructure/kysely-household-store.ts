@@ -108,6 +108,11 @@ export class KyselyHouseholdStore implements HouseholdStore {
     return row === undefined ? null : toRecord(row);
   }
 
+  async findByCodeForUpdate(code: string): Promise<HouseholdRecord | null> {
+    const row = await records(this.db).where('h.code', '=', code).forUpdate('h').executeTakeFirst();
+    return row === undefined ? null : toRecord(row);
+  }
+
   async update(
     id: string,
     changes: {

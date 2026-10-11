@@ -72,13 +72,13 @@ const WEAK_PASSWORD_MESSAGES: Record<PasswordProblem, string> = {
   too_long: `Passwords have at most ${PASSWORD_MAX_LENGTH} characters.`,
 };
 
+/** Status and message of each failure; `weak_password` explains its problem (see above). */
 const FAILURES = {
   invalid_username: [
     400,
     `Usernames have ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} characters: a-z, 0-9, dot, ` +
       'dash, underscore.',
   ],
-  weak_password: [400, ''],
   username_taken: [409, 'This username is already taken.'],
   not_found: [404, 'There is no such user.'],
   cannot_modify_self: [409, 'You cannot change your own role or deactivate yourself.'],
@@ -86,14 +86,15 @@ const FAILURES = {
 
 function sendUserResult(reply: FastifyReply, result: UserCommandResult, okStatus: number) {
   if (result.status === 'ok') return reply.code(okStatus).send({ user: userProfile(result.user) });
-  const [status, generic] = FAILURES[result.status];
-  const message =
-    result.status === 'weak_password' ? WEAK_PASSWORD_MESSAGES[result.problem] : generic;
-  return reply.code(status).send({
-    error: result.status,
-    message,
-    ...(result.status === 'weak_password' ? { problem: result.problem } : {}),
-  });
+  if (result.status === 'weak_password') {
+    return reply.code(400).send({
+      error: result.status,
+      message: WEAK_PASSWORD_MESSAGES[result.problem],
+      problem: result.problem,
+    });
+  }
+  const [status, message] = FAILURES[result.status];
+  return reply.code(status).send({ error: result.status, message });
 }
 
 /**

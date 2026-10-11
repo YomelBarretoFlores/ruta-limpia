@@ -10,6 +10,7 @@ import type {
 } from '../../application/auth-service.js';
 import type { LockoutPolicy } from '../../domain/lockout-policy.js';
 import { permissionsOf } from '../../domain/role.js';
+import { DEFAULT_MAX_HASH_WAIT_MS } from '../scrypt-password-hasher.js';
 import { clientNetwork } from './client-network.js';
 import {
   clearSessionCookie,
@@ -33,22 +34,37 @@ export interface PanelAuthRoutesOptions {
   readonly lockoutPolicy: LockoutPolicy;
 }
 
-/** How long a client should wait after `503 auth_busy` (the hasher sheds load for seconds). */
-export const AUTH_BUSY_RETRY_AFTER_SEC = 5;
+/**
+ * How long a client should wait after `503 auth_busy`: the longest a hash request waits in the
+ * hasher's queue before it is shed, rounded up to whole seconds (linked to the hasher's bound).
+ */
+export const AUTH_BUSY_RETRY_AFTER_SEC = Math.ceil(DEFAULT_MAX_HASH_WAIT_MS / 1000);
+
+/** Requests shed with `503 auth_busy` since the process started, by reason. */
+export type AuthBusyCounts = Record<PasswordHasherBusyError['reason'], number>;
 
 /**
  * Answers `503 auth_busy` with `Retry-After` when password hashing sheds load (login, user
  * creation, password reset); every other error goes to the parent handler. Install it on the
- * panel scope.
+ * panel scope. Each shed request is counted and logged as a warning with its reason and the
+ * running count (never the username, the password or the address), so operators can tell hasher
+ * saturation from a client-side failure. Returns the live counts.
  */
-export function installAuthBusyHandler(scope: FastifyInstance): void {
-  scope.setErrorHandler((error: FastifyError, _request, reply) => {
+export function installAuthBusyHandler(scope: FastifyInstance): Readonly<AuthBusyCounts> {
+  const counts: AuthBusyCounts = { queue_full: 0, wait_timeout: 0 };
+  scope.setErrorHandler((error: FastifyError, request, reply) => {
     if (!(error instanceof PasswordHasherBusyError)) throw error;
+    counts[error.reason] += 1;
+    request.log.warn(
+      { reason: error.reason, shedSinceStart: counts[error.reason] },
+      'Panel request shed: password hashing is busy',
+    );
     return reply
       .code(503)
       .header('retry-after', String(AUTH_BUSY_RETRY_AFTER_SEC))
       .send({ error: 'auth_busy', message: 'Sign-in is busy; try again in a few seconds.' });
   });
+  return counts;
 }
 
 const loginBodySchema = z.object({

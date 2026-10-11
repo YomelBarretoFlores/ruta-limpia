@@ -58,6 +58,11 @@ export interface IncidentFilter {
 export interface IncidentStore {
   insert(incident: NewIncident): Promise<IncidentRecord>;
   findById(id: string): Promise<IncidentRecord | null>;
+  /**
+   * Locks the incident's row until the transaction ends (use inside a transaction), so two
+   * concurrent edits diff against the versions they really replace. False when it does not exist.
+   */
+  lock(id: string): Promise<boolean>;
   update(id: string, changes: IncidentChanges, at: Date): Promise<IncidentRecord | null>;
   list(
     filter: IncidentFilter,
@@ -162,7 +167,7 @@ export class IncidentService {
           }),
     };
     return this.deps.transactions.run(async ({ store, audit }) => {
-      const before = await store.findById(id);
+      const before = (await store.lock(id)) ? await store.findById(id) : null;
       const incident = before === null ? null : await store.update(id, changes, now);
       if (before === null || incident === null) return { status: 'not_found' };
       await this.record(

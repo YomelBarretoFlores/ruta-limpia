@@ -44,7 +44,7 @@ beforeEach(async () => {
   auth = new AuthService({
     users,
     sessions,
-    sources: new InMemoryLoginSourceStore(),
+    sources: new InMemoryLoginSourceStore(() => clock.now()),
     hasher,
     tokens: new SequentialSessionTokens(),
     audit,
@@ -133,8 +133,8 @@ describe('AuthService.login', () => {
     expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
   });
 
-  it('pauses the whole account after 50 failures from many networks', async () => {
-    for (let n = 0; n < 10; n++) {
+  it('pauses the whole account after 20 failures from many networks', async () => {
+    for (let n = 0; n < 4; n++) {
       for (let i = 0; i < 5; i++) await attempt('wrong password!', `10.0.${n}.0/24`);
     }
     expect(audit.events.at(-1)?.details).toEqual({ reason: 'wrong_password', scope: 'account' });

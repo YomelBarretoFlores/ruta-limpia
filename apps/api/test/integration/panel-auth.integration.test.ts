@@ -53,6 +53,13 @@ const auditActions = async () =>
     (e) => e.action,
   );
 
+async function userIdOf(admin: PanelClient, username: string): Promise<string> {
+  const { users } = (await admin.get('/api/panel/users')).json<{
+    users: { id: string; username: string }[];
+  }>();
+  return users.find((u) => u.username === username)?.id ?? '';
+}
+
 describe('panel login (PostGIS)', () => {
   it('signs in with a hardened session cookie and returns the profile', async () => {
     const response = await login(api.app, 'Ana.Admin');
@@ -149,22 +156,78 @@ describe('panel login (PostGIS)', () => {
     expect([...answers][0]).toMatch(/^401 .*invalid_credentials/);
   });
 
-  it('answers 503 auth_busy with Retry-After when password hashing sheds load', async () => {
+  it('answers 503 auth_busy with Retry-After when password hashing sheds load, and logs it', async () => {
     await api.app.close();
     const busy = () => Promise.reject(new PasswordHasherBusyError('queue_full'));
+    const lines: string[] = [];
+    api = await composeApi({
+      config: TEST_API_CONFIG,
+      db,
+      clock,
+      logger: pino({ level: 'warn' }, { write: (line: string) => lines.push(line) }),
+      passwordHasher: { hash: busy, verify: busy, verifyDummy: busy },
+    });
+
+    const response = await login(api.app, 'ana.admin');
+    await login(api.app, 'ana.admin');
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('5');
+    expect(response.json()).toMatchObject({ error: 'auth_busy' });
+    const shed = lines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((entry) => entry['msg'] === 'Panel request shed: password hashing is busy');
+    expect(shed.map((entry) => [entry['reason'], entry['shedSinceStart']])).toEqual([
+      ['queue_full', 1],
+      ['queue_full', 2],
+    ]);
+    expect(lines.join('\n')).not.toMatch(/ana\.admin|127\.0\.0\.1|correct horse/);
+  });
+
+  it('answers 503 auth_busy to a password reset while hashing sheds load, changing nothing', async () => {
+    const admin = await panelClient(api.app, 'ana.admin');
+    const sara = await userIdOf(admin, 'sara.super');
+    await api.app.close();
     api = await composeApi({
       config: TEST_API_CONFIG,
       db,
       clock,
       logger: pino({ level: 'silent' }),
-      passwordHasher: { hash: busy, verify: busy, verifyDummy: busy },
+      passwordHasher: {
+        hash: () => Promise.reject(new PasswordHasherBusyError('wait_timeout')),
+        verify: (password, hash) => TEST_PASSWORD_HASHER.verify(password, hash),
+        verifyDummy: (password) => TEST_PASSWORD_HASHER.verifyDummy(password),
+      },
+    });
+    const busyAdmin = await panelClient(api.app, 'ana.admin');
+
+    const reset = await busyAdmin.patch(`/api/panel/users/${sara}`, {
+      password: 'a brand new passphrase',
     });
 
-    const response = await login(api.app, 'ana.admin');
+    expect(reset.statusCode).toBe(503);
+    expect(reset.json()).toMatchObject({ error: 'auth_busy' });
+    expect(await auditActions()).not.toContain('user.updated');
+    expect((await login(api.app, 'sara.super')).statusCode).toBe(200);
+  });
 
-    expect(response.statusCode).toBe(503);
-    expect(response.headers['retry-after']).toBe('5');
-    expect(response.json()).toMatchObject({ error: 'auth_busy' });
+  it("pauses the account after 20 failures from many networks; an admin's password reset ends the pause", async () => {
+    for (let n = 0; n < 20; n++) {
+      await loginFrom(`190.41.${n}.7`, 'sara.super', 'wrong password!!');
+    }
+    expect(await auditActions()).toContain('auth.account_locked');
+    // Paused for every network, even with the right password.
+    expect((await loginFrom('200.48.7.1', 'sara.super')).statusCode).toBe(401);
+
+    const admin = await panelClient(api.app, 'ana.admin');
+    const reset = await admin.patch(`/api/panel/users/${await userIdOf(admin, 'sara.super')}`, {
+      password: 'a brand new passphrase',
+    });
+    expect(reset.statusCode).toBe(200);
+
+    expect((await loginFrom('200.48.7.1', 'sara.super', 'a brand new passphrase')).statusCode).toBe(
+      200,
+    );
   });
 
   it('rate-limits login attempts per client IP', async () => {
@@ -338,13 +401,6 @@ describe('panel user administration (PostGIS)', () => {
     expect((await observer.get('/api/panel/auth/me')).statusCode).toBe(401);
     expect((await login(api.app, 'omar.obs')).statusCode).toBe(401);
   });
-
-  async function userIdOf(admin: PanelClient, username: string): Promise<string> {
-    const { users } = (await admin.get('/api/panel/users')).json<{
-      users: { id: string; username: string }[];
-    }>();
-    return users.find((u) => u.username === username)?.id ?? '';
-  }
 
   it('ends the sessions of a user whose role changes or whose password is reset', async () => {
     const admin = await panelClient(api.app, 'ana.admin');

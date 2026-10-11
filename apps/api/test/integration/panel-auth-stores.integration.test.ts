@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { openSession } from '../../src/auth/domain/session-policy.js';
-import { registerFailedLogin } from '../../src/auth/domain/lockout-policy.js';
+import {
+  DEFAULT_LOCKOUT_POLICY,
+  registerFailedLogin,
+} from '../../src/auth/domain/lockout-policy.js';
 import {
   KyselySessionStore,
   KyselyUserStore,
@@ -61,7 +64,9 @@ describe('KyselyUserStore (PostGIS)', () => {
 
     await Promise.all(
       Array.from({ length: 3 }, () =>
-        users.modifyLoginState(user.id, (current) => registerFailedLogin(current, T0)),
+        users.modifyLoginState(user.id, (current) =>
+          registerFailedLogin(current, T0, DEFAULT_LOCKOUT_POLICY.perAccount),
+        ),
       ),
     );
 

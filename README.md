@@ -342,7 +342,10 @@ Administrators then manage every other account from the panel.
   two run at once (about 256 MiB, leaving two of the four default threadpool threads to DNS, file
   and other crypto work); at most 16 more wait, each for at most 5 s. Beyond that the request is
   shed with `503 auth_busy` and `Retry-After: 5` (login, user creation, password reset), so a burst
-  of anonymous logins cannot make every legitimate login wait without bound. Raising
+  of anonymous logins cannot make every legitimate login wait without bound. Each shed request is
+  logged as a warning (`Panel request shed: password hashing is busy`) with its reason
+  (`queue_full` or `wait_timeout`) and the running count since start (`shedSinceStart`), never the
+  username or the address; the `Retry-After` value is derived from the 5 s wait bound. Raising
   `UV_THREADPOOL_SIZE` (an environment variable read by Node at start) gives other threadpool work
   more room on a larger host; the hashing bound stays two.
 - **Login**: `401 invalid_credentials` is the only failure answer, at the same cost, for unknown
@@ -350,18 +353,23 @@ Administrators then manage every other account from the panel.
   (`DEFAULT_LOCKOUT_POLICY`):
   - five consecutive failures against one account from one client network (IPv4 /24, IPv6 /64)
     pause that network's sign-in on that account for 15 minutes;
-  - fifty consecutive failures against one account from any networks pause the account itself for
-    15 minutes (a cap on distributed guessing);
+  - twenty consecutive failures against one account from any networks pause the account itself
+    for 15 minutes (a cap on distributed guessing: at most 20 guesses per account every 15
+    minutes, however many networks the attacker controls);
   - a successful login resets both counts; an administrator's password reset clears the account
-    pause.
+    pause (an integration test proves it), though not the per-network pauses.
 
   Tradeoffs: a paused attempt is not told it is paused (the message only says sign-in pauses after
   repeated failures), because a distinct answer would reveal which usernames exist; there is
   therefore nothing to enumerate, across restarts and instances too. Counting per network means
   someone who knows a username cannot lock its owner out from elsewhere; locking the account itself
-  takes fifty failures, which at `LOGIN_RATE_LIMIT_PER_MINUTE` per IP needs many networks. The
-  per-network counts live in process memory (at most 10,000 pairs), so a restart forgets them; the
-  per-account count is stored with the user. Logins are also rate-limited per client IP
+  takes twenty failures, which at five per network needs at least four networks. The price of the
+  lower account budget: someone with four networks can pause an account for 15 minutes at a time;
+  an administrator ends that pause by resetting the password. The per-network counts live in
+  process memory (at most 10,000 pairs), so a restart forgets them; when the store is full, the
+  oldest count is forgotten but a running pause never is (while every entry is a running pause, a
+  new count is not kept until one ends; the account budget still applies). The per-account count is
+  stored with the user. Logins are also rate-limited per client IP
   (`LOGIN_RATE_LIMIT_PER_MINUTE`). Pauses are logged as a warning with the user id only (never the
   username, the password or the address).
 

@@ -99,13 +99,13 @@ describe('credentials', () => {
 });
 
 describe('lockout policy', () => {
-  it('pauses one client network after 5 failures and the whole account after 50', () => {
+  it('pauses one client network after 5 failures and the whole account after 20', () => {
     expect(DEFAULT_LOCKOUT_POLICY).toEqual({
       perSource: { maxFailedAttempts: 5, lockoutMinutes: 15 },
-      perAccount: { maxFailedAttempts: 50, lockoutMinutes: 15 },
+      perAccount: { maxFailedAttempts: 20, lockoutMinutes: 15 },
     });
     let account = { failedAttempts: 0, lockedUntil: null as Date | null };
-    for (let i = 1; i < 50; i++) {
+    for (let i = 1; i < 20; i++) {
       account = registerFailedLogin(account, T0, DEFAULT_LOCKOUT_POLICY.perAccount);
     }
     expect(isLocked(account, T0)).toBe(false);
@@ -118,11 +118,11 @@ describe('lockout policy', () => {
   it('locks for 15 minutes at the fifth consecutive failure of a threshold', () => {
     let state = { failedAttempts: 0, lockedUntil: null as Date | null };
     for (let i = 1; i <= 4; i++) {
-      const next = registerFailedLogin(state, T0);
+      const next = registerFailedLogin(state, T0, DEFAULT_LOCKOUT_POLICY.perSource);
       expect(next).toEqual({ failedAttempts: i, lockedUntil: null, lockedNow: false });
       state = next;
     }
-    const locked = registerFailedLogin(state, T0);
+    const locked = registerFailedLogin(state, T0, DEFAULT_LOCKOUT_POLICY.perSource);
 
     expect(locked).toEqual({ failedAttempts: 0, lockedUntil: at(15), lockedNow: true });
     expect(isLocked(locked, at(14))).toBe(true);
@@ -132,7 +132,10 @@ describe('lockout policy', () => {
   it('does not extend a lock on failures while locked', () => {
     const locked = { failedAttempts: 0, lockedUntil: at(10) };
 
-    expect(registerFailedLogin(locked, at(5))).toEqual({ ...locked, lockedNow: false });
+    expect(registerFailedLogin(locked, at(5), DEFAULT_LOCKOUT_POLICY.perSource)).toEqual({
+      ...locked,
+      lockedNow: false,
+    });
   });
 
   it('clears the failures on success', () => {

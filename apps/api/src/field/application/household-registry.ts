@@ -55,6 +55,11 @@ export interface HouseholdStore {
    */
   insertWithNextCode(household: NewHousehold): Promise<HouseholdRecord>;
   findByCode(code: string): Promise<HouseholdRecord | null>;
+  /**
+   * Reads the household and locks its row until the transaction ends, so a change diffs against
+   * the version it replaces (use inside a transaction).
+   */
+  findByCodeForUpdate(code: string): Promise<HouseholdRecord | null>;
   /** Null when the household no longer exists (deleted meanwhile). */
   update(
     id: string,
@@ -150,29 +155,36 @@ export class HouseholdRegistryService {
     command: UpdateHouseholdCommand,
     actor: PanelActor,
   ): Promise<HouseholdResult> {
-    const current = await this.deps.store.findByCode(code);
-    if (current === null) return { status: 'not_found' };
-    let pointId: string | undefined;
-    if (command.pointCode !== undefined && command.pointCode !== current.pointCode) {
+    const preview = await this.deps.store.findByCode(code);
+    if (preview === null) return { status: 'not_found' };
+    let point: { readonly id: string; readonly code: string } | undefined;
+    if (command.pointCode !== undefined) {
       // A household stays on its route: a new point must belong to it.
-      const resolved = await this.deps.points.resolve(current.routeCode, command.pointCode);
+      const resolved = await this.deps.points.resolve(preview.routeCode, command.pointCode);
       if (resolved.status !== 'ok' || resolved.point === null) return { status: 'unknown_point' };
-      pointId = resolved.point.id;
+      point = { id: resolved.point.id, code: command.pointCode };
     }
-    const changesActive = command.active !== undefined && command.active !== current.active;
-    const changesNotes = command.notes !== undefined && command.notes !== current.notes;
-    const fields = [
-      ...(pointId === undefined ? [] : ['pointCode']),
-      ...(changesActive ? ['active'] : []),
-      ...(changesNotes ? ['notes'] : []),
-    ];
-    if (fields.length === 0) return { status: 'ok', household: current };
 
     return this.deps.transactions.run(async ({ store, audit }) => {
+      // Diff against the locked row, not the read above: a concurrent change may have committed
+      // in between, and a stale "nothing to change" would answer with a record that is not stored.
+      const current = await store.findByCodeForUpdate(code);
+      if (current === null) return { status: 'not_found' };
+      const changesPoint = point !== undefined && point.code !== current.pointCode;
+      const changesActive = command.active !== undefined && command.active !== current.active;
+      const changesNotes = command.notes !== undefined && command.notes !== current.notes;
+      const fields = [
+        ...(changesPoint ? ['pointCode'] : []),
+        ...(changesActive ? ['active'] : []),
+        ...(changesNotes ? ['notes'] : []),
+      ];
+      // Nothing differs from the stored version: nothing is written and nothing is audited.
+      if (fields.length === 0) return { status: 'ok', household: current };
+
       const household = await store.update(
         current.id,
         {
-          ...(pointId === undefined ? {} : { pointId }),
+          ...(changesPoint ? { pointId: point?.id } : {}),
           ...(changesActive ? { active: command.active } : {}),
           ...(changesNotes ? { notes: command.notes } : {}),
         },
@@ -181,7 +193,7 @@ export class HouseholdRegistryService {
       if (household === null) return { status: 'not_found' };
       await this.record(audit, 'household.updated', actor, code, {
         fields,
-        ...(pointId === undefined ? {} : { pointCode: household.pointCode }),
+        ...(changesPoint ? { pointCode: household.pointCode } : {}),
         ...(changesActive ? { active: household.active } : {}),
       });
       return { status: 'ok', household };
