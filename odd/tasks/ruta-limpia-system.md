@@ -67,7 +67,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | ID | Task | Route | Status |
 |----|------|-------|--------|
 | T1 | Monorepo scaffold, tooling, docker compose (PostGIS + Traccar) and README | delegated (writer: 2+ non-trivial files) | [x] |
-| T2 | Pure domain: route geometry, trip lifecycle, pass detection, ETA engine, staleness, alert policy (test-first) | delegated (writer) | [ ] |
+| T2 | Pure domain: route geometry, trip lifecycle, pass detection, ETA engine, staleness, alert policy (test-first) | delegated (writer) | [x] |
 | T3 | Persistence + ingestion: schema/migrations, Traccar forward endpoint, tracking pipeline, Instrument 1 log | delegated (writer) | [ ] |
 | T4 | Notifications: Web Push (VAPID), point subscriptions with consent/cancel, alert dispatch and delivery log | delegated (writer) | [ ] |
 | T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [ ] |
@@ -117,6 +117,23 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   `apps/api/src/main.ts` (T3), an example INGEST_TOKEN that should fail validation (T3), wider config test coverage
   (T3), and duplicated Traccar defaults in `entrypoint.sh` (T10). The reviewed boundary is now `60244ed`.
 
+- 2026-10-11: T2 done in work-unit commit `feat(domain): add route geometry, trip progress, ETA engine and alert
+  policy`. The parent records the hash. Verification: `pnpm typecheck` exit 0, `pnpm lint` exit 0 (the domain
+  purity rule passes), `pnpm test` 14 files / 100 tests passed. Test-first: each module's tests ran RED before
+  any code existed (missing module). `advanceTrip` then failed 13 tests against a no-op stub, `estimateEtas` failed
+  10, and `decideAlerts`/`etaErrorMinutes` failed 4; all went GREEN after implementation. The RI-01 stop-and-go
+  scenario probe exposed an EWMA bias: clamping stopped samples up to minSpeed inflated 0.75 m/s to about
+  1.0 m/s. A new test went RED, and the fix (stops count as 0, only the reported speed is clamped) made it GREEN.
+  Design: equirectangular local projection (bbox center); chainage-window projection for overlap and jump
+  safety; passes are interpolated by chainage (`upper_bound` precision for points already behind the first fix);
+  `PointEta` is a discriminated union, so `stale` cannot carry a prediction. Defaults: point offset 50 m,
+  off-route 60 m, back tolerance 30 m, max plausible speed 15 m/s plus 50 m slack, pass tolerance 15 m, end
+  tolerance 30 m, inactivity 30 min, stale after 60 s, speed clamp 0.5–12 m/s, EWMA tau 90 s, bucket 100 m,
+  recent weight 0.5, default speed 8 km/h, alert lead 60–600 s, target window 300–600 s. The RI-01 fixture is
+  `apps/api/src/routes/domain/ri01.fixture.ts` (reuse it for seed data and the simulator). Authored lines: about
+  2.1k (950 source+docs, 1,140 tests), well above the 400-line heuristic. The domain contracts are cohesive, and
+  the scenario test needs all five contexts; strategy `exception-ok`.
+
 ## Next step
 
-T2.
+T3.
