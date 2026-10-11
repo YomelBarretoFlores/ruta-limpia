@@ -188,6 +188,17 @@ describe('SubscriptionService', () => {
     expect(result).toMatchObject({ status: 'subscribed', point: p09 });
   });
 
+  it('identifies a subscription and its household only with its management token', async () => {
+    await ctx.service.subscribe(command({ householdCode: 'H-001' }));
+
+    expect(await ctx.service.identify('subscription-1', 'token-1')).toEqual({
+      subscriptionId: 'subscription-1',
+      householdId: 'household-1',
+    });
+    expect(await ctx.service.identify('subscription-1', 'token-9')).toBeNull();
+    expect(await ctx.service.identify('subscription-9', 'token-1')).toBeNull();
+  });
+
   it('confirms the reception of a delivered alert once, with the management token', async () => {
     await ctx.service.subscribe(command());
     await ctx.store.recordDelivery({

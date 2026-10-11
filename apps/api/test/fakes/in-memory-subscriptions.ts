@@ -73,6 +73,7 @@ export class InMemorySubscriptionStore implements SubscriptionStore, AlertDelive
             id: found.id,
             managementTokenHash: found.managementTokenHash,
             revokedAt: found.revokedAt,
+            householdId: found.householdId,
           },
     );
   }

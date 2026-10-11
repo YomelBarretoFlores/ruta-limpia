@@ -81,6 +81,9 @@ alerts/application       AlertNotifier port; PushAlertNotifier over the PushGate
 alerts/infrastructure    WebPushGateway (web-push, VAPID), LoggingAlertNotifier (no VAPID),
                          KyselySubscriptionStore, KyselyAlertDeliveryStore, CryptoManagementTokens,
                          http/ (public subscription and receipt routes), vapid-keys-cli
+indicators/application   AppViewService (app views for the adoption indicator) over the AppViewStore
+                         and SubscriberIdentification ports (SubscriptionService.identify provides it)
+indicators/infrastructure KyselyAppViewStore, http/ (POST /api/usage/views)
 field/application        HouseholdDirectory port (household registry: codes, never addresses)
 field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
@@ -184,5 +187,8 @@ PostgreSQL 16 + PostGIS through Kysely. Migrations are registered in code
 (`shared/infrastructure/db/migrations`) and run by `db:migrate` or on API start. Integrity rules live in
 the database: one active trip per vehicle (partial unique index), one pass and one alert per (trip, point),
 unique Traccar position ids, unique push endpoints, one delivery per (alert, subscription), and a
-household's point always belongs to its route. The `instrument1_route_log` view produces the Instrument 1 rows (dates in
-America/Lima); the alert columns and the ETA error stay null when no alert was sent.
+household's point always belongs to its route. `app_views` (migration `0003-app-views`) logs app
+views with the point, the subscription and household only when proven by the management token, and
+the time; never an IP address or a user agent. The `instrument1_route_log` view produces the
+Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null when no alert
+was sent.

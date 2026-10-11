@@ -44,6 +44,7 @@ describe('migrations', () => {
       expect.arrayContaining([
         'alert_deliveries',
         'alerts',
+        'app_views',
         'households',
         'incidents',
         'instrument1_route_log',

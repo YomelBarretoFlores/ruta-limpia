@@ -177,6 +177,17 @@ export interface AlertDeliveriesTable {
   received_at: Date | null;
 }
 
+/** One app view ("consulta"); never an IP address or a user agent. */
+export interface AppViewsTable {
+  id: Generated<string>;
+  point_id: string;
+  /** Set only when the browser proved the subscription's management token. */
+  subscription_id: string | null;
+  /** The household of that subscription, when it has one. */
+  household_id: string | null;
+  viewed_at: Date;
+}
+
 /** One Instrument 1 row: a reference point of a trip (read-only view). */
 export interface Instrument1RouteLogView {
   trip_id: string;
@@ -213,6 +224,7 @@ export interface Database {
   households: HouseholdsTable;
   push_subscriptions: PushSubscriptionsTable;
   alert_deliveries: AlertDeliveriesTable;
+  app_views: AppViewsTable;
   instrument1_route_log: Instrument1RouteLogView;
 }
 

@@ -39,6 +39,12 @@ export type CancelResult = 'cancelled' | 'not_found' | 'forbidden';
 
 export type ReceiptResult = 'confirmed' | 'not_found' | 'forbidden';
 
+/** A subscription proven by its management token, with its household when it has one. */
+export interface SubscriberIdentity {
+  readonly subscriptionId: string;
+  readonly householdId: string | null;
+}
+
 export interface SubscriptionServiceDependencies {
   readonly store: SubscriptionStore;
   readonly points: ReferencePointLookup;
@@ -115,6 +121,20 @@ export class SubscriptionService {
     if (!revoked) return 'forbidden';
     this.deps.logger.info({ subscriptionId }, 'Push subscription cancelled');
     return 'cancelled';
+  }
+
+  /**
+   * Identifies the subscription (and its household) when the token is its management token, also
+   * after a cancellation; null otherwise. Never tells why it failed.
+   */
+  async identify(
+    subscriptionId: string,
+    managementToken: string,
+  ): Promise<SubscriberIdentity | null> {
+    const subscription = await this.deps.store.findManaged(subscriptionId);
+    if (subscription === null) return null;
+    if (!this.deps.tokens.matches(managementToken, subscription.managementTokenHash)) return null;
+    return { subscriptionId: subscription.id, householdId: subscription.householdId };
   }
 
   /**

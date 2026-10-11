@@ -282,6 +282,24 @@ the client.
 same shape as in the snapshot (no prediction unless `live`). Stream data never contains vehicle,
 alert or subscription ids, nor tokens.
 
+### Usage logging (adoption indicator)
+
+The adoption indicator counts households with at least one app view ("consulta") or one alert
+received per week. The PWA reports each view of a point:
+
+`POST /api/usage/views` with `{ pointCode, routeCode?, subscriptionId?, managementToken? }` → `204`.
+
+- With the subscription id and management token the browser received when it subscribed, the view
+  is linked to that subscription and its household. Without them, or with a wrong token, it is
+  recorded anonymously, and the answer is the same `204`, so the endpoint never reveals whether a
+  token is valid.
+- An unknown point, or a point code that exists on several routes without `routeCode`, answers `422`;
+  a malformed body `400`.
+- Rate-limited per client IP at ten times `PUBLIC_RATE_LIMIT_PER_MINUTE` (many households share one
+  carrier NAT address).
+- `app_views` stores only the point, the optional subscription and household, and the time. It never
+  stores an IP address or a user agent.
+
 ## Scripts
 
 | Command                              | Description                                                                  |

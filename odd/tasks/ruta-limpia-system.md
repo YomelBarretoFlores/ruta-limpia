@@ -70,7 +70,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T2 | Pure domain: route geometry, trip lifecycle, pass detection, ETA engine, staleness, alert policy (test-first) | delegated (writer) | [x] |
 | T3 | Persistence + ingestion: schema/migrations, Traccar forward endpoint, tracking pipeline, Instrument 1 log | delegated (writer) | [x] |
 | T4 | Notifications: Web Push (VAPID), point subscriptions with consent/cancel, alert dispatch and delivery log | delegated (writer) | [x] |
-| T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [ ] |
+| T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [x] |
 | T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [ ] |
 | T7 | Municipal panel: auth/roles, live tracking, pass table, alert status, incidents, trips, field forms, household registry | delegated (writer) | [ ] |
 | T8 | Indicators and exports: KPI computation (Tabla 16), CSV exports for Instruments 1–3 | delegated (writer) | [ ] |
@@ -225,7 +225,7 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
 - 2026-10-11: T4's last commit is `7d80fb3`. T4 was reviewed in two slices, `b1e148e..4b4b0af` and
   `4b4b0af..7d80fb3`; both were approved and acknowledged. The reviewed boundary is now `7d80fb3`. Its
   findings are handled in T5 commit A `fix(alerts): close the cancel race and harden background
-  dispatch and shutdown` (the parent records the hash):
+  dispatch and shutdown` (`cbca102`):
   - WARNING (cancel/revoke race): `cancel` now revokes with one UPDATE conditioned on the verified
     `management_token_hash` (`SubscriptionStore.revokeWithToken`); a re-subscription that rotated the
     token in between answers `403` and stays active.
@@ -242,6 +242,59 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   - Shutdown: `ShutdownStep.reserveMs` makes a step best-effort; the alert-dispatch wait gets the
     remaining budget minus 1 s, so the database pool step always runs.
 
+- 2026-10-11: T5 done in six work-unit commits, each under the ~1.5k-line review budget and each
+  building and passing its tests on its own (changed lines, lockfile untouched):
+  - `cbca102` `fix(alerts): close the cancel race and harden background dispatch and shutdown` (593):
+    the T4 findings above. RED first: 13 unit tests failed (cancel with the old token answered
+    `cancelled` and revoked the re-subscribed row; no `household_route_mismatch`; the default-route
+    tests saw 3 "Trip route could not be loaded" errors with `tripId: null`, and an inactive route
+    auto-started a trip; `whenNotificationsSettled()` rejected with "log sink down"; the 6
+    `WebPushGateway` tests reached the real `web-push` (p256dh validation error); the best-effort
+    shutdown test saw no bounded wait). All GREEN after the fixes. The deterministic P09 expiry
+    assertion passed as a characterization test.
+  - `e23483c` `feat(routes): publish the active route catalog with geometry, points and schedule`
+    (445): `GET /api/routes`, `GET /api/routes/:code` (`public, max-age=300`).
+  - `d213491` `feat(live): serve the live route snapshot with ETA windows and signal status` (1171):
+    new `live` context, `GET /api/live/routes/:code` (`no-store`), `etaDisplayWindow`,
+    `telemetrySignal`.
+  - `4e7f4f2` `feat(tracking): refresh active trip ETAs periodically between fixes` (606):
+    `EtaRefreshService`/`EtaRefreshJob` (`ETA_REFRESH_INTERVAL_SEC`, default 15), `PeriodicJob`.
+  - `f2a7cc2` `feat(live): stream live route events over Server-Sent Events` (982):
+    `GET /api/live/routes/:code/stream`, `LiveStreamHub` (`SSE_MAX_CONNECTIONS`, default 500).
+  - The last commit (the parent records the hash) `feat(indicators): log app views for the adoption
+    indicator`: migration `0003-app-views`, `POST /api/usage/views`, `SubscriptionService.identify`.
+
+  Verification at the last commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0, `pnpm format:check`
+  clean, `pnpm test` 48 files / 333 tests passed (8 integration files on PostGIS). Smoke (compose db,
+  `db:migrate` applied `0003-app-views`, `db:seed`, built API with command-line env): `GET
+  /api/routes` 200 (`public, max-age=300`), `GET /api/routes/RI-01` 200 (17 coordinates, 15 points,
+  6 planned starts), `GET /api/live/routes/RI-01` 200 (`no-store`); `curl -N` on the stream received
+  `retry`, `snapshot`, `vehicle.position`, `trip.started`, `eta.updated`, `point.passed` (P01) and
+  `alert.emitted` while 3 Traccar fixes were posted (200 each), with `text/event-stream`,
+  `no-store` and `X-Accel-Buffering: no`; `POST /api/usage/views` 204 anonymous, 204 with a wrong
+  token, 422 for `P99`; SIGTERM exited cleanly; containers removed, volumes kept. The smoke database
+  held an active trip from an earlier smoke run whose fixes were dated 5 hours in the future (signal
+  `live`, ETAs ~4.8 h); it was ended with `TripLifecycleService.endTrip` before posting fixes.
+
+  Decisions: a new `live` bounded context owns the public live views (snapshot and stream) and
+  their pure mapping; responses are parsed through zod schemas (unknown keys stripped; a `stale` ETA
+  with a prediction fails the schema). The snapshot nests ETAs, passes and alerts per active trip
+  (usually one). The display window is the remaining time ±max(60 s, 20 %), floor/ceil to whole
+  minutes, at least one minute wide. `RouteSnapshot` gained `active`; inactive routes are hidden
+  from the catalog and the live API. `vehicle.position` gained `routeId` and `eta.updated` gained
+  `lastFixAt` (the stream derives the signal from it). Stream events carry no vehicle, alert or
+  subscription ids; `trip.started` is minimal, and clients refetch the snapshot for the vehicle.
+  The ETA refresh runs under the vehicle's `KeyedMutex` and publishes inside it, so it never reorders
+  with ingestion; it never writes or alerts. App views store no IP or user agent; a wrong token
+  records an anonymous view with the same 204; the per-IP limit is 10x
+  `PUBLIC_RATE_LIMIT_PER_MINUTE`. A household may follow any point of its own route.
+  Pending: `.env.example` must gain `ETA_REFRESH_INTERVAL_SEC` and `SSE_MAX_CONNECTIONS` (agents
+  cannot edit `.env*` files). Follow-ups: a fix dated in the future keeps a trip `live` and delays
+  the inactivity abort (ingestion should reject or clamp fixes far ahead of the server clock); the
+  reverse proxy (T10) must not buffer `text/event-stream` and needs read timeouts above 15 s.
+
 ## Next step
 
-T5 (public API + SSE: routes, points, vehicle status, live ETA per point).
+T6 (citizen PWA: map, point selection, ETA window, subscription flow, QR deep link, offline/printed
+fallback), built on `GET /api/routes/:code`, `GET /api/live/routes/:code`, its `/stream` and
+`POST /api/usage/views`.

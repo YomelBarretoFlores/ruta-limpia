@@ -40,12 +40,17 @@ export class KyselySubscriptionStore implements SubscriptionStore {
     if (!isUuid(subscriptionId)) return null;
     const row = await this.db
       .selectFrom('push_subscriptions')
-      .select(['id', 'management_token_hash', 'revoked_at'])
+      .select(['id', 'management_token_hash', 'revoked_at', 'household_id'])
       .where('id', '=', subscriptionId)
       .executeTakeFirst();
     return row === undefined
       ? null
-      : { id: row.id, managementTokenHash: row.management_token_hash, revokedAt: row.revoked_at };
+      : {
+          id: row.id,
+          managementTokenHash: row.management_token_hash,
+          revokedAt: row.revoked_at,
+          householdId: row.household_id,
+        };
   }
 
   async revokeWithToken(

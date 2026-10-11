@@ -17,6 +17,8 @@ import { WebPushGateway } from './alerts/infrastructure/web-push-gateway.js';
 import { SpeedProfileProvider } from './eta/application/speed-profile-provider.js';
 import { DEFAULT_ETA_SETTINGS } from './eta/domain/eta-settings.js';
 import { KyselyCompletedTripSamples } from './eta/infrastructure/kysely-completed-trip-samples.js';
+import { AppViewService } from './indicators/application/app-view-service.js';
+import { KyselyAppViewStore } from './indicators/infrastructure/kysely-app-view-store.js';
 import { LiveSnapshotService } from './live/application/live-snapshot-service.js';
 import { KyselyLiveRouteReadModel } from './live/infrastructure/kysely-live-read-model.js';
 import { LiveStreamHub } from './live/infrastructure/sse/live-stream-hub.js';
@@ -91,6 +93,7 @@ export interface Api {
   readonly subscriptions: SubscriptionService;
   readonly liveSnapshots: LiveSnapshotService;
   readonly liveStreams: LiveStreamHub;
+  readonly appViews: AppViewService;
 }
 
 /**
@@ -181,9 +184,10 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     logger: logger.child({ component: 'eta-refresh-job' }),
   });
 
+  const referencePoints = new KyselyReferencePointLookup(db);
   const subscriptions = new SubscriptionService({
     store: new KyselySubscriptionStore(db),
-    points: new KyselyReferencePointLookup(db),
+    points: referencePoints,
     households: new KyselyHouseholdDirectory(db),
     tokens: new CryptoManagementTokens(),
     clock,
@@ -215,6 +219,14 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     logger: logger.child({ component: 'live-stream' }),
   });
 
+  const appViews = new AppViewService({
+    points: referencePoints,
+    subscribers: subscriptions,
+    store: new KyselyAppViewStore(db),
+    clock,
+    logger: logger.child({ component: 'usage' }),
+  });
+
   const app = await buildApp({
     loggerInstance: logger,
     trustProxy: config.trustProxy,
@@ -231,6 +243,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
         stream: { hub: liveStreams, maxFixAgeSec: DEFAULT_ETA_SETTINGS.maxFixAgeSec },
       },
     },
+    usage: { views: appViews, mutationsPerMinute: config.publicRateLimitPerMinute },
   });
 
   return {
@@ -246,5 +259,6 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     subscriptions,
     liveSnapshots,
     liveStreams,
+    appViews,
   };
 }

@@ -10,6 +10,10 @@ import {
   pushSubscriptionRoutes,
   type PushSubscriptionRoutesOptions,
 } from './alerts/infrastructure/http/push-subscription-routes.js';
+import {
+  usageRoutes,
+  type UsageRoutesOptions,
+} from './indicators/infrastructure/http/usage-routes.js';
 import { liveRoutes, type LiveRoutesOptions } from './live/infrastructure/http/live-routes.js';
 import {
   publicRouteRoutes,
@@ -35,6 +39,8 @@ export interface BuildAppOptions {
     readonly catalog: PublicRouteRoutesOptions;
     readonly live: LiveRoutesOptions;
   };
+  /** Registers the usage logging endpoint (adoption indicator) under `/api` when present. */
+  readonly usage?: UsageRoutesOptions;
   /** Trust `X-Forwarded-*` headers from the reverse proxy. */
   readonly trustProxy?: boolean;
 }
@@ -67,6 +73,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   if (options.publicRead !== undefined) {
     await app.register(publicRouteRoutes, { ...options.publicRead.catalog, prefix: '/api' });
     await app.register(liveRoutes, { ...options.publicRead.live, prefix: '/api' });
+  }
+  if (options.usage !== undefined) {
+    await app.register(usageRoutes, { ...options.usage, prefix: '/api' });
   }
 
   return app;

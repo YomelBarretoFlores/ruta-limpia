@@ -20,6 +20,7 @@ export interface ManagedSubscription {
   readonly id: string;
   readonly managementTokenHash: string;
   readonly revokedAt: Date | null;
+  readonly householdId: string | null;
 }
 
 /** Port: persists Web Push subscriptions. */

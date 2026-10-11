@@ -4,6 +4,7 @@ import { Migrator, type Migration, type MigrationResultSet } from 'kysely/migrat
 import type { Logger } from '../../application/logger.js';
 import * as initialSchema from './migrations/0001-initial-schema.js';
 import * as pushSubscriptions from './migrations/0002-push-subscriptions.js';
+import * as appViews from './migrations/0003-app-views.js';
 
 /**
  * Migrations are registered in code (not discovered on disk) so they work the same from `src` with
@@ -12,6 +13,7 @@ import * as pushSubscriptions from './migrations/0002-push-subscriptions.js';
 const MIGRATIONS: Record<string, Migration> = {
   '0001-initial-schema': initialSchema,
   '0002-push-subscriptions': pushSubscriptions,
+  '0003-app-views': appViews,
 };
 
 export function createMigrator<DB>(db: Kysely<DB>): Migrator {
