@@ -1,4 +1,4 @@
-import type { LoginState } from '../domain/lockout-policy.js';
+import type { AccountLoginState, LoginState } from '../domain/lockout-policy.js';
 import type { Role } from '../domain/role.js';
 import type { SessionTimes, UserAgentClass } from '../domain/session-policy.js';
 
@@ -13,7 +13,7 @@ export interface PanelUser {
   readonly lastLoginAt: Date | null;
 }
 
-export interface UserCredentials extends LoginState {
+export interface UserCredentials extends AccountLoginState {
   readonly user: PanelUser;
   readonly passwordHash: string;
 }
@@ -46,9 +46,9 @@ export interface UserStore {
    * Read-modify-write of the login state under a row lock, so concurrent failures are all
    * counted. Returns what `change` returned.
    */
-  modifyLoginState<T extends LoginState>(
+  modifyLoginState<T extends AccountLoginState>(
     userId: string,
-    change: (current: LoginState) => T,
+    change: (current: AccountLoginState) => T,
   ): Promise<T>;
   recordLogin(userId: string, at: Date): Promise<void>;
 }

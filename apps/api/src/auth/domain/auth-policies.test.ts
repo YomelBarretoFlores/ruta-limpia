@@ -11,10 +11,15 @@ import {
 } from './credentials.js';
 import { checkCsrf, CSRF_HEADER_VALUE, isMutatingMethod } from './csrf-policy.js';
 import {
+  attemptIntervalSec,
+  CLEAN_ACCOUNT_LOGIN_STATE,
   DEFAULT_LOCKOUT_POLICY,
   isLocked,
+  isThrottled,
+  registerAccountFailure,
   registerFailedLogin,
   registerSuccessfulLogin,
+  type AccountLoginState,
 } from './lockout-policy.js';
 import { can, isRole, permissionsOf, PERMISSIONS } from './role.js';
 import {
@@ -99,20 +104,56 @@ describe('credentials', () => {
 });
 
 describe('lockout policy', () => {
-  it('pauses one client network after 5 failures and the whole account after 20', () => {
+  it('pauses one client network after 5 failures; spaces out and caps guessing per account', () => {
     expect(DEFAULT_LOCKOUT_POLICY).toEqual({
       perSource: { maxFailedAttempts: 5, lockoutMinutes: 15 },
-      perAccount: { maxFailedAttempts: 20, lockoutMinutes: 15 },
+      perAccount: { freeAttempts: 10, maxIntervalSec: 60, maxFailures: 100, windowHours: 24 },
     });
-    let account = { failedAttempts: 0, lockedUntil: null as Date | null };
-    for (let i = 1; i < 20; i++) {
-      account = registerFailedLogin(account, T0, DEFAULT_LOCKOUT_POLICY.perAccount);
-    }
-    expect(isLocked(account, T0)).toBe(false);
-    expect(registerFailedLogin(account, T0, DEFAULT_LOCKOUT_POLICY.perAccount)).toMatchObject({
-      lockedUntil: at(15),
-      lockedNow: true,
-    });
+  });
+
+  it('spaces account attempts 2^(n-10) s apart after 10 failures, at most 60 s', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    const intervals = [0, 9, 10, 11, 12, 15, 16, 17, 99].map((n) =>
+      attemptIntervalSec(n, throttle),
+    );
+
+    expect(intervals).toEqual([0, 0, 1, 2, 4, 32, 60, 60, 60]);
+  });
+
+  it('refuses an attempt before the interval since the last failure has passed', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    let state: AccountLoginState = CLEAN_ACCOUNT_LOGIN_STATE;
+    for (let i = 0; i < 9; i++) state = registerAccountFailure(state, T0, throttle);
+    expect(isThrottled(state, T0, throttle)).toBe(false);
+
+    const tenth = registerAccountFailure(state, T0, throttle);
+    expect(tenth).toMatchObject({ failedAttempts: 10, throttledNow: true, lockedNow: false });
+    expect(isThrottled(tenth, new Date(T0.getTime() + 999), throttle)).toBe(true);
+    expect(isThrottled(tenth, new Date(T0.getTime() + 1000), throttle)).toBe(false);
+    expect(registerAccountFailure(tenth, at(1), throttle).throttledNow).toBe(false);
+  });
+
+  it('pauses the account at 100 failures within 24 h, until that window ends', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    let state: AccountLoginState = CLEAN_ACCOUNT_LOGIN_STATE;
+    for (let i = 0; i < 99; i++) state = registerAccountFailure(state, at(i), throttle);
+    expect(isLocked(state, at(99))).toBe(false);
+
+    const locked = registerAccountFailure(state, at(99), throttle);
+
+    expect(locked).toMatchObject({ lockedNow: true, failedAttempts: 0, lockedUntil: at(24 * 60) });
+    expect(isLocked(locked, at(24 * 60 - 1))).toBe(true);
+    expect(registerAccountFailure(locked, at(100), throttle)).toMatchObject({ lockedNow: false });
+  });
+
+  it('starts a new 24 h window when the previous one has ended', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    let state: AccountLoginState = CLEAN_ACCOUNT_LOGIN_STATE;
+    for (let i = 0; i < 50; i++) state = registerAccountFailure(state, at(i), throttle);
+
+    const later = registerAccountFailure(state, at(24 * 60), throttle);
+
+    expect(later).toMatchObject({ failedAttempts: 1, windowStartedAt: at(24 * 60) });
   });
 
   it('locks for 15 minutes at the fifth consecutive failure of a threshold', () => {

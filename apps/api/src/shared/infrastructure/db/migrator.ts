@@ -13,6 +13,7 @@ import * as fieldObservations from './migrations/0008-field-observations.js';
 import * as baselineRouteLogs from './migrations/0009-baseline-route-logs.js';
 import * as incidentLegacyData from './migrations/0010-incident-legacy-data.js';
 import * as householdCodeCounter from './migrations/0011-household-code-counter.js';
+import * as accountThrottle from './migrations/0012-account-throttle.js';
 
 /**
  * Migrations are registered in code (not discovered on disk) so they work the same from `src` with
@@ -30,6 +31,7 @@ const MIGRATIONS: Record<string, Migration> = {
   '0009-baseline-route-logs': baselineRouteLogs,
   '0010-incident-legacy-data': incidentLegacyData,
   '0011-household-code-counter': householdCodeCounter,
+  '0012-account-throttle': accountThrottle,
 };
 
 export function createMigrator<DB>(db: Kysely<DB>): Migrator {

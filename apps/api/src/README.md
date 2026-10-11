@@ -221,11 +221,13 @@ Errors are logged per subscription and never reach the ingest.
 ### Panel access (`auth`)
 
 The domain holds the rules: `credentials` (12–256 characters, case-insensitive usernames),
-`lockout-policy` (five failures lock for 15 minutes), `session-policy` (idle and absolute lifetimes,
-touch interval), `role` (the permission matrix; code asks `can(role, permission)`, never compares
-role names) and `csrf-policy` (custom header plus `Origin` check). `AuthService` burns one password
-verification on every failed path (unknown, inactive and locked users included), counts failures
-under a row lock (`modifyLoginState`), applies the same lockout in memory to unknown usernames,
+`lockout-policy` (five failures from one network pause it for 15 minutes; per account, attempts
+are spaced out after ten failures and 100 failures in 24 hours pause the account),
+`session-policy` (idle and absolute lifetimes, touch interval), `role` (the permission matrix;
+code asks `can(role, permission)`, never compares role names) and `csrf-policy` (custom header
+plus `Origin` check). `AuthService` burns one password verification on every failed path
+(unknown, inactive and paused users included) except an attempt too early for the account's
+throttle, which is refused without hashing; it counts failures under a row lock (`modifyLoginState`),
 opens a fresh session at each login and revokes the presented one. `UserAdminService` revokes a
 user's sessions on a role change, a deactivation or a password reset.
 

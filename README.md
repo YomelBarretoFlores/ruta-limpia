@@ -348,30 +348,36 @@ Administrators then manage every other account from the panel.
   username or the address; the `Retry-After` value is derived from the 5 s wait bound. Raising
   `UV_THREADPOOL_SIZE` (an environment variable read by Node at start) gives other threadpool work
   more room on a larger host; the hashing bound stays two.
-- **Login**: `401 invalid_credentials` is the only failure answer, at the same cost, for unknown
-  users, inactive users, wrong passwords and paused sign-in. Lockout policy
-  (`DEFAULT_LOCKOUT_POLICY`):
-  - five consecutive failures against one account from one client network (IPv4 /24, IPv6 /64)
-    pause that network's sign-in on that account for 15 minutes;
-  - twenty consecutive failures against one account from any networks pause the account itself
-    for 15 minutes (a cap on distributed guessing: at most 20 guesses per account every 15
-    minutes, however many networks the attacker controls);
-  - a successful login resets both counts; an administrator's password reset clears the account
-    pause (an integration test proves it), though not the per-network pauses.
+- **Login**: `401 invalid_credentials` is the only failure answer, for unknown users, inactive
+  users, wrong passwords, throttled and paused sign-in. Lockout policy (`DEFAULT_LOCKOUT_POLICY`),
+  throttling in the manner of NIST SP 800-63B (5.2.2) rather than a low hard lock:
+  - **per network**: five consecutive failures against one account from one client network
+    (IPv4 /24, IPv6 /64) pause that network's sign-in on that account for 15 minutes;
+  - **per account, throttling**: the first ten consecutive failures from any networks are free;
+    after the n-th failure (n ≥ 10) the next attempt must wait 2^(n−10) seconds (1, 2, 4 … at most
+    60 s). An attempt that comes earlier is refused with the same `401` **without running scrypt**
+    (and audited as `auth.login_blocked` with `reason: account_throttled`), so a flood of guesses
+    against one account costs no hashing;
+  - **per account, hard pause**: 100 failures within a 24-hour window (it starts at the first
+    failure and restarts once over) pause the account until that window ends;
+  - a successful login resets both counts; an administrator's password reset clears the account's
+    count, throttle and pause (an integration test proves it), though not the per-network pauses.
 
-  Tradeoffs: a paused attempt is not told it is paused (the message only says sign-in pauses after
-  repeated failures), because a distinct answer would reveal which usernames exist; there is
-  therefore nothing to enumerate, across restarts and instances too. Counting per network means
-  someone who knows a username cannot lock its owner out from elsewhere; locking the account itself
-  takes twenty failures, which at five per network needs at least four networks. The price of the
-  lower account budget: someone with four networks can pause an account for 15 minutes at a time;
-  an administrator ends that pause by resetting the password. The per-network counts live in
-  process memory (at most 10,000 pairs), so a restart forgets them; when the store is full, the
-  oldest count is forgotten but a running pause never is (while every entry is a running pause, a
-  new count is not kept until one ends; the account budget still applies). The per-account count is
-  stored with the user. Logins are also rate-limited per client IP
-  (`LOGIN_RATE_LIMIT_PER_MINUTE`). Pauses are logged as a warning with the user id only (never the
-  username, the password or the address).
+  Tradeoffs: one generic answer, so no message reveals a pause; but a throttled attempt answers
+  faster than a checked one (no hash), so its timing shows that the account exists and is under
+  attack. That is the price of not spending 128 MiB of scrypt on every early guess. Guessing is
+  slow and capped (after ten free tries, about one per minute, and at most 100 per account per
+  window), while a few failures never lock the owner out; the owner may wait up to a minute
+  between tries while an attack runs. Pausing an account outright takes 100 failures, which,
+  at five per network every 15 minutes, needs twenty networks or about five hours, and an
+  administrator ends the pause by resetting the password. The per-network counts live in process
+  memory (at most 10,000 pairs), so a restart forgets them; when the store is full, the oldest
+  count is forgotten but a running pause never is (while every entry is a running pause, a new
+  count is not kept until one ends; the account limits still apply). The account state (count,
+  last failure, window start, pause; migration `0012-account-throttle`) is stored with the user.
+  Logins are also rate-limited per client IP (`LOGIN_RATE_LIMIT_PER_MINUTE`). Pauses and the start
+  of throttling are logged as a warning with the user id only (never the username, the password
+  or the address).
 
 - **Session cookie** `rl_session`: a random 256-bit token; only its SHA-256 is stored. Flags:
   `HttpOnly`, `SameSite=Strict`, `Secure` (`SESSION_COOKIE_SECURE`), `Path=/api/panel`, and
@@ -425,7 +431,8 @@ users answer `400 invalid_username` or `400 weak_password` (with `problem`: `too
 
 The audit trail (`audit_events`) records logins (`auth.login_succeeded`, `auth.login_failed`,
 `auth.account_locked` with `scope` `source` or `account` when a failure starts a pause,
-`auth.login_blocked` with `reason` `source_locked` or `account_locked`, `auth.logout`) and user
+`auth.login_blocked` with `reason` `source_locked`, `account_locked` or `account_throttled`,
+`auth.logout`) and user
 changes (`user.created`, `user.updated`), with ids, codes, reasons and changed field names only.
 A user change, the sessions it ends and its audit event commit in one transaction: if the audit
 write fails, the change is undone and the request answers `500`. `user.updated` lists in `fields`

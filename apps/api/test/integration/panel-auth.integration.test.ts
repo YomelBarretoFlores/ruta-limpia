@@ -98,7 +98,7 @@ describe('panel login (PostGIS)', () => {
     expect(unknown.json()).toEqual({
       error: 'invalid_credentials',
       message:
-        'Wrong username or password. After repeated failures, sign-in pauses for up to 15 minutes.',
+        'Wrong username or password. After repeated failures, sign-in slows down and pauses for at least 15 minutes.',
     });
     expect(unknown.headers['set-cookie']).toBeUndefined();
     const events = await db
@@ -211,12 +211,21 @@ describe('panel login (PostGIS)', () => {
     expect((await login(api.app, 'sara.super')).statusCode).toBe(200);
   });
 
-  it("pauses the account after 20 failures from many networks; an admin's password reset ends the pause", async () => {
-    for (let n = 0; n < 20; n++) {
+  it("spaces out attempts after 10 failures and pauses the account after 100; an admin's password reset ends both", async () => {
+    for (let n = 0; n < 10; n++) {
       await loginFrom(`190.41.${n}.7`, 'sara.super', 'wrong password!!');
     }
+    // Too early after the tenth failure: refused, even with the right password.
+    expect((await loginFrom('200.48.7.1', 'sara.super')).statusCode).toBe(401);
+    expect(await auditActions()).toContain('auth.login_blocked');
+
+    for (let n = 10; n < 100; n++) {
+      clock.set(new Date(NOW.getTime() + n * 60_000));
+      await loginFrom(`190.42.${n}.7`, 'sara.super', 'wrong password!!');
+    }
     expect(await auditActions()).toContain('auth.account_locked');
-    // Paused for every network, even with the right password.
+    // Paused for every network, even with the right password, long after the last failure.
+    clock.set(new Date(NOW.getTime() + 300 * 60_000));
     expect((await loginFrom('200.48.7.1', 'sara.super')).statusCode).toBe(401);
 
     const admin = await panelClient(api.app, 'ana.admin');

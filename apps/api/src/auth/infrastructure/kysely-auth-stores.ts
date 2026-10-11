@@ -18,7 +18,7 @@ import type {
   UserStore,
 } from '../application/auth-ports.js';
 import type { UserAdminTransaction } from '../application/user-admin-service.js';
-import type { LoginState } from '../domain/lockout-policy.js';
+import type { AccountLoginState } from '../domain/lockout-policy.js';
 import type { SessionTimes, UserAgentClass } from '../domain/session-policy.js';
 
 const PROFILE_COLUMNS = [
@@ -45,6 +45,35 @@ function toPanelUser(row: ProfileRow): PanelUser {
   };
 }
 
+const LOGIN_STATE_COLUMNS = [
+  'failed_attempts',
+  'locked_until',
+  'last_failed_at',
+  'failure_window_started_at',
+] as const;
+
+/** A password reset clears the failures, the throttle and any pause. */
+const CLEARED_LOGIN_STATE = {
+  failed_attempts: 0,
+  locked_until: null,
+  last_failed_at: null,
+  failure_window_started_at: null,
+} as const;
+
+function toLoginState(row: {
+  readonly failed_attempts: number;
+  readonly locked_until: Date | null;
+  readonly last_failed_at: Date | null;
+  readonly failure_window_started_at: Date | null;
+}): AccountLoginState {
+  return {
+    failedAttempts: row.failed_attempts,
+    lockedUntil: row.locked_until,
+    lastFailedAt: row.last_failed_at,
+    windowStartedAt: row.failure_window_started_at,
+  };
+}
+
 /** Panel users in PostgreSQL (`users`). */
 export class KyselyUserStore implements UserStore {
   constructor(private readonly db: AppDatabase) {}
@@ -52,7 +81,7 @@ export class KyselyUserStore implements UserStore {
   async findCredentials(username: string): Promise<UserCredentials | null> {
     const row = await this.db
       .selectFrom('users')
-      .select([...PROFILE_COLUMNS, 'password_hash', 'failed_attempts', 'locked_until'])
+      .select([...PROFILE_COLUMNS, 'password_hash', ...LOGIN_STATE_COLUMNS])
       .where('username', '=', username)
       .executeTakeFirst();
     return row === undefined
@@ -60,8 +89,7 @@ export class KyselyUserStore implements UserStore {
       : {
           user: toPanelUser(row),
           passwordHash: row.password_hash,
-          failedAttempts: row.failed_attempts,
-          lockedUntil: row.locked_until,
+          ...toLoginState(row),
         };
   }
 
@@ -108,10 +136,10 @@ export class KyselyUserStore implements UserStore {
         ...(changes.displayName === undefined ? {} : { display_name: changes.displayName }),
         ...(changes.role === undefined ? {} : { role: changes.role }),
         ...(changes.active === undefined ? {} : { active: changes.active }),
-        // A reset password also clears a lockout.
+        // A reset password also clears a lockout and the throttle.
         ...(changes.passwordHash === undefined
           ? {}
-          : { password_hash: changes.passwordHash, failed_attempts: 0, locked_until: null }),
+          : { password_hash: changes.passwordHash, ...CLEARED_LOGIN_STATE }),
       })
       .where('id', '=', userId)
       .returning(PROFILE_COLUMNS)
@@ -119,21 +147,26 @@ export class KyselyUserStore implements UserStore {
     return row === undefined ? null : toPanelUser(row);
   }
 
-  modifyLoginState<T extends LoginState>(
+  modifyLoginState<T extends AccountLoginState>(
     userId: string,
-    change: (current: LoginState) => T,
+    change: (current: AccountLoginState) => T,
   ): Promise<T> {
     return inTransaction(this.db, async (trx) => {
       const row = await trx
         .selectFrom('users')
-        .select(['failed_attempts', 'locked_until'])
+        .select(LOGIN_STATE_COLUMNS)
         .where('id', '=', userId)
         .forUpdate()
         .executeTakeFirstOrThrow();
-      const next = change({ failedAttempts: row.failed_attempts, lockedUntil: row.locked_until });
+      const next = change(toLoginState(row));
       await trx
         .updateTable('users')
-        .set({ failed_attempts: next.failedAttempts, locked_until: next.lockedUntil })
+        .set({
+          failed_attempts: next.failedAttempts,
+          locked_until: next.lockedUntil,
+          last_failed_at: next.lastFailedAt,
+          failure_window_started_at: next.windowStartedAt,
+        })
         .where('id', '=', userId)
         .execute();
       return next;

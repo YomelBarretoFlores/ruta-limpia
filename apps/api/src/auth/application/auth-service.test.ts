@@ -133,15 +133,40 @@ describe('AuthService.login', () => {
     expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
   });
 
-  it('pauses the whole account after 20 failures from many networks', async () => {
-    for (let n = 0; n < 4; n++) {
-      for (let i = 0; i < 5; i++) await attempt('wrong password!', `10.0.${n}.0/24`);
+  const seconds = (n: number) => new Date(T0.getTime() + n * 1000);
+
+  it('spaces out account attempts after 10 failures, refusing early ones without hashing', async () => {
+    // One failure from each of ten networks: no network is paused.
+    for (let n = 0; n < 10; n++) await attempt('wrong password!', `10.0.${n}.0/24`);
+    const verifications = hasher.verifications;
+
+    // Even the right password, too early: refused like a wrong one, and no hash is computed.
+    expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
+    expect(hasher.verifications).toBe(verifications);
+    expect(audit.events.at(-1)).toMatchObject({
+      action: 'auth.login_blocked',
+      details: { reason: 'account_throttled' },
+    });
+    expect(warnings.at(-1)).toEqual({
+      context: { userId, scope: 'account_throttle', failedAttempts: 10 },
+      message: 'Panel sign-in attempts spaced out after repeated failures',
+    });
+
+    clock.set(seconds(1));
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+  });
+
+  it('pauses the whole account after 100 failures within 24 hours, until the window ends', async () => {
+    for (let i = 0; i < 100; i++) {
+      clock.set(minutes(i));
+      await attempt('wrong password!', `10.${i}.0.0/24`);
     }
     expect(audit.events.at(-1)?.details).toEqual({ reason: 'wrong_password', scope: 'account' });
 
+    clock.set(minutes(200));
     expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
     expect(audit.events.at(-1)?.details).toEqual({ reason: 'account_locked' });
-    clock.set(minutes(15));
+    clock.set(minutes(24 * 60));
     expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
   });
 

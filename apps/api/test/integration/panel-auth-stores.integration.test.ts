@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { openSession } from '../../src/auth/domain/session-policy.js';
 import {
   DEFAULT_LOCKOUT_POLICY,
-  registerFailedLogin,
+  registerAccountFailure,
 } from '../../src/auth/domain/lockout-policy.js';
 import {
   KyselySessionStore,
@@ -65,7 +65,7 @@ describe('KyselyUserStore (PostGIS)', () => {
     await Promise.all(
       Array.from({ length: 3 }, () =>
         users.modifyLoginState(user.id, (current) =>
-          registerFailedLogin(current, T0, DEFAULT_LOCKOUT_POLICY.perAccount),
+          registerAccountFailure(current, T0, DEFAULT_LOCKOUT_POLICY.perAccount),
         ),
       ),
     );
@@ -74,12 +74,19 @@ describe('KyselyUserStore (PostGIS)', () => {
       user: { id: user.id, role: 'supervisor', active: true },
       failedAttempts: 3,
       lockedUntil: null,
+      lastFailedAt: T0,
+      windowStartedAt: T0,
     });
   });
 
   it('clears a lockout when the password is reset', async () => {
     const user = await createUser();
-    await users.modifyLoginState(user.id, () => ({ failedAttempts: 0, lockedUntil: T0 }));
+    await users.modifyLoginState(user.id, () => ({
+      failedAttempts: 12,
+      lockedUntil: T0,
+      lastFailedAt: T0,
+      windowStartedAt: T0,
+    }));
 
     await users.update(user.id, { passwordHash: 'new-hash' });
 
@@ -87,6 +94,8 @@ describe('KyselyUserStore (PostGIS)', () => {
       passwordHash: 'new-hash',
       failedAttempts: 0,
       lockedUntil: null,
+      lastFailedAt: null,
+      windowStartedAt: null,
     });
     expect(await users.findById('not-a-uuid')).toBeNull();
   });

@@ -240,6 +240,8 @@ export interface UsersTable {
   active: Generated<boolean>;
   failed_attempts: Generated<number>;
   locked_until: Date | null;
+  last_failed_at: Date | null;
+  failure_window_started_at: Date | null;
   created_at: CreatedAt;
   last_login_at: Date | null;
 }

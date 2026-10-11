@@ -100,14 +100,10 @@ export const panelAuthRoutes: FastifyPluginCallback<PanelAuthRoutesOptions> = (
   options,
   done,
 ) => {
-  const pauseMinutes = Math.max(
-    options.lockoutPolicy.perSource.lockoutMinutes,
-    options.lockoutPolicy.perAccount.lockoutMinutes,
-  );
   // One message for every failure: it may not say whether the account exists or is paused.
   const invalidCredentialsMessage =
-    'Wrong username or password. After repeated failures, sign-in pauses for up to ' +
-    `${pauseMinutes} minutes.`;
+    'Wrong username or password. After repeated failures, sign-in slows down and pauses for ' +
+    `at least ${options.lockoutPolicy.perSource.lockoutMinutes} minutes.`;
 
   app.post(
     '/auth/login',

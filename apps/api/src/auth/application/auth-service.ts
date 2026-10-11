@@ -3,8 +3,11 @@ import type { Clock } from '../../shared/application/clock.js';
 import type { Logger } from '../../shared/application/logger.js';
 import { loginPassword, loginUsername } from '../domain/credentials.js';
 import {
+  CLEAN_ACCOUNT_LOGIN_STATE,
   DEFAULT_LOCKOUT_POLICY,
   isLocked,
+  isThrottled,
+  registerAccountFailure,
   registerFailedLogin,
   registerSuccessfulLogin,
   type LockoutPolicy,
@@ -81,10 +84,11 @@ const UNKNOWN_NETWORK = 'unknown';
  *
  * - oversized usernames and passwords are cut before any normalization, lookup or hashing;
  * - every failed path burns one password verification, so the response time does not reveal
- *   whether the user exists, is inactive or is paused;
+ *   whether the user exists, is inactive or is paused; the one exception is an attempt that
+ *   comes too early for the account's throttle: it is refused without hashing, so a flood of
+ *   guesses against one account costs no CPU (its answer is still `invalid_credentials`);
  * - failures are counted per (account, client network) and per account, as the lockout policy
- *   says; a paused attempt answers `invalid_credentials` like a wrong password, so neither the
- *   answer nor its timing tells real usernames from unknown ones, even across restarts;
+ *   says; a paused attempt answers `invalid_credentials` like a wrong password;
  * - a login always opens a new session with a fresh random token and revokes the session the
  *   browser presented (no session fixation);
  * - sessions end on idleness, on their absolute lifetime, on logout, and when an administrator
@@ -115,6 +119,11 @@ export class AuthService {
 
     const user = credentials.user;
     const source = `${user.id}|${command.clientNetwork ?? UNKNOWN_NETWORK}`;
+    if (!isLocked(credentials, now) && isThrottled(credentials, now, this.lockout.perAccount)) {
+      // Too early after the last failure: refused unchecked, without spending a hash on it.
+      await this.record('auth.login_blocked', user.id, now, { reason: 'account_throttled' });
+      return INVALID_CREDENTIALS;
+    }
     const paused = await this.pauseOf(credentials, source, now);
     if (paused !== null) {
       await hasher.verifyDummy(password.value);
@@ -129,7 +138,7 @@ export class AuthService {
 
     // The password was checked outside the row lock: a parallel attempt may have locked it since.
     const state = await users.modifyLoginState(user.id, (current) =>
-      isLocked(current, now) ? current : registerSuccessfulLogin(),
+      isLocked(current, now) ? current : CLEAN_ACCOUNT_LOGIN_STATE,
     );
     const pausedMeanwhile = isLocked(state, now)
       ? 'account_locked'
@@ -203,16 +212,23 @@ export class AuthService {
       registerFailedLogin(current, now, this.lockout.perSource),
     );
     const byAccount = await this.deps.users.modifyLoginState(user.id, (current) =>
-      registerFailedLogin(current, now, this.lockout.perAccount),
+      registerAccountFailure(current, now, this.lockout.perAccount),
     );
+    // The user id is an opaque key; the username, the password and the network are never logged.
+    if (byAccount.throttledNow) {
+      this.deps.logger.warn(
+        { userId: user.id, scope: 'account_throttle', failedAttempts: byAccount.failedAttempts },
+        'Panel sign-in attempts spaced out after repeated failures',
+      );
+    }
     if (!byAccount.lockedNow && !bySource.lockedNow) {
       await this.record('auth.login_failed', user.id, now, { reason: 'wrong_password' });
       return;
     }
     const scope = byAccount.lockedNow ? 'account' : 'source';
+    const lockedUntil = (byAccount.lockedNow ? byAccount : bySource).lockedUntil;
     const lockoutMinutes =
-      this.lockout[byAccount.lockedNow ? 'perAccount' : 'perSource'].lockoutMinutes;
-    // The user id is an opaque key; the username, the password and the network are never logged.
+      lockedUntil === null ? 0 : Math.ceil((lockedUntil.getTime() - now.getTime()) / 60_000);
     this.deps.logger.warn(
       { userId: user.id, scope, lockoutMinutes },
       'Panel sign-in paused after repeated failures',

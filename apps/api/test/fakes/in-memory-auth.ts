@@ -9,7 +9,10 @@ import type {
   UserCredentials,
   UserStore,
 } from '../../src/auth/application/auth-ports.js';
-import type { LoginState } from '../../src/auth/domain/lockout-policy.js';
+import {
+  CLEAN_ACCOUNT_LOGIN_STATE,
+  type AccountLoginState,
+} from '../../src/auth/domain/lockout-policy.js';
 import type { SessionTimes, UserAgentClass } from '../../src/auth/domain/session-policy.js';
 import type { AuditEvent, AuditLog } from '../../src/shared/application/audit-log.js';
 
@@ -18,6 +21,8 @@ interface UserRow {
   passwordHash: string;
   failedAttempts: number;
   lockedUntil: Date | null;
+  lastFailedAt: Date | null;
+  windowStartedAt: Date | null;
 }
 
 export class InMemoryUserStore implements UserStore {
@@ -55,8 +60,7 @@ export class InMemoryUserStore implements UserStore {
     this.rows.set(created.id, {
       user: created,
       passwordHash: user.passwordHash,
-      failedAttempts: 0,
-      lockedUntil: null,
+      ...CLEAN_ACCOUNT_LOGIN_STATE,
     });
     return Promise.resolve(created);
   }
@@ -66,19 +70,22 @@ export class InMemoryUserStore implements UserStore {
     if (row === undefined) return Promise.resolve(null);
     const { passwordHash, ...profile } = changes;
     row.user = { ...row.user, ...profile };
-    if (passwordHash !== undefined) row.passwordHash = passwordHash;
+    if (passwordHash !== undefined) Object.assign(row, { passwordHash }, CLEAN_ACCOUNT_LOGIN_STATE);
     return Promise.resolve(row.user);
   }
 
-  modifyLoginState<T extends LoginState>(
+  modifyLoginState<T extends AccountLoginState>(
     userId: string,
-    change: (current: LoginState) => T,
+    change: (current: AccountLoginState) => T,
   ): Promise<T> {
     const row = this.rows.get(userId);
     if (row === undefined) throw new Error(`No user ${userId}`);
-    const next = change({ failedAttempts: row.failedAttempts, lockedUntil: row.lockedUntil });
+    const { failedAttempts, lockedUntil, lastFailedAt, windowStartedAt } = row;
+    const next = change({ failedAttempts, lockedUntil, lastFailedAt, windowStartedAt });
     row.failedAttempts = next.failedAttempts;
     row.lockedUntil = next.lockedUntil;
+    row.lastFailedAt = next.lastFailedAt;
+    row.windowStartedAt = next.windowStartedAt;
     return Promise.resolve(next);
   }
 
