@@ -287,7 +287,9 @@ instead of failing. `0007-household-registry` makes `push_subscriptions.househol
 times, photo codes only). `0009-baseline-route-logs` stores the hand-written baseline logs and
 creates the `instrument1_export` view (system and baseline rows, `source` column).
 `0011-household-code-counter` keeps the last generated household code, so a code is never reused.
-`0014-indicator-inputs` adds the Instrument 2 flags `exposure_incomplete` and `comparable_window`
+`0012-account-throttle` and `0013-known-networks` store the account throttle with the user (see
+the deploy note below) and the networks of recent successful sign-ins (`user_known_networks`,
+SHA-256 of the user id and the network). `0014-indicator-inputs` (`migrations/0014-indicator-inputs.ts`) adds the Instrument 2 flags `exposure_incomplete` and `comparable_window`
 and the Instrument 3 table `household_surveys` (one row per household and wave; questions 6–11
 only in the post wave; deleted with its household).
 The `instrument1_route_log` view
@@ -303,3 +305,6 @@ when no alert was sent.
   single API instance, so the order is: stop the API, run `db:migrate` (or start the new build,
   which migrates on start), then start the new build. Rolling the code back likewise needs the
   migration's `down` first.
+- **`0014-indicator-inputs` is additive.** It adds two columns with defaults to
+  `field_observations` and creates `household_surveys`, so it can run while an earlier build is
+  still serving; that build simply ignores the new columns and table.

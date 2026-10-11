@@ -18,7 +18,9 @@ ocurrió antes de iniciar la observación" and "Mismo punto y ventana") and the 
 **Encuestas**.
 
 API: `GET /api/panel/indicators?route=RI-01&from=YYYY-MM-DD&to=YYYY-MM-DD` (permission
-`indicators:read`: administrators, supervisors and observers).
+`indicators:read`: administrators, supervisors and observers). A period spans at most 120 days
+(the nine-week pilot and its baseline weeks, with margin); a longer one, a reversed one or a
+malformed date gets `400 invalid_request`. The exports take the same period rule.
 
 ## The period and the phases
 
@@ -36,7 +38,9 @@ period of local dates (America/Lima):
 
 Medians take the mean of the two middle values for an even count. Every indicator reports
 `nValid` (records in the computation), `nMissing` (records that could not enter it) and, where the
-instrument defines one, `nIncomplete`.
+instrument defines one, `nIncomplete`. For a compared indicator (I2, I3, I4, I8, I9) the headline
+value is the post phase, so its counts are the post phase's counts; each phase keeps its own
+counts under `before` and `after`.
 
 | ID  | Indicator                  | Operational definition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Target and state                      |
 | --- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |

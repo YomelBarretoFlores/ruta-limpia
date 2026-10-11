@@ -259,16 +259,9 @@ function result(
   const definition = INDICATOR_DEFINITIONS[id];
   const before = parts.before ?? null;
   const after = parts.after ?? null;
-  const headline =
-    parts.overall ??
-    (after === null
-      ? EMPTY
-      : {
-          value: after.value,
-          nValid: after.nValid + (before?.nValid ?? 0),
-          nMissing: after.nMissing + (before?.nMissing ?? 0),
-          nIncomplete: after.nIncomplete + (before?.nIncomplete ?? 0),
-        });
+  // Without an overall measure the headline is the post phase, value and counts alike: its
+  // counts never include baseline records that did not enter the value.
+  const headline = parts.overall ?? after ?? EMPTY;
   const change = parts.change ?? null;
   return {
     ...definition,
@@ -369,7 +362,7 @@ function dispersionOf(rows: readonly ObservationRow[]): Measure {
   };
 }
 
-/** The share (0–1) of `rows` with an answer that `hit` holds for, among those with an answer. */
+/** The share (0–1) of `rows` whose `answer` is true, among those with an answer (not null). */
 function shareOf<T>(rows: readonly T[], answer: (row: T) => boolean | null): number | null {
   const answered = rows.map(answer).filter((a): a is boolean => a !== null);
   return ratio(answered.filter(Boolean).length, answered.length);

@@ -133,4 +133,38 @@ describe('readSurveyCsv', () => {
       altChannel: 'Perifoneo',
     });
   });
+
+  it('reads back free text the export neutralized against spreadsheet formulas, unchanged', () => {
+    const header =
+      'household_code,wave,surveyed_on,q14_channels,q14_other,q15_access,q15_alt_channel';
+    const csv = toCsv(header.split(','), [
+      ['H-001', 'post', '2026-12-15', 'other', '=junta', 'no', '-perifoneo los martes'],
+    ]);
+    expect(csv).toContain(",'=junta,");
+
+    const once = readSurveyCsv(csv);
+    expect(once.status === 'ok' && once.rows[0]?.command).toMatchObject({
+      channelOther: '=junta',
+      altChannel: '-perifoneo los martes',
+    });
+    // Export → import → export keeps one apostrophe, never one more per cycle.
+    const command = once.status === 'ok' ? once.rows[0]?.command : null;
+    const again = toCsv(header.split(','), [
+      [
+        'H-001',
+        'post',
+        '2026-12-15',
+        'other',
+        command?.channelOther ?? null,
+        'no',
+        command?.altChannel ?? null,
+      ],
+    ]);
+    expect(again).toBe(csv);
+    // A leading apostrophe before anything else is the household's own text.
+    const own = readSurveyCsv(
+      toCsv(header.split(','), [['H-001', 'post', '2026-12-15', 'other', "'90s", 'no', '']]),
+    );
+    expect(own.status === 'ok' && own.rows[0]?.command).toMatchObject({ channelOther: "'90s" });
+  });
 });

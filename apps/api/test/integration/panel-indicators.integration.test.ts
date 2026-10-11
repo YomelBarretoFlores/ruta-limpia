@@ -78,9 +78,9 @@ describe('panel indicators, Tabla 16 (PostGIS)', () => {
 
     expect(i2).toMatchObject({
       value: 35,
-      nValid: 7,
-      nMissing: 1,
-      nIncomplete: 1,
+      nValid: 4,
+      nMissing: 0,
+      nIncomplete: 0,
       before: { value: 80, nValid: 3, nMissing: 1, nIncomplete: 1 },
       after: { value: 35, nValid: 4, nMissing: 0, nIncomplete: 0 },
       change: { kind: 'relative', percent: -56.25 },
@@ -149,7 +149,7 @@ describe('panel indicators, Tabla 16 (PostGIS)', () => {
       value: 42.86,
       nValid: 7,
       status: 'not_met',
-      details: { confirmedValue: 28.5714, weeks: 2 },
+      details: { confirmedValue: 28.57, weeks: 2 },
     });
   });
 
@@ -189,5 +189,18 @@ describe('panel indicators, Tabla 16 (PostGIS)', () => {
     ).toBe(400);
     expect((await observer.get('/api/panel/indicators?route=RI-01')).statusCode).toBe(400);
     expect((await api.app.inject({ method: 'GET', url: URL })).statusCode).toBe(401);
+  });
+
+  it('bounds the period to 120 days, with a clear 400 beyond it', async () => {
+    const observer = await panelClient(api.app, 'omar.obs');
+    const period = (from: string, to: string) =>
+      observer.get(`/api/panel/indicators?route=RI-01&from=${from}&to=${to}`);
+
+    expect((await period('2026-09-01', '2026-12-29')).statusCode).toBe(200);
+    const tooLong = await period('2026-09-01', '2026-12-30');
+    expect(tooLong.statusCode).toBe(400);
+    expect(tooLong.json()).toMatchObject({ error: 'invalid_request' });
+    expect(tooLong.json<{ details: string }>().details).toContain('at most 120 days');
+    expect((await period('2000-01-01', '2026-12-20')).statusCode).toBe(400);
   });
 });

@@ -12,6 +12,16 @@ export const codeSchema = z
   .regex(/^[A-Za-z0-9-]{1,16}$/)
   .transform((code) => code.toUpperCase());
 
+/**
+ * A household code (`H-001`), normalized to upper case: the same rule as the database CHECK on
+ * `households.code`, for every route that takes one (path, body or list filter).
+ */
+export const householdCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9-]{1,19}$/)
+  .transform((code) => code.toUpperCase());
+
 /** A calendar date (`YYYY-MM-DD`); panel dates are local to the pilot (America/Lima). */
 export const localDateSchema = z.iso.date();
 

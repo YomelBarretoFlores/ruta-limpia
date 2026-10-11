@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CsvSyntaxError, parseCsv, toCsv, UTF8_BOM } from './csv.js';
+import { CsvSyntaxError, parseCsv, restoreNeutralized, toCsv, UTF8_BOM } from './csv.js';
 
 describe('parseCsv', () => {
   it('reads records with their starting line, skipping the BOM and blank lines', () => {
@@ -55,6 +55,17 @@ describe('toCsv', () => {
     const text = toCsv(['v'], [['=HYPERLINK("x")'], ['+1'], ['@cmd'], [-3]]);
 
     expect(text.split('\r\n').slice(1, 5)).toEqual([`"'=HYPERLINK(""x"")"`, "'+1", "'@cmd", '-3']);
+  });
+
+  it('restores neutralized text when read back, and keeps any other leading apostrophe', () => {
+    expect(['=SUM(A1)', '+1', '-x', '@cmd'].map((t) => restoreNeutralized(`'${t}`))).toEqual([
+      '=SUM(A1)',
+      '+1',
+      '-x',
+      '@cmd',
+    ]);
+    expect(restoreNeutralized("'90s")).toBe("'90s");
+    expect(restoreNeutralized('plain')).toBe('plain');
   });
 
   it('round-trips through the parser', () => {

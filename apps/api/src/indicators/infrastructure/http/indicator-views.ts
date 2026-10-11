@@ -47,8 +47,9 @@ export function indicatorView(indicator: IndicatorResult) {
       after: measureView(point.after),
       change: changeView(point.change),
     })),
+    // Secondary figures are values like the headline: same unit rule, same 2 decimals.
     details: Object.fromEntries(
-      Object.entries(indicator.details).map(([key, value]) => [key, rounded(value, 4)]),
+      Object.entries(indicator.details).map(([key, value]) => [key, rounded(value)]),
     ),
   };
 }

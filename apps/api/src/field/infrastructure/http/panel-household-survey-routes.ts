@@ -6,6 +6,7 @@ import { toCsv } from '../../../shared/domain/csv.js';
 import { sendCsv } from '../../../shared/infrastructure/http/csv-reply.js';
 import {
   codeSchema,
+  householdCodeSchema,
   invalidRequest,
   localDateSchema,
   pageQuerySchema,
@@ -48,11 +49,7 @@ const agreement = z
 const optionalText = z.string().trim().max(200).nullable().default(null);
 
 const surveyBodySchema = z.object({
-  householdCode: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9][A-Za-z0-9-]{1,19}$/)
-    .transform((code) => code.toUpperCase()),
+  householdCode: householdCodeSchema,
   wave: z.enum(SURVEY_WAVES),
   surveyedOn: localDateSchema,
   knowsSchedule: z.boolean().nullable().default(null),
@@ -88,7 +85,7 @@ const surveyBodySchema = z.object({
 const listQuerySchema = pageQuerySchema.extend({
   route: codeSchema.optional(),
   wave: z.enum(SURVEY_WAVES).optional(),
-  household: codeSchema.optional(),
+  household: householdCodeSchema.optional(),
 });
 
 const FAILURES: Record<Exclude<SurveyResult['status'], 'ok'>, [number, string]> = {

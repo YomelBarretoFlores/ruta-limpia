@@ -10,8 +10,15 @@ import type { HouseholdWeek } from '../domain/adoption.js';
 
 /** The pilot's time zone: dates, weeks and day bounds are local. */
 const ZONE = 'America/Lima';
-/** An operating interval, and the oldest a position may be for it to count as available. */
+/** The length of one operating interval of I7. */
 const INTERVAL_SEC = 60;
+/** The oldest a valid position may be at an interval's end for the interval to be available. */
+const FRESHNESS_SEC = 60;
+/**
+ * The longest the snapshot's queries may run: the read holds a connection of the shared pool (the
+ * same one the live tracking uses) and an old snapshot, so a slow report is cut instead.
+ */
+const SNAPSHOT_TIMEOUT_MS = 15_000;
 
 /**
  * Reads the indicator inputs of one route in one read-only snapshot (`REPEATABLE READ`), so the
@@ -26,6 +33,7 @@ export class KyselyIndicatorReadModel implements IndicatorReadModel {
       .setIsolationLevel('repeatable read')
       .setAccessMode('read only')
       .execute(async (trx) => {
+        await sql`SET LOCAL statement_timeout = ${sql.lit(SNAPSHOT_TIMEOUT_MS)}`.execute(trx);
         const route = await trx
           .selectFrom('routes')
           .select('id')
@@ -201,7 +209,8 @@ class SnapshotReader {
   /**
    * I7: the consecutive 60 s intervals of each trip of the route, from its start to its end (now
    * for a running trip), that lie inside the range; an interval is available when the vehicle's
-   * latest valid position received by its end was at most 60 s old.
+   * latest valid position received by its end was at most 60 s old. The period bound of the route
+   * (`MAX_INDICATOR_DAYS`) and the snapshot's statement timeout keep its cost bounded.
    */
   async availability() {
     const { lo, hi } = this.bounds;
@@ -225,7 +234,7 @@ class SnapshotReader {
           SELECT 1 FROM positions p
           WHERE p.vehicle_id = i.vehicle_id AND p.valid
             AND p.fix_time <= i.ends_at
-            AND p.fix_time >= i.ends_at - make_interval(secs => ${INTERVAL_SEC})
+            AND p.fix_time >= i.ends_at - make_interval(secs => ${FRESHNESS_SEC})
             AND p.received_at <= i.ends_at
         )) AS available
       FROM intervals i

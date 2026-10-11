@@ -105,6 +105,15 @@ function neutralized(text: string): string {
   return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
 }
 
+/**
+ * Undoes `toCsv`'s formula neutralization when reading a file back: an apostrophe followed by a
+ * formula character is dropped, so export → import keeps free text unchanged. Any other leading
+ * apostrophe is the author's own text and stays.
+ */
+export function restoreNeutralized(text: string): string {
+  return /^'[=+\-@\t\r]/.test(text) ? text.slice(1) : text;
+}
+
 function cell(value: CsvValue): string {
   if (value === null) return '';
   const text = typeof value === 'string' ? neutralized(value) : String(value);

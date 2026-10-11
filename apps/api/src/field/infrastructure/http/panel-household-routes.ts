@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { actorOf, panelRoute } from '../../../auth/infrastructure/http/panel-guard.js';
 import {
   codeSchema,
+  householdCodeSchema,
   invalidRequest,
   pageQuerySchema,
   pageWindow,
@@ -27,12 +28,7 @@ export interface PanelHouseholdRoutesOptions {
 /** Free-text notes: never addresses, names or phone numbers (the panel says so). */
 const notes = z.string().trim().max(280);
 
-const codeParamsSchema = z.object({
-  code: z
-    .string()
-    .regex(/^[A-Za-z0-9][A-Za-z0-9-]{1,19}$/)
-    .transform((code) => code.toUpperCase()),
-});
+const codeParamsSchema = z.object({ code: householdCodeSchema });
 
 const enrollBodySchema = z.object({
   routeCode: codeSchema,

@@ -5,8 +5,9 @@ import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
 
 /**
  * A small, hand-computable pilot on RI-01 for the indicator and export tests. The period is two
- * weeks, Monday 2026-11-16 to Sunday 2026-11-29 (America/Lima, UTC−5). Expected values, worked
- * out by hand, are in `EXPECTED` below and in docs/indicators.md.
+ * weeks, Monday 2026-11-16 to Sunday 2026-11-29 (America/Lima, UTC−5). The expected values,
+ * worked out by hand, are asserted (with the arithmetic in comments) next to each indicator in
+ * `test/integration/panel-indicators.integration.test.ts` and the export tests.
  */
 export const PERIOD = { from: '2026-11-16', to: '2026-11-29' } as const;
 export const NOW = new Date('2026-12-01T00:00:00Z');

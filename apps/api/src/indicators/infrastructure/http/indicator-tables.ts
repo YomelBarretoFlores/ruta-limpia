@@ -125,7 +125,7 @@ export function indicatorTable(report: IndicatorReport): CsvTable {
       }
     }
     for (const [name, value] of Object.entries(indicator.details)) {
-      rows.push([...head, 'route', name, rounded(value, 4), ...Array<null>(12).fill(null)]);
+      rows.push([...head, 'route', name, rounded(value), ...Array<null>(12).fill(null)]);
     }
   }
   return { header: INDICATOR_COLUMNS, rows };

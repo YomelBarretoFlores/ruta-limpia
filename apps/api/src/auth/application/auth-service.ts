@@ -12,7 +12,6 @@ import {
   releaseAttempt,
   reserveAttempt,
   settleSourceAttempt,
-  type AccountLoginState,
   type AttemptReservation,
   type LockoutPolicy,
 } from '../domain/lockout-policy.js';
@@ -31,6 +30,7 @@ import type {
   PasswordHasher,
   SessionStore,
   SessionTokens,
+  UserCredentials,
   UserStore,
 } from './auth-ports.js';
 import type { VerificationTiming } from './verification-timing.js';
@@ -86,10 +86,14 @@ export interface AuthenticatedSession {
 type Refusal = 'account_locked' | 'source_locked' | 'account_throttled';
 
 /** An attempt admitted to the password check, with what it holds until it is settled. */
-interface Admission {
+interface HeldAttempt {
   readonly source: string;
+  /** Whether its provisional place in the source's budget was given back. */
+  settled: boolean;
   /** The account's reserved slot, when the spacing applied. */
-  readonly reservation: AttemptReservation | null;
+  reservation: AttemptReservation | null;
+  /** Whether the password check ran (a reserved slot is then used, not given back). */
+  checked: boolean;
 }
 
 const INVALID_CREDENTIALS: LoginResult = Object.freeze({ status: 'invalid_credentials' });
@@ -114,8 +118,9 @@ const UNKNOWN_NETWORK = 'unknown';
  *   account's row lock before any hashing, so attempts arriving together when an interval ends
  *   get one password check between them; attempts from a known network of the account (a
  *   successful sign-in from it within 30 days) are not spaced out;
- * - an attempt whose check never ran (the hasher shed it) gives back its provisional place and
- *   its reserved slot, so a shed request uses up neither;
+ * - an attempt whose check never ran (the hasher shed it, or a store failed first) gives back its
+ *   provisional place and its reserved slot, so a shed request uses up neither; a place is given
+ *   back on every path, a thrown store error included, so database outages never lock a network;
  * - a login always opens a new session with a fresh random token and revokes the session the
  *   browser presented (no session fixation);
  * - sessions end on idleness, on their absolute lifetime, on logout, and when an administrator
@@ -145,60 +150,22 @@ export class AuthService {
     }
 
     const user = credentials.user;
-    const network = command.clientNetwork;
-    const source = `${user.id}|${network ?? UNKNOWN_NETWORK}`;
-    const admission = await this.admit(credentials, user.id, network, source, now);
-    if (typeof admission === 'string') {
-      // As long as a checked attempt, without the hashing: the timing reveals nothing.
-      await this.deps.timing.imitate();
-      await this.record('auth.login_blocked', user.id, now, { reason: admission });
-      return INVALID_CREDENTIALS;
-    }
+    const source = `${user.id}|${command.clientNetwork ?? UNKNOWN_NETWORK}`;
+    if (isLocked(credentials, now)) return this.refuse(user.id, 'account_locked', now);
+    const placed = await this.deps.sources.modify(source, (current) =>
+      admitSourceAttempt(current, now, this.lockout.perSource),
+    );
+    if (!placed.admitted) return this.refuse(user.id, 'source_locked', now);
 
-    let valid: boolean;
+    // From here the attempt holds a provisional place in its source's budget. Every path settles
+    // it exactly once, a store error or a shed check included: otherwise a few transient database
+    // failures would leave places taken and lock the owner's network until the process restarts.
+    const attempt: HeldAttempt = { source, settled: false, reservation: null, checked: false };
     try {
-      valid = await this.deps.timing.measure(() =>
-        hasher.verify(password.value, credentials.passwordHash),
-      );
-    } catch (error) {
-      await this.abandon(user.id, admission, now);
-      throw error;
+      return await this.checkAdmitted(command, credentials, password.value, attempt, now);
+    } finally {
+      await this.giveBack(user.id, attempt, now);
     }
-    if (!valid) {
-      await this.countFailure(user, source, now);
-      return INVALID_CREDENTIALS;
-    }
-
-    // The password was checked outside the locks: a parallel attempt may have paused it since.
-    const state = await users.modifyLoginState(user.id, (current) =>
-      registerAccountSuccess(current, now),
-    );
-    const accountLocked = isLocked(state, now);
-    const bySource = await this.settleSource(
-      source,
-      now,
-      accountLocked ? 'abandoned' : 'succeeded',
-    );
-    const pausedMeanwhile = accountLocked
-      ? 'account_locked'
-      : isLocked(bySource, now)
-        ? 'source_locked'
-        : null;
-    if (pausedMeanwhile !== null) {
-      await this.record('auth.login_blocked', user.id, now, { reason: pausedMeanwhile });
-      return INVALID_CREDENTIALS;
-    }
-    if (network !== undefined) {
-      const forgetBefore = knownNetworkCutoff(now, this.lockout.perAccount);
-      await this.deps.knownNetworks.remember(user.id, network, now, forgetBefore);
-    }
-
-    const opened = await this.openSession(user, now, command.userAgent);
-    if (command.previousToken !== undefined) await this.revokeToken(command.previousToken, now);
-    await users.recordLogin(user.id, now);
-    await this.deps.sessions.purgeEndedOf(user.id, now);
-    await this.record('auth.login_succeeded', user.id, now, {});
-    return { status: 'authenticated', user, ...opened };
   }
 
   /** The active session of a cookie token, or null (unknown, expired, revoked, inactive user). */
@@ -241,45 +208,105 @@ export class AuthService {
   }
 
   /**
-   * Admits an attempt to the password check, or says why it is refused. Before any hashing, the
-   * attempt takes a provisional place in its source's budget, and, outside the account's known
-   * networks, the throttle check and the reservation of the attempt's slot happen in one locked
-   * read-modify-write.
+   * Runs an attempt that holds its source place: outside the account's known networks, the
+   * throttle check and the reservation of the attempt's slot happen in one locked
+   * read-modify-write before any hashing; then the password is checked and the outcome settled.
    */
-  private async admit(
-    credentials: AccountLoginState,
-    userId: string,
-    network: string | undefined,
-    source: string,
+  private async checkAdmitted(
+    command: LoginCommand,
+    credentials: UserCredentials,
+    password: string,
+    attempt: HeldAttempt,
     now: Date,
-  ): Promise<Admission | Refusal> {
-    if (isLocked(credentials, now)) return 'account_locked';
-    const bySource = await this.deps.sources.modify(source, (current) =>
-      admitSourceAttempt(current, now, this.lockout.perSource),
-    );
-    if (!bySource.admitted) return 'source_locked';
+  ): Promise<LoginResult> {
+    const { users, hasher } = this.deps;
+    const user = credentials.user;
+    const network = command.clientNetwork;
     const throttle = this.lockout.perAccount;
     const known =
       network !== undefined &&
-      (await this.deps.knownNetworks.isKnown(userId, network, knownNetworkCutoff(now, throttle)));
-    if (known) return { source, reservation: null };
-    const reserved = await this.deps.users.modifyLoginState(userId, (current) =>
-      reserveAttempt(current, now, throttle),
+      (await this.deps.knownNetworks.isKnown(user.id, network, knownNetworkCutoff(now, throttle)));
+    if (!known) {
+      const reserved = await users.modifyLoginState(user.id, (current) =>
+        reserveAttempt(current, now, throttle),
+      );
+      if (!reserved.admitted) {
+        await this.settle(attempt, now, 'abandoned');
+        return this.refuse(
+          user.id,
+          isLocked(reserved, now) ? 'account_locked' : 'account_throttled',
+          now,
+        );
+      }
+      attempt.reservation = reserved.reservation;
+    }
+
+    const valid = await this.deps.timing.measure(() =>
+      hasher.verify(password, credentials.passwordHash),
     );
-    if (reserved.admitted) return { source, reservation: reserved.reservation };
-    await this.settleSource(source, now, 'abandoned');
-    return isLocked(reserved, now) ? 'account_locked' : 'account_throttled';
+    attempt.checked = true;
+    if (!valid) {
+      await this.countFailure(user, attempt, now);
+      return INVALID_CREDENTIALS;
+    }
+
+    // The password was checked outside the locks: a parallel attempt may have paused it since.
+    const state = await users.modifyLoginState(user.id, (current) =>
+      registerAccountSuccess(current, now),
+    );
+    const accountLocked = isLocked(state, now);
+    const bySource = await this.settle(attempt, now, accountLocked ? 'abandoned' : 'succeeded');
+    const pausedMeanwhile = accountLocked
+      ? 'account_locked'
+      : isLocked(bySource, now)
+        ? 'source_locked'
+        : null;
+    if (pausedMeanwhile !== null) {
+      await this.record('auth.login_blocked', user.id, now, { reason: pausedMeanwhile });
+      return INVALID_CREDENTIALS;
+    }
+    if (network !== undefined) {
+      const forgetBefore = knownNetworkCutoff(now, throttle);
+      await this.deps.knownNetworks.remember(user.id, network, now, forgetBefore);
+    }
+
+    const opened = await this.openSession(user, now, command.userAgent);
+    if (command.previousToken !== undefined) await this.revokeToken(command.previousToken, now);
+    await users.recordLogin(user.id, now);
+    await this.deps.sessions.purgeEndedOf(user.id, now);
+    await this.record('auth.login_succeeded', user.id, now, {});
+    return { status: 'authenticated', user, ...opened };
   }
 
-  /** Gives back what an admitted attempt held when its password check never ran. */
-  private async abandon(userId: string, admission: Admission, now: Date): Promise<void> {
-    await this.settleSource(admission.source, now, 'abandoned');
-    const reservation = admission.reservation;
-    if (reservation !== null) {
-      await this.deps.users.modifyLoginState(userId, (current) =>
-        releaseAttempt(current, reservation),
-      );
+  /** A refused attempt: as long as a checked one, without the hashing, so timing reveals nothing. */
+  private async refuse(userId: string, reason: Refusal, now: Date): Promise<LoginResult> {
+    await this.deps.timing.imitate();
+    await this.record('auth.login_blocked', userId, now, { reason });
+    return INVALID_CREDENTIALS;
+  }
+
+  /**
+   * Gives back what an attempt still holds when it ends: its source place if nothing settled it,
+   * and its reserved slot if the password check never ran (the hasher shed it, or a store
+   * failed first). Failures here are logged, never thrown over the error already on its way.
+   */
+  private async giveBack(userId: string, attempt: HeldAttempt, now: Date): Promise<void> {
+    try {
+      if (!attempt.settled) await this.settle(attempt, now, 'abandoned');
+      const reservation = attempt.reservation;
+      if (reservation !== null && !attempt.checked) {
+        await this.deps.users.modifyLoginState(userId, (current) =>
+          releaseAttempt(current, reservation),
+        );
+      }
+    } catch (error) {
+      this.deps.logger.error({ err: error, userId }, 'Could not give back a sign-in attempt');
     }
+  }
+
+  private settle(attempt: HeldAttempt, now: Date, outcome: 'failed' | 'succeeded' | 'abandoned') {
+    attempt.settled = true;
+    return this.settleSource(attempt.source, now, outcome);
   }
 
   private settleSource(source: string, now: Date, outcome: 'failed' | 'succeeded' | 'abandoned') {
@@ -289,8 +316,8 @@ export class AuthService {
   }
 
   /** A wrong password: counts it for the source and for the account, and reports a new pause. */
-  private async countFailure(user: PanelUser, source: string, now: Date): Promise<void> {
-    const bySource = await this.settleSource(source, now, 'failed');
+  private async countFailure(user: PanelUser, attempt: HeldAttempt, now: Date): Promise<void> {
+    const bySource = await this.settle(attempt, now, 'failed');
     const byAccount = await this.deps.users.modifyLoginState(user.id, (current) =>
       registerAccountFailure(current, now, this.lockout.perAccount),
     );

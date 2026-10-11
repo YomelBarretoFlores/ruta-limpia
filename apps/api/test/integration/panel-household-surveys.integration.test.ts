@@ -156,10 +156,57 @@ describe('panel household surveys, Instrument 3 (PostGIS)', () => {
     expect((await supervisor.post(URL, { ...POST_SURVEY, satisfaction: 6 })).statusCode).toBe(400);
   });
 
+  it('refuses an edit into a household and wave that already has a survey, and keeps working', async () => {
+    const first = (await supervisor.post(URL, POST_SURVEY)).json<{ survey: SurveyJson }>().survey;
+    const other = await supervisor.post(URL, { ...POST_SURVEY, householdCode: 'H-002' });
+    const second = other.json<{ survey: SurveyJson }>().survey;
+
+    const clash = await supervisor.put(`${URL}/${second.id}`, POST_SURVEY);
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json()).toMatchObject({ error: 'duplicate_survey' });
+    expect((await supervisor.get(`${URL}/${second.id}`)).json()).toMatchObject({
+      survey: { householdCode: 'H-002' },
+    });
+    expect(await auditActions()).toEqual([
+      ['household_survey.created', { householdCode: 'H-001', wave: 'post' }],
+      ['household_survey.created', { householdCode: 'H-002', wave: 'post' }],
+    ]);
+    // The refused edit left no aborted transaction behind: the next edit commits.
+    const edited = await supervisor.put(`${URL}/${first.id}`, { ...POST_SURVEY, satisfaction: 3 });
+    expect(edited.json()).toMatchObject({ survey: { satisfaction: 3 } });
+  });
+
+  it('answers 404 for unknown or malformed ids and 422 for an edit to an unknown household', async () => {
+    const survey = (await supervisor.post(URL, POST_SURVEY)).json<{ survey: SurveyJson }>().survey;
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    for (const id of [unknownId, 'not-a-uuid']) {
+      expect((await supervisor.get(`${URL}/${id}`)).statusCode).toBe(404);
+      expect((await supervisor.put(`${URL}/${id}`, POST_SURVEY)).statusCode).toBe(404);
+      expect((await supervisor.delete(`${URL}/${id}`)).statusCode).toBe(404);
+    }
+    const moved = await supervisor.put(`${URL}/${survey.id}`, {
+      ...POST_SURVEY,
+      householdCode: 'H-404',
+    });
+    expect(moved.statusCode).toBe(422);
+    expect(moved.json()).toMatchObject({ error: 'unknown_household' });
+  });
+
+  it('filters the list by a household code written in lower case', async () => {
+    await supervisor.post(URL, POST_SURVEY);
+
+    expect((await supervisor.get(`${URL}?household=h-001`)).json()).toMatchObject({ total: 1 });
+  });
+
   it('keeps surveys to supervisors and administrators', async () => {
     const observer = await panelClient(api.app, 'omar.obs');
+    const survey = (await supervisor.post(URL, POST_SURVEY)).json<{ survey: SurveyJson }>().survey;
 
     expect((await observer.get(URL)).statusCode).toBe(403);
+    expect((await observer.get(`${URL}/${survey.id}`)).statusCode).toBe(403);
+    expect((await observer.put(`${URL}/${survey.id}`, POST_SURVEY)).statusCode).toBe(403);
+    expect((await observer.delete(`${URL}/${survey.id}`)).statusCode).toBe(403);
     expect((await observer.post(URL, POST_SURVEY)).statusCode).toBe(403);
     expect((await importCsv(observer, 'household_code,wave,surveyed_on\n')).statusCode).toBe(403);
   });
@@ -274,6 +321,23 @@ describe('panel household surveys, Instrument 3 (PostGIS)', () => {
       'x-requested-with': '',
     });
     expect(withoutCsrf.statusCode).toBe(403);
+  });
+
+  it('refuses a file with too many rows, and a body over 1 MiB', async () => {
+    const rows = Array.from({ length: 1001 }, () => 'H-001,pre,2026-10-15');
+    const tooMany = await importCsv(
+      supervisor,
+      ['household_code,wave,surveyed_on', ...rows].join('\n'),
+    );
+    expect(tooMany.statusCode).toBe(422);
+    expect(tooMany.json()).toMatchObject({ error: 'too_many_rows' });
+
+    const tooBig = await importCsv(
+      supervisor,
+      `household_code,wave,surveyed_on\n${'x'.repeat(1024 * 1024)}`,
+    );
+    expect(tooBig.statusCode).toBe(413);
+    expect(await db.selectFrom('household_surveys').select('id').execute()).toEqual([]);
   });
 
   it('serves the CSV template as a download', async () => {

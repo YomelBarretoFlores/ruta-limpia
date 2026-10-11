@@ -174,7 +174,7 @@ describe('panel CSV exports (PostGIS)', () => {
     });
     expect(
       rows.find((r) => r['indicator'] === 'I5' && r['phase'] === 'confirmedValue'),
-    ).toMatchObject({ value: '28.5714' });
+    ).toMatchObject({ value: '28.57' });
     expect(
       rows.find((r) => r['indicator'] === 'I2' && r['scope'] === 'P04' && r['phase'] === 'post'),
     ).toMatchObject({ value: '35', change_kind: 'relative', change: '-65' });

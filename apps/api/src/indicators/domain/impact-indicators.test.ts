@@ -123,7 +123,8 @@ describe('impact indicators', () => {
 
     expect(i2.before).toEqual({ value: 80, nValid: 3, nMissing: 1, nIncomplete: 1 });
     expect(i2.after).toEqual({ value: 45, nValid: 2, nMissing: 0, nIncomplete: 0 });
-    expect(i2).toMatchObject({ value: 45, nValid: 5, nMissing: 1, nIncomplete: 1, status: 'met' });
+    // The headline is the post figure, so it carries the post counts, not both phases'.
+    expect(i2).toMatchObject({ value: 45, nValid: 2, nMissing: 0, nIncomplete: 0, status: 'met' });
     expect(i2.change).toEqual({ kind: 'relative', percent: -43.75 });
     // P01: 70 → 40, P02: 100 → 50.
     expect(i2.paired).toMatchObject({ kind: 'wilcoxon', pairs: 2, n: 2, negativeRankSum: 3 });

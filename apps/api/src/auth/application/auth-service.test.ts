@@ -238,6 +238,51 @@ describe('AuthService.login', () => {
     expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
   });
 
+  describe('gives back the provisional place when a store fails mid-attempt', () => {
+    const databaseDown = () => Promise.reject(new Error('connection terminated unexpectedly'));
+    const sourceOf = (network: string) => sources.find(`${userId}|${network}`);
+
+    it('when the known-network lookup fails', async () => {
+      knownNetworks.isKnown = databaseDown;
+
+      await expect(attempt(PASSWORD)).rejects.toThrow('connection terminated');
+      expect(await sourceOf(OFFICE)).toMatchObject({ inFlight: 0, failedAttempts: 0 });
+    });
+
+    it('when reserving the account slot fails', async () => {
+      const modify = users.modifyLoginState.bind(users);
+      users.modifyLoginState = () => {
+        users.modifyLoginState = modify;
+        return databaseDown();
+      };
+
+      await expect(attempt(PASSWORD)).rejects.toThrow('connection terminated');
+      expect(await sourceOf(OFFICE)).toMatchObject({ inFlight: 0, failedAttempts: 0 });
+    });
+
+    it('when recording the success fails after the check', async () => {
+      const modify = users.modifyLoginState.bind(users);
+      let calls = 0;
+      users.modifyLoginState = (id, change) => {
+        calls += 1;
+        // The first call reserves the slot; the second records the success.
+        return calls === 2 ? databaseDown() : modify(id, change);
+      };
+
+      await expect(attempt(PASSWORD)).rejects.toThrow('connection terminated');
+      expect(await sourceOf(OFFICE)).toMatchObject({ inFlight: 0, failedAttempts: 0 });
+    });
+
+    it('so repeated outages never lock the owner out of their network', async () => {
+      const isKnown = knownNetworks.isKnown.bind(knownNetworks);
+      knownNetworks.isKnown = databaseDown;
+      for (let n = 0; n < 6; n++) await expect(attempt(PASSWORD)).rejects.toThrow();
+
+      knownNetworks.isKnown = isKnown;
+      expect((await attempt(PASSWORD)).status).toBe('authenticated');
+    });
+  });
+
   it('keeps other accounts signing in while a throttled account is flooded', async () => {
     // A real hasher with one slot and one waiting place: anything more is shed.
     const scrypt = new ScryptPasswordHasher({

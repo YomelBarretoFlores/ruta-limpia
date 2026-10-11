@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { sql, type Kysely } from 'kysely';
+import { sql, type ExpressionBuilder, type Kysely } from 'kysely';
 
 import type { AppDatabase, Database } from '../../shared/infrastructure/db/database.js';
 import { isUuid } from '../../shared/infrastructure/db/uuid.js';
@@ -123,13 +123,33 @@ export class KyselyHouseholdSurveyStore implements HouseholdSurveyStore {
     at: Date,
   ): Promise<SurveyRecord | 'not_found' | 'duplicate'> {
     if (!isUuid(id)) return 'not_found';
+    // A clash with another survey of the same household and wave is checked in the statement
+    // itself: a unique violation would abort the caller's (audited) transaction. The catch only
+    // covers a concurrent insert racing this check.
+    const clash = (eb: ExpressionBuilder<Database, 'household_surveys'>) =>
+      eb.exists(
+        eb
+          .selectFrom('household_surveys as other')
+          .select('other.id')
+          .whereRef('other.id', '<>', 'household_surveys.id')
+          .where('other.household_id', '=', survey.householdId)
+          .where('other.wave', '=', survey.wave),
+      );
     try {
       const updated = await this.db
         .updateTable('household_surveys')
         .set({ ...columns(survey), import_batch_id: null, updated_at: at })
         .where('id', '=', id)
+        .where((eb) => eb.not(clash(eb)))
         .executeTakeFirst();
-      if (updated.numUpdatedRows === 0n) return 'not_found';
+      if (updated.numUpdatedRows === 0n) {
+        const exists = await this.db
+          .selectFrom('household_surveys')
+          .select('id')
+          .where('id', '=', id)
+          .executeTakeFirst();
+        return exists === undefined ? 'not_found' : 'duplicate';
+      }
     } catch (error) {
       if ((error as { code?: string }).code === UNIQUE_VIOLATION) return 'duplicate';
       throw error;

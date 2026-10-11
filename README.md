@@ -666,13 +666,18 @@ America/Lima; alert columns null), plus `record_id`, `service_date`, `route_code
 A survey is one household (by its code, never an address) in one wave (`pre`, `post`), with the
 answers of Tabla 19; questions 6–11 only in the post wave (`422 invalid_survey` with `problems`).
 The import is all or nothing: `422 invalid_rows` (or `400 invalid_csv`) lists every problem as
-`{ line, column, problem }` and imports none. Codes and columns: [`docs/indicators.md`](docs/indicators.md).
+`{ line, column, problem }` and imports none. Free text the export protected against spreadsheet
+formulas (a leading apostrophe before `=`, `+`, `-`, `@`) is read back unchanged. Codes and columns:
+[`docs/indicators.md`](docs/indicators.md). Schema: migration `0014-indicator-inputs` (the
+`household_surveys` table and the two Instrument 2 flags); it is additive, so it can run before the
+new build starts (deploy notes in [`apps/api/src/README.md`](apps/api/src/README.md)).
 
 ### Indicators and exports
 
 `GET /api/panel/indicators?route=&from=&to=` (`indicators:read`) computes the nine indicators of
 Tabla 16 for a route and a period, with valid and missing counts, the compared phases, the change,
-the paired test and the target state. `GET /api/panel/exports/{instrumento1, instrumento2,
+the paired test and the target state; a period spans at most 120 days (`400 invalid_request`
+beyond it). `GET /api/panel/exports/{instrumento1, instrumento2,
 instrumento3, indicadores, uso}.csv` (`exports:read`) download them as UTF-8 CSV with a BOM. The
 operational definitions, the pilot's methodological decisions and every export column are in
 [`docs/indicators.md`](docs/indicators.md).

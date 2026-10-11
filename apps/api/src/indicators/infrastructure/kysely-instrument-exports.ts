@@ -162,6 +162,8 @@ export class KyselyInstrumentExports implements InstrumentExports {
       .orderBy('r.code')
       .orderBy('p.sequence')
       .orderBy('o.created_at')
+      // A unique last key: sheets saved together come out in the same order every time.
+      .orderBy('o.id')
       .execute();
     return {
       header: INSTRUMENT2_COLUMNS,

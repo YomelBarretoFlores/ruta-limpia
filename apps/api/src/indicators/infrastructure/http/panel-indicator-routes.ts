@@ -11,8 +11,12 @@ import {
 import type { IndicatorService } from '../../application/indicator-service.js';
 import { reportView } from './indicator-views.js';
 
-/** The longest period one request may cover (the pilot runs nine weeks). */
-export const MAX_INDICATOR_DAYS = 366;
+/**
+ * The longest period one request may cover, in days. The pilot runs nine weeks (63 days) and its
+ * baseline weeks come before it, so 120 days covers the whole study with margin while keeping the
+ * per-minute availability query (I7) and the exports of one request bounded.
+ */
+export const MAX_INDICATOR_DAYS = 120;
 
 /** `?route=RI-01&from=YYYY-MM-DD&to=YYYY-MM-DD`: a route and an inclusive local period. */
 export const indicatorQuerySchema = z

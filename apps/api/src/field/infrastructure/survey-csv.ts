@@ -1,4 +1,9 @@
-import { CsvSyntaxError, parseCsv, type CsvValue } from '../../shared/domain/csv.js';
+import {
+  CsvSyntaxError,
+  parseCsv,
+  restoreNeutralized,
+  type CsvValue,
+} from '../../shared/domain/csv.js';
 import type {
   RowError,
   SurveyCommand,
@@ -115,7 +120,8 @@ function readRow(
     return null;
   };
   const text = (column: Column): string | null => {
-    const value = raw.get(column) ?? '';
+    // The export neutralized formula-like text with an apostrophe: read it back unchanged.
+    const value = restoreNeutralized(raw.get(column) ?? '');
     if (value === '') return null;
     return value.length > TEXT_MAX ? fail(column, 'invalid_value') : value;
   };
