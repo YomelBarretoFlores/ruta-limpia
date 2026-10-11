@@ -17,12 +17,37 @@ describe('loadConfig', () => {
       port: 3000,
       logLevel: 'info',
       databaseUrl: validEnv.DATABASE_URL,
+      databasePoolMax: 10,
+      migrateOnStart: true,
       ingestToken: validEnv.INGEST_TOKEN,
+      tripStartZoneMeters: 150,
+      tripInactivityTimeoutSec: 1800,
+      tripInactivityCheckIntervalSec: 60,
+      shutdownTimeoutSec: 10,
     });
   });
 
-  it('coerces the port from its string form', () => {
-    expect(loadConfig({ ...validEnv, PORT: '8080' }).port).toBe(8080);
+  it('coerces numbers and booleans from their string form', () => {
+    const config = loadConfig({
+      ...validEnv,
+      PORT: '8080',
+      DATABASE_POOL_MAX: '4',
+      MIGRATE_ON_START: 'false',
+      TRIP_START_ZONE_METERS: '200',
+      TRIP_INACTIVITY_TIMEOUT_SEC: '900',
+      TRIP_INACTIVITY_CHECK_INTERVAL_SEC: '30',
+      SHUTDOWN_TIMEOUT_SEC: '5',
+    });
+
+    expect(config).toMatchObject({
+      port: 8080,
+      databasePoolMax: 4,
+      migrateOnStart: false,
+      tripStartZoneMeters: 200,
+      tripInactivityTimeoutSec: 900,
+      tripInactivityCheckIntervalSec: 30,
+      shutdownTimeoutSec: 5,
+    });
   });
 
   it('fails fast when required variables are missing', () => {
@@ -30,13 +55,24 @@ describe('loadConfig', () => {
     expect(() => loadConfig({})).toThrow(/DATABASE_URL[\s\S]*INGEST_TOKEN/);
   });
 
-  it('rejects a short ingest token', () => {
+  it('rejects a short ingest token, such as the .env.example placeholder', () => {
     expect(() => loadConfig({ ...validEnv, INGEST_TOKEN: 'short' })).toThrow(/at least 32/);
+    expect(() => loadConfig({ ...validEnv, INGEST_TOKEN: 'change-me' })).toThrow(ConfigError);
   });
 
   it('rejects a non-PostgreSQL database URL', () => {
     expect(() => loadConfig({ ...validEnv, DATABASE_URL: 'mysql://localhost/db' })).toThrow(
       ConfigError,
     );
+  });
+
+  it.each([
+    ['MIGRATE_ON_START', 'maybe'],
+    ['DATABASE_POOL_MAX', '0'],
+    ['TRIP_START_ZONE_METERS', '-5'],
+    ['TRIP_INACTIVITY_TIMEOUT_SEC', '1.5'],
+    ['SHUTDOWN_TIMEOUT_SEC', 'soon'],
+  ])('rejects an invalid %s', (name, value) => {
+    expect(() => loadConfig({ ...validEnv, [name]: value })).toThrow(new RegExp(name));
   });
 });
