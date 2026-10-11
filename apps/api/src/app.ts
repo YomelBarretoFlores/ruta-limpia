@@ -39,7 +39,7 @@ import {
 } from './tracking/infrastructure/http/traccar-ingest-routes.js';
 
 /** Registers one context's panel routes inside the guarded `/api/panel` scope. */
-export type PanelRouteRegistration = (scope: FastifyInstance) => Promise<unknown>;
+export type PanelRouteRegistration = (scope: FastifyInstance) => PromiseLike<unknown>;
 
 export interface PanelOptions {
   readonly guard: PanelGuardOptions;

@@ -196,7 +196,7 @@ describe('RI-01 stop-and-go drive through the HTTP endpoint', () => {
         trip_id: trip.id,
         route_id: seeded.routeId,
         point_id: p05.id,
-        kind: 'blocked_street',
+        kind: 'route_change',
         occurred_at: new Date(T0 + 300_000),
         reported_by: 'integration-test',
       })

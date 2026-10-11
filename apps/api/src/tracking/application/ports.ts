@@ -46,6 +46,8 @@ export interface TripRecord {
   readonly startMode: TripStartMode;
   readonly startedAt: Date;
   readonly endReason: TripEndReason | null;
+  /** The operator's note on a manual end; undefined leaves the stored note unchanged. */
+  readonly endNote?: string | null;
   readonly recentSpeed: RecentSpeed;
 }
 

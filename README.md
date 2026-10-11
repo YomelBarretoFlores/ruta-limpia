@@ -390,6 +390,34 @@ The audit trail (`audit_events`) records logins (`auth.login_succeeded`, `auth.l
 `auth.account_locked`, `auth.login_blocked`, `auth.logout`) and user changes (`user.created`,
 `user.updated`), with ids, codes, reasons and changed field names only.
 
+### Fleet and trips
+
+| Route                           | Access          | Request → response                                                         |
+| ------------------------------- | --------------- | -------------------------------------------------------------------------- |
+| `GET /api/panel/vehicles`       | `vehicles:read` | → `{ vehicles: [vehicle] }`                                                |
+| `GET /api/panel/trips`          | `trips:read`    | `?route=&from=&to=&status=&page=&pageSize=` → paged `[trip]`, newest first |
+| `GET /api/panel/trips/:id`      | `trips:read`    | → `{ trip, summary, points, incidents, track }`; `404 trip_not_found`      |
+| `POST /api/panel/trips`         | `trips:write`   | `{ vehicleCode, routeCode }` → `201 { trip }`                              |
+| `POST /api/panel/trips/:id/end` | `trips:write`   | `{ reason }` → `200 { trip }`                                              |
+
+- `vehicle`: `{ code, label, active, defaultRoute: { code, name } | null, signal, lastFix: { at,
+lat, lon, speedKmh } | null, activeTrip: { id, routeCode, startedAt } | null }`; `signal` is
+  `live`, `stale` (last fix older than 60 s) or `none`.
+- `trip`: `{ id, routeCode, routeName, vehicleCode, vehicleLabel, status (active | completed |
+aborted), startMode (auto | manual), startedAt, endedAt, endReason, endNote, passedPoints,
+totalPoints, alertsCount }`. `from`/`to` are service dates in America/Lima, inclusive.
+- Detail: `summary` is `{ durationSec, fixCount, offRouteCount, maxGpsGapSec }` (an off-route
+  stretch counts once; the duration of an active trip runs to now). `points` lists every active
+  point of the route in order: `{ pointId, pointCode, pointName, sequence, passedAt, precision,
+alert }` where `alert` is null or `{ emittedAt, communicatedPredictedPassAt,
+secondsRemainingAtEmission, insideTargetWindow, recipients, delivered, receiptsReceived, failed }`.
+  `incidents` are `{ id, kind, pointCode, description, occurredAt, resolvedAt }`. `track` is a
+  GeoJSON `LineString` of the valid fixes (`[lon, lat]`).
+- A manual start answers `404 vehicle_not_found` / `404 route_not_found` or
+  `409 trip_already_active`. A manual end is recorded as `aborted` with `endReason: "manual"` and
+  the reason as `endNote`; an ended trip answers `409 trip_not_active`. Both are audited
+  (`trip.started`, `trip.ended`).
+
 ## Citizen PWA (`apps/web`, `/`)
 
 The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an

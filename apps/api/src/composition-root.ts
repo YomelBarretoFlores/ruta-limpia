@@ -45,6 +45,9 @@ import { DEFAULT_TRACKING_SETTINGS } from './tracking/domain/tracking-settings.j
 import { EtaRefreshService } from './tracking/application/eta-refresh-service.js';
 import { EtaRefreshJob } from './tracking/infrastructure/eta-refresh-job.js';
 import { InactivityJob } from './tracking/infrastructure/inactivity-job.js';
+import { PanelTripService } from './tracking/application/panel-trip-service.js';
+import { panelTripRoutes } from './tracking/infrastructure/http/panel-trip-routes.js';
+import { KyselyTripHistoryQueries } from './tracking/infrastructure/kysely-trip-history.js';
 import {
   KyselyTrackingStore,
   KyselyTripReader,
@@ -271,6 +274,15 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     logger.warn('SESSION_COOKIE_SECURE=false: panel session cookies travel over plain HTTP');
   }
   const panelRoutes: PanelRouteRegistration[] = [];
+
+  const panelTrips = new PanelTripService({
+    queries: new KyselyTripHistoryQueries(db),
+    lifecycle: tripLifecycle,
+    audit,
+    clock,
+    maxFixAgeSec: DEFAULT_ETA_SETTINGS.maxFixAgeSec,
+  });
+  panelRoutes.push((scope) => scope.register(panelTripRoutes, { trips: panelTrips }));
 
   const app = await buildApp({
     loggerInstance: logger,

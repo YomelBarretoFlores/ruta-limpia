@@ -2,6 +2,7 @@ import cookie from '@fastify/cookie';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import type { AuthenticatedSession } from '../../application/auth-service.js';
+import type { PanelActor } from '../../application/panel-actor.js';
 import { checkCsrf } from '../../domain/csrf-policy.js';
 import { can, type Permission, type Role } from '../../domain/role.js';
 
@@ -44,12 +45,6 @@ export interface PanelGuardOptions {
 /** Route options granting `access` (`app.get(url, panelRoute('trips:read'), handler)`). */
 export function panelRoute(access: PanelAccess) {
   return { config: { panel: access } };
-}
-
-/** The acting user of a guarded request. */
-export interface PanelActor {
-  readonly userId: string;
-  readonly role: Role;
 }
 
 export function actorOf(request: FastifyRequest): PanelActor {

@@ -89,6 +89,8 @@ export interface TripsTable {
   started_at: Date;
   ended_at: Date | null;
   end_reason: string | null;
+  /** The operator's note on a manual end (migration 0006-panel-operations). */
+  end_note: Generated<string | null>;
   progress_chainage_m: Generated<number>;
   progress_at: Date | null;
   last_fix_at: Date | null;
@@ -127,8 +129,14 @@ export interface IncidentsTable {
   kind: string;
   description: Generated<string>;
   occurred_at: Date;
+  /** The reporter's display name at the time (kept if the user is deleted). */
   reported_by: string;
   created_at: CreatedAt;
+  reported_by_user_id: string | null;
+  resolved_at: Date | null;
+  resolved_by_user_id: string | null;
+  resolution_note: string | null;
+  updated_at: Generated<Date>;
 }
 
 export interface HouseholdsTable {

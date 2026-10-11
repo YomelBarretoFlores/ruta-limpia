@@ -135,6 +135,7 @@ class KyselyTrackingTransaction implements TrackingTransaction {
         status: state.status,
         ended_at: state.endedAt,
         end_reason: trip.endReason,
+        ...(trip.endNote === undefined ? {} : { end_note: trip.endNote }),
         progress_chainage_m: state.progressChainage,
         progress_at: state.progressAt,
         last_fix_at: state.lastFixAt,

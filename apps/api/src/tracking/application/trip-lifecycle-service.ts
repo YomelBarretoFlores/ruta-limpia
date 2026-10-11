@@ -80,8 +80,15 @@ export class TripLifecycleService {
     return trip;
   }
 
-  /** Ends an active trip by hand; it is recorded as aborted with the given reason. */
-  async endTrip(tripId: string, reason: TripEndReason = 'manual'): Promise<TripRecord> {
+  /**
+   * Ends an active trip by hand; it is recorded as aborted with the given reason and, optionally,
+   * the operator's note (for example "truck breakdown at P07").
+   */
+  async endTrip(
+    tripId: string,
+    reason: TripEndReason = 'manual',
+    note?: string,
+  ): Promise<TripRecord> {
     const ended = await this.deps.store.transaction(async (tx) => {
       const trip = await tx.lockTrip(tripId);
       if (trip === null) throw new TripLifecycleError('trip_not_found', `Trip ${tripId} not found`);
@@ -92,6 +99,7 @@ export class TripLifecycleService {
         ...trip,
         state: abortTrip(trip.state, this.deps.clock.now()),
         endReason: reason,
+        ...(note === undefined ? {} : { endNote: note }),
       };
       await tx.saveTrip(next);
       return next;

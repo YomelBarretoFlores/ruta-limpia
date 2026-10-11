@@ -94,6 +94,9 @@ field/application        HouseholdDirectory port (household registry: codes, nev
 field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
                          IngestPositionService, TripLifecycleService
+tracking/application     PanelTripService (fleet signal, trip history with track summary, audited manual
+                         start and end) over the TripHistoryQueries port
+tracking/infrastructure  KyselyTripHistoryQueries, http/panel-trip-routes (/api/panel/vehicles, /trips)
 tracking/application     EtaRefreshService (republishes every active trip's ETAs at the current time)
 tracking/infrastructure  KyselyTrackingStore, KyselyVehicleDirectory, KyselyTripReader, http/ (Traccar
                          ingest route, payload schema, token check), InactivityJob, EtaRefreshJob
@@ -218,7 +221,8 @@ point), unique Traccar position ids, unique push endpoints, one delivery per (al
 a household's point always belongs to its route. `app_views` (migrations `0003-app-views` and
 `0004-app-views-household-set-null`: deleting a household or a subscription keeps its views and clears
 the link) logs app views with the point, the subscription and household only when proven by the
-management token, and the time; never an IP address or a user agent. `0005-panel-auth` adds `users` (unique
+management token, and the time; never an IP address or a user agent. `0006-panel-operations` adds `trips.end_note` and incident tracking (closed list of kinds,
+reporting and resolving user, resolution; the point must belong to the route). `0005-panel-auth` adds `users` (unique
 lower-case username), `sessions` (SHA-256 token hash only) and `audit_events` (append-only; the
 user link is cleared when a user is deleted). The `instrument1_route_log` view
 produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null

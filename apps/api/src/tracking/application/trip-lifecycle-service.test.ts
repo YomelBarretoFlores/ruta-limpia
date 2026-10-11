@@ -86,10 +86,11 @@ describe('TripLifecycleService', () => {
     });
     clock.set(new Date(T0 + 5 * MINUTE));
 
-    const closed = await service.endTrip(trip.state.tripId, 'manual');
+    const closed = await service.endTrip(trip.state.tripId, 'manual', 'Truck breakdown');
 
     expect(closed.state).toMatchObject({ status: 'aborted', endedAt: new Date(T0 + 5 * MINUTE) });
     expect(closed.endReason).toBe('manual');
+    expect(closed.endNote).toBe('Truck breakdown');
     expect(ended).toEqual([expect.objectContaining({ status: 'aborted', endReason: 'manual' })]);
     await expect(service.endTrip(trip.state.tripId)).rejects.toMatchObject({
       code: 'trip_not_active',
