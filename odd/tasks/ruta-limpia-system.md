@@ -78,7 +78,8 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T7c | T7b-2 review follow-ups: account throttle redesign, household point resolve, citizen refetch jitter, panel fixes, trip map, bundle and precache guards | delegated (writer: 2+ non-trivial files) | [x] |
 | T7d | T7c review follow-ups: per-network burst budget, shed-attempt release, throttled refusals without hashing, doc fixes, trip track decimation, panel renames | delegated (writer: 2+ non-trivial files) | [x] |
 | T8 | Indicators and exports: KPI computation (Tabla 16), Instrument 3 surveys and import, CSV exports, panel screens | delegated (writer: 2+ non-trivial files) | [x] |
-| T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer) | [ ] |
+| T8b | T8 review follow-ups: sign-in place leak on store errors, headline counts, bounded indicator periods, survey edit clashes, CSV round-trip, survey editor read-only and unknown problems, period params | delegated (writer: 2+ non-trivial files) | [x] |
+| T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer: 2+ non-trivial files) | [x] |
 | T10 | Production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5) | delegated (writer) | [ ] |
 
 ## Acceptance criteria
@@ -724,6 +725,73 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   exposure a checkbox. Pending: the Engram mirror of this document; cost per household needs the
   executed budget (divide by I6 `activeHouseholds`).
 
+- 2026-10-11: the T8 commits were reviewed in five slices, all approved and acknowledged:
+  `aeee04d..2bb89ba` and `2bb89ba..564168a` (four lenses each), `564168a..0850f5a`,
+  `0850f5a..f7bee0f` and `f7bee0f..40cabc9` (one lens each). The reviewed boundary is now
+  `40cabc9`. Their advisory findings are handled in T8b.
+
+- 2026-10-11: T8b and T9 done in five work-unit commits (changed lines, lockfile excluded), each
+  building and passing on its own. Route: delegated writer (trigger: 2+ non-trivial files).
+  - `738ccca` `fix(api): settle sign-in places on every path, bound indicator periods and harden
+    survey edits` (529), T8b. RED first: 4 `AuthService` tests (a store failing in the
+    known-network lookup, the slot reservation or the success record left `inFlight` raised; six
+    outages locked the owner's network) → GREEN with one held attempt settled in a `finally`
+    (`giveBack`: the place if unsettled, the slot if the check never ran; its own failure logged,
+    never thrown over the original). Headline counts are the post phase's (RED: I2 unit and
+    integration). Periods bounded to 120 days with a clear `400` (RED: integration) plus a 15 s
+    `statement_timeout` on the snapshot. Details rounded to 2 decimals in the view and
+    `indicadores.csv`. Survey edits check the household/wave clash inside the `UPDATE`; new
+    integration tests for the clash (409, no audit event, next edit commits), 404 for unknown and
+    malformed ids, 422 unknown household, observer 403 on read/edit/delete, lower-case household
+    filter, `too_many_rows` and the 1 MiB `413`. CSV import restores neutralized text (RED:
+    round-trip test). Shared `householdCodeSchema`; `o.id` tiebreaker on `instrumento2.csv`;
+    split `INTERVAL_SEC`/`FRESHNESS_SEC`; docs (period bound, headline counts, migrations
+    0012–0014 and an additive-0014 deploy note).
+  - `338d902` `fix(web): explain unknown survey problems, show surveys read-only and validate
+    period params` (727), T8b. RED: unknown problem codes and the read-only view (editor tests),
+    a malformed `hasta` and a 121-day period (indicators page test, against the old page), a
+    missing `comparableWindow` (field sheet test, against the old mapping). Shared `chosenPeriod`
+    for Indicadores and Exportaciones; `FitRouteBounds` keyed by four numbers; new tests for
+    edit/delete/load error/API problems, the reversed export period, every import refusal message
+    and "Sin respuesta".
+  - `352eed7` `fix(tracking): accept positions Traccar forwards before storing them` (113), found
+    by the e2e smoke: Traccar 6.16 runs `PositionForwardingHandler` before `DatabaseHandler`, so
+    forwards carried `id: 0`; the API answered 400 and only Traccar's retry (stored id) got
+    through (observed: 44 × 400 then 44 × 200, and one fix lost; retries are 10 with backoff, then
+    dropped). RED: payload unit test and ingest integration test. Migration
+    `0015-positions-without-traccar-id`: nullable Traccar id, unique `(vehicle_id, fix_time)`
+    replacing the plain index, earlier replays collapsed to their first row; insert
+    `ON CONFLICT DO NOTHING`. The "same fix under a new Traccar id" replay is now one row (test
+    updated).
+  - `cff678d` `feat(simulator): bootstrap Traccar and drive RI-01 over OsmAnd` (794), T9.
+    `tools/simulator` workspace package (TypeScript, tsx), importing the RI-01 fixture and route
+    geometry from `apps/api/src/routes/domain`. `sim:bootstrap` (first admin only when
+    `newServer`, Basic auth, GET-or-POST device), `sim:drive` (20 s fixes, 3.5 m/s, 40 s stops,
+    noise with seed, signal gap, speedup, dry run). 14 unit tests; `pnpm test` runs them after
+    the Vitest projects (the root `vitest.config.ts` is outside this task's surfaces).
+  - `4c513aa` `test(e2e): smoke the whole pipeline through Traccar 6.16 and document the checks`
+    (457), T9. `pnpm test:e2e` (`apps/api/vitest.e2e.config.ts`): PostGIS (alias `db`, plus a
+    `traccar` database) and `traccar/traccar:6.16.0-alpine` with the repository's `traccar.xml`
+    and entrypoint, forwarding to the in-process API through `host.testcontainers.internal`.
+    Clock: the composition root's injectable clock (`ManualClock`) is moved to each fix's time;
+    no production change. Fixes are dated 30 min in the past (Traccar's `filter.future`); each
+    takes about 3 s (Traccar's `server.buffering.threshold`, 3000 ms). Docs:
+    `docs/simulator.md`, `docs/ops/push-check.md`, `tools/simulator/README.md`, README.
+  - Skipped T8 findings: `R2-004` (the exports the doc cites shipped in `0850f5a`), `R2-005`
+    (the import and the `exports:read` guard shipped in `5dae2d6`/`0850f5a`),
+    `R3-migration-0014-absent` was not a missing file (`0014` is in `d591304`; documented). No
+    rate limit on the indicators route (authenticated panel route; bounded period and timeout
+    instead).
+  - Surface notes: `apps/api/vitest.e2e.config.ts` is outside `apps/api/tsconfig.json`'s
+    `include`, so the e2e test imports its `E2E_TIMEOUT_MS` (which brings it into the type-aware
+    lint). `.env.example` should gain `TRACCAR_ADMIN_EMAIL`/`TRACCAR_ADMIN_PASSWORD` (not
+    editable by the writer).
+
+  Verification at the last commit: see the writer's report (`pnpm typecheck`, `pnpm lint`,
+  `pnpm format:check`, `pnpm test`, `pnpm --filter @ruta-limpia/web build`, `pnpm test:e2e`
+  about 150 s). Pending: the Engram mirror of this document; the manual Web Push check
+  (`docs/ops/push-check.md`) on a real Chrome.
+
 ## Next step
 
-T9: simulator (OsmAnd → Traccar) and the end-to-end smoke test over the whole pipeline.
+T10: production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5).
