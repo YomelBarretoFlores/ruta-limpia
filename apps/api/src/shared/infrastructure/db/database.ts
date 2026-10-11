@@ -211,6 +211,46 @@ export interface Instrument1RouteLogView {
   trip_incidents_count: number;
 }
 
+export type RoleColumn = 'admin' | 'supervisor' | 'observer';
+
+/** A panel user. Usernames are stored in lower case; the password is a PHC-encoded scrypt hash. */
+export interface UsersTable {
+  id: Generated<string>;
+  username: string;
+  display_name: string;
+  role: RoleColumn;
+  password_hash: string;
+  active: Generated<boolean>;
+  failed_attempts: Generated<number>;
+  locked_until: Date | null;
+  created_at: CreatedAt;
+  last_login_at: Date | null;
+}
+
+/** A panel session; only the SHA-256 (hex) of its cookie token is stored. */
+export interface SessionsTable {
+  id: Generated<string>;
+  user_id: string;
+  token_hash: string;
+  user_agent_class: 'mobile' | 'desktop' | 'other' | null;
+  created_at: Date;
+  last_seen_at: Date;
+  expires_at: Date;
+  revoked_at: Date | null;
+}
+
+/** Append-only audit trail of panel actions; `details` never holds secrets or personal data. */
+export interface AuditEventsTable {
+  /** bigint identity: the pg driver returns int8 values as strings. */
+  id: Generated<string>;
+  user_id: string | null;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  at: Date;
+  details: ColumnType<Record<string, unknown>, string, never>;
+}
+
 export interface Database {
   routes: RoutesTable;
   route_schedules: RouteSchedulesTable;
@@ -226,6 +266,9 @@ export interface Database {
   alert_deliveries: AlertDeliveriesTable;
   app_views: AppViewsTable;
   instrument1_route_log: Instrument1RouteLogView;
+  users: UsersTable;
+  sessions: SessionsTable;
+  audit_events: AuditEventsTable;
 }
 
 export interface DatabaseOptions {
