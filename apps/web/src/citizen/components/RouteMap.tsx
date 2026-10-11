@@ -17,7 +17,7 @@ import { formatLocalTime } from '../../shared/time';
 import type { RouteDetail } from '../api/types';
 import type { TruckPosition } from '../live/live-state';
 import { FitRouteBounds } from '../../shared/map/FitRouteBounds';
-import { MAX_ZOOM, MIN_ZOOM } from '../../shared/map/map-view';
+import { MAX_ZOOM, MIN_ZOOM, ZOOM_SNAP } from '../../shared/map/map-view';
 import { MAP_COLORS, TRUCK_ICON_SIZE, truckIconSvg } from '../../shared/map/truck-icon';
 
 export interface RouteMapProps {
@@ -70,6 +70,8 @@ export function RouteMap({ route, highlightedPointCode, truck }: RouteMapProps) 
         bounds={latLngBounds(line)}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
+        zoomSnap={ZOOM_SNAP}
+        zoomDelta={0.5}
         scrollWheelZoom={false}
         attributionControl={false}
         className="route-map__canvas"

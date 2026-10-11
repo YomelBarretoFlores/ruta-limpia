@@ -27,8 +27,7 @@ export function LiveSummary({ trip, now }: LiveSummaryProps) {
             <>
               {trip.vehicle.label}
               <span className="summary-row__note">
-                {' '}
-                · <Num>{Math.round(trip.progress.percent)} %</Num> del tramo
+                <Num>{Math.round(trip.progress.percent)} %</Num> del tramo recorrido
                 {trip.progress.offRoute ? ' · fuera de ruta' : ''}
               </span>
             </>
@@ -49,7 +48,7 @@ export function LiveSummary({ trip, now }: LiveSummaryProps) {
           ) : (
             <>
               <Num>{time}</Num>
-              {age !== null && <span className="summary-row__note"> · {age}</span>}
+              {age !== null && <span className="summary-row__note">{age}</span>}
             </>
           )}
         </dd>

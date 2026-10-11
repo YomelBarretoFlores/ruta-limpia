@@ -14,7 +14,7 @@ import {
 } from 'react-leaflet';
 
 import { FitRouteBounds } from '../../shared/map/FitRouteBounds';
-import { MAX_ZOOM, MIN_ZOOM, type RouteShape } from '../../shared/map/map-view';
+import { MAX_ZOOM, MIN_ZOOM, ZOOM_SNAP, type RouteShape } from '../../shared/map/map-view';
 import { MAP_COLORS, TRUCK_ICON_SIZE, truckIconSvg } from '../../shared/map/truck-icon';
 import { formatLocalTime } from '../../shared/time';
 
@@ -81,6 +81,8 @@ export default function PanelRouteMap({
         bounds={latLngBounds(line)}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
+        zoomSnap={ZOOM_SNAP}
+        zoomDelta={0.5}
         scrollWheelZoom={false}
         attributionControl={false}
         className="panel-map__canvas"

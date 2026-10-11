@@ -163,7 +163,7 @@ function TripPointsTable({ points }: { readonly points: TripDetail['points'] }) 
             <tr key={point.pointId}>
               <th scope="row">
                 <span className="num">{point.pointCode}</span>
-                <span className="cell-note"> · {point.pointName}</span>
+                <span className="cell-sub">{point.pointName}</span>
               </th>
               <td className="num">{timeOrDash(point.passedAt)}</td>
               <td>

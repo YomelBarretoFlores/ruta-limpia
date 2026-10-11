@@ -95,6 +95,10 @@ export function LoginPage() {
             {working ? 'Ingresando…' : 'Ingresar'}
           </Button>
         </form>
+        <p className="panel-login__help">
+          Acceso para el personal municipal y el equipo de campo. Si olvidaste tu contraseña, pide
+          al administrador que la restablezca.
+        </p>
       </main>
     </div>
   );

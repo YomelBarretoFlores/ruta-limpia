@@ -7,7 +7,9 @@ const apiTarget = process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:3000';
 
 const proxy = {
   // `/api/live/.../stream` is Server-Sent Events: the proxy streams it through unbuffered.
-  '/api': { target: apiTarget, changeOrigin: true },
+  // The Host header is kept (no `changeOrigin`): without PUBLIC_ORIGIN the API checks a panel
+  // request's Origin against the requested host, which must stay the page's own (:5173, :4173).
+  '/api': { target: apiTarget, changeOrigin: false },
 };
 
 export default defineConfig({
@@ -23,6 +25,8 @@ export default defineConfig({
       injectManifest: {
         // The self-hosted font is precached too, so the app keeps its face offline.
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest,woff2}'],
+        // The municipal panel is never precached: citizens' devices must not download it.
+        globIgnores: ['**/PanelApp-*', '**/PanelRouteMap-*'],
       },
       manifest: {
         name: 'Ruta Limpia',

@@ -36,7 +36,7 @@ const TRIP_ERRORS = {
 
 const CONNECTION: Record<PanelConnection, string> = {
   connecting: 'Conectando…',
-  live: 'Actualización en vivo',
+  live: 'Panel conectado',
   reconnecting: 'Reconectando…',
   polling: 'Se actualiza cada 20 s',
 };

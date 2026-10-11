@@ -689,6 +689,46 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
 
 Push needs a secure context: `http://localhost` works for development; any other host needs HTTPS.
 
+## Municipal panel (`apps/web`, `/panel`)
+
+The panel is part of the same web app, loaded on demand: `/panel/*` is a separate chunk imported
+dynamically, so the citizen page never downloads it (the
+service worker does not precache the panel chunks either). It is a dense, table-first back office in
+Spanish (Peru) on the same design system, at panel density.
+
+- **Sign-in** at `/panel/ingresar` (username and password). Every failure reads "Usuario o
+  contraseña incorrectos. Si fallas varias veces, el ingreso se pausa por unos minutos."; a shed
+  login (`503 auth_busy`) asks to try again in a few seconds. Every request carries the session
+  cookie; mutating ones send `X-Requested-With: ruta-limpia`. A `401` from any call goes back to the
+  sign-in page and returns to the same page afterwards (only panel paths are accepted as targets).
+- **Shell**: a 232 px text navigation (a "Menú" button under 900 px) showing only the sections the
+  role's `permissions` allow, and a top bar with the route selector, the user, the role and "Salir".
+- **En vivo**: "Zona urbana de Independencia · RI-01 · seguimiento", a ruled summary (Vehículo,
+  Señal GPS, Última posición with its age), the pass table (Punto, Paso registrado, Estado del
+  aviso, Entregas recibidos / enviados, Incidencia), the latest Instrument 2 measurements ("Registro
+  de campo") and the map at the right from 1200 px. The public stream triggers a debounced refetch
+  of `GET /api/panel/live/routes/:code`, which is also refetched every 20 s. Supervisors start a
+  trip by hand and end one with a required reason; anyone with `incidents:create` registers an
+  incident.
+- **Viajes** (filters in the address, paged) and the trip detail (summary, per-point pass and
+  alert with the communicated ETA and the target window, incidents, the GPS track on the map).
+- **Incidencias**: list and filters, register, correct, resolve with a note, reopen.
+- **Hogares**: the registry with subscription and usage columns; enroll (the API gives `H-###`),
+  move to another point, take out; **stickers** for the selected households
+  (`/panel/hogares/stickers?codigos=H-001,H-002`): the QR of each sticker link is drawn in the
+  browser as SVG with the `qrcode` library, with the code, the point and "Escanea para recibir
+  avisos del camión"; the print stylesheet is plain black on white, two per row.
+- **Fichas de campo** (Instrument 2), phone first, in the order of the paper form; the exposure is
+  computed from the two times; the API's `problems` are shown next to their fields; a sheet of
+  another observer, or past the 24-hour window, opens read-only.
+- **Línea base** (manual Instrument 1): the log and a per-point table of pass times.
+- **Usuarios** (administrators): create (the 12-character rule is checked before sending), change
+  name, role and state, reset a password.
+
+The dev and preview servers forward `/api` keeping the `Host` header, so without `PUBLIC_ORIGIN`
+the API's CSRF check compares the panel's `Origin` with the page's own host and sign-in works on
+http://localhost:5173 and :4173. Create the first administrator with `user:create` (above).
+
 ### Design system
 
 The look is civic and plain: flat, ruled sections, one muted green accent, no gradients, shadows,

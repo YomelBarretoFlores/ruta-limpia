@@ -74,7 +74,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [x] |
 | T7a | Municipal panel backend: auth/sessions/roles, audit, live panel, trips, incidents, households, field observations, baseline logs | delegated (writer: 2+ non-trivial files) | [x] |
 | T7b-1 | Design system + citizen PWA redesign + T6 PWA hardening (and the T7a-hardening residual findings) | delegated (writer: 2+ non-trivial files) | [x] |
-| T7b-2 | Municipal panel UI (`/panel`) on the design system | delegated (writer) | [ ] |
+| T7b-2 | Municipal panel UI (`/panel`) on the design system | delegated (writer) | [x] |
 | T8 | Indicators and exports: KPI computation (Tabla 16), CSV exports for Instruments 1–3 | delegated (writer) | [ ] |
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer) | [ ] |
 | T10 | Production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5) | delegated (writer) | [ ] |
@@ -524,9 +524,59 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   Pending: the seed names the points "Reference point P08" (Spanish names belong in the seed);
   the Engram mirror of this document.
 
+- 2026-10-11: the T7b-1 commits `c0e0676 c556401 b781c01 75d4944` were reviewed in two slices,
+  `3ea76eb..c556401` and `c556401..75d4944`; both were approved and acknowledged. The reviewed
+  boundary is now `75d4944`. The parent's visual QA of T7b-1 found the citizen map not fitted to
+  the route, the "En vivo" header status contradicting a stale signal, and English seed point
+  names; all three are fixed in the first T7b-2 commit and the seed commit.
+
+- 2026-10-11: T7b-2 done in fourteen work-unit commits (changed lines, lockfile excluded), each
+  building and passing its tests on its own:
+  - `3978ae6` `fix(web): fit the citizen map to the route and show the truck signal as the arrival
+    status` (431): map fitted with 24 px padding and refitted on a route change, 280/320 px tall,
+    8 px points; the header status is the truck signal and the connection shows only when
+    degraded; `R3-trip-started-refetch-exhausted` (events of unknown trips no longer overtake a
+    refetch; a failed or overtaken round runs again 5 s later, five rounds);
+    `R2-doc-border-contradiction`.
+  - `237cb49` `fix(field): name the seed points in Spanish and resolve a household point only
+    when it changes` (54): "Av. Centenario · punto 1…15"; `R3-household-point-resolve-always`.
+  - `70f6f18` `fix(auth): throttle account guessing with growing intervals instead of a low hard
+    lock` (438): per account, after 10 consecutive failures the next attempt waits 2^(n−10) s (at
+    most 60 s), early attempts get the generic 401 without scrypt (`login_blocked`
+    `account_throttled`); 100 failures in a 24-hour window pause the account until the window
+    ends; the per-network pause (5 / 15 min) stays; migration `0012-account-throttle`.
+  - `5a822bb` panel API client and formats (824); `703e5c3` lazily loaded panel, sign-in, session
+    and shell (1161); `52bd863` Usuarios (1014); `705cfae` En vivo (1239); `b1d395f` trip control
+    and incidents from the live view (543); `2ff15d9` Viajes and trip detail (652); `e7896e3`
+    Incidencias (552); `df29df6` Hogares and QR stickers (992, adds `qrcode` 1.5.4);
+    `0d167a8` Fichas de campo (1386); `e30630c` Línea base (685).
+  - The last commit (the parent records the hash) `fix(web): polish the panel after visual QA and
+    keep it out of the citizen precache`, with this entry: panel base size 16 px, fractional zoom
+    so a long route fills a short map, two-line point cells, a phone top bar, "Panel conectado"
+    for the stream (not "en vivo", which belongs to the GPS signal), sign-in help, the dev/preview
+    proxy keeps the `Host` header (sign-in through :5173/:4173 was refused as `csrf_rejected`),
+    the service worker no longer precaches the panel chunks, README panel section.
+
+  Verification at the last commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0, `pnpm
+  format:check` clean, `pnpm test` 100 files / 702 tests passed, `pnpm --filter @ruta-limpia/web
+  build` exit 0. Bundle: citizen entry JS 347.8 kB (110.4 kB gzip), unchanged by the panel; the
+  panel chunk 122.2 kB (33.6 kB gzip) plus its map 1.9 kB, sharing the Leaflet chunk (155.0 kB,
+  45.5 kB gzip) with the citizen map; precache 20 entries / 617 KiB without the panel. Visual QA
+  with the scratchpad stack (throwaway PostGIS, built API, `vite preview`), an admin and an
+  observer created with the user CLI, the truck driven along RI-01, headless Chromium
+  screenshots of the citizen live and stale pages, the panel sign-in, En vivo (live, stale,
+  phone), trip detail, Hogares, the printed stickers, Incidencias, Usuarios and the phone field
+  sheet; the stack was stopped and the container removed.
+
+  Findings (T7b-1 review WARNINGs): `R3-trip-started-refetch-exhausted`, `R2-doc-border-contradiction`,
+  `R3-household-point-resolve-always`: fixed; `R2-citizen-field-duplicate`: already resolved by
+  `b781c01` (the citizen form uses the shared `Field`, `.input` and `--rule-control`). Lockout:
+  the 20-failure account pause is replaced by NIST-style throttling (see above). Tradeoffs: a
+  throttled attempt answers faster than a checked one, so its timing shows the account exists and
+  is under attack; the owner may wait up to a minute between tries during an attack. Pending:
+  the Engram mirror of this document.
+
 ## Next step
 
-T7b-2: the municipal panel UI at `/panel` on the design system (`docs/design/design-system.md`,
-panel density): login, live route with the pass table and alert status, vehicles, trips and trip
-detail, incidents, households and stickers, Instrument 2 sheets, baseline logs, user
-administration, built on the T7a endpoints documented in the README ("Municipal panel API").
+T8: indicators and exports: KPI computation (Tabla 16) and CSV exports for Instruments 1–3 (the
+`instrument1_export` view, field observations, usage), with their panel screens.

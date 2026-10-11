@@ -32,7 +32,7 @@ export function PassTable({
             <tr key={row.pointCode}>
               <th scope="row">
                 <span className="num">{row.pointCode}</span>
-                <span className="cell-note"> · {row.name}</span>
+                <span className="cell-sub">{row.name}</span>
               </th>
               <td>
                 <PassCell row={row} />
