@@ -253,6 +253,12 @@ nine definitions of Tabla 16, their counts, changes, paired tests and target sta
 computes them; `GET /api/panel/indicators?route=&from=&to=` serves them (`indicators:read`). The
 operational definitions and the pilot's methodological decisions are in `docs/indicators.md`.
 
+### Household surveys (`field`, Instrument 3)
+
+`field/domain/household-survey` holds the answer codes and the consistency rules (questions 6–11
+only in the post wave, "No la escuché" never with a score). `HouseholdSurveyService` creates, edits
+and deletes surveys, one per household and wave, each in one transaction with its audit event.
+
 ### Persistence
 
 PostgreSQL 16 + PostGIS through Kysely. Migrations are registered in code

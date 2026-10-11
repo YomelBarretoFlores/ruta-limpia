@@ -63,6 +63,9 @@ import { IncidentService } from './field/application/incident-service.js';
 import { HouseholdRegistryService } from './field/application/household-registry.js';
 import { FieldObservationService } from './field/application/field-observation-service.js';
 import { BaselineLogService } from './field/application/baseline-log-service.js';
+import { HouseholdSurveyService } from './field/application/household-survey-service.js';
+import { panelHouseholdSurveyRoutes } from './field/infrastructure/http/panel-household-survey-routes.js';
+import { KyselyHouseholdSurveyStore } from './field/infrastructure/kysely-household-survey-store.js';
 import { panelBaselineLogRoutes } from './field/infrastructure/http/panel-baseline-log-routes.js';
 import { KyselyBaselineLogStore } from './field/infrastructure/kysely-baseline-log-store.js';
 import { panelFieldObservationRoutes } from './field/infrastructure/http/panel-field-observation-routes.js';
@@ -351,6 +354,13 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelFieldObservationRoutes, { observations }));
+
+  const surveys = new HouseholdSurveyService({
+    store: new KyselyHouseholdSurveyStore(db),
+    transactions: audited((trx) => new KyselyHouseholdSurveyStore(trx)),
+    clock,
+  });
+  panelRoutes.push((scope) => scope.register(panelHouseholdSurveyRoutes, { surveys }));
 
   const baselineLogs = new BaselineLogService({
     store: new KyselyBaselineLogStore(db),
