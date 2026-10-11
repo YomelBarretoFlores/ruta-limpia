@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import { formatLocalTime } from '../../shared/time';
 import { Button } from '../../shared/ui/Button';
-import { Card } from '../../shared/ui/Card';
+import { Section } from '../../shared/ui/Section';
 import { Notice } from '../../shared/ui/Notice';
 import type { ScheduleEntry } from '../api/types';
 import type { ArrivalView, ConnectionStatus } from '../live/live-state';
@@ -26,10 +26,10 @@ export interface ArrivalCardProps {
 export function ArrivalCard(props: ArrivalCardProps) {
   const { route, point, arrival, schedule, connection, map, onConfigureAlerts } = props;
   return (
-    <Card
+    <Section
       id="llegada"
       title="Mapa y llegada del camión"
-      subtitle={route === null ? undefined : `${route.district} · tramo ${route.code}`}
+      kicker={route === null ? undefined : `${route.district} · tramo ${route.code}`}
       aside={<ConnectionBadge status={connection} />}
     >
       {map}
@@ -54,7 +54,7 @@ export function ArrivalCard(props: ArrivalCardProps) {
       {onConfigureAlerts !== undefined && (
         <Button onClick={onConfigureAlerts}>Configurar aviso</Button>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -100,7 +100,7 @@ function ArrivalStatus({
     case 'stale':
       return (
         <>
-          <Notice tone="warning">
+          <Notice tone="warn">
             Sin actualización: la señal del camión se interrumpió. Usa el horario de referencia.
           </Notice>
           {arrival.updatedAt !== null && (

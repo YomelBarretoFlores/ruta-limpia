@@ -1,11 +1,11 @@
 import { Button } from '../../shared/ui/Button';
-import { Card } from '../../shared/ui/Card';
-import { Notice } from '../../shared/ui/Notice';
+import { Section } from '../../shared/ui/Section';
+import { Notice, type NoticeTone } from '../../shared/ui/Notice';
 import type { PushSupport } from '../push/push-support';
 import { IosInstallSteps } from './IosInstallSteps';
 
 export interface SubscriptionMessage {
-  readonly tone: 'info' | 'warning' | 'success' | 'error';
+  readonly tone: NoticeTone;
   readonly text: string;
 }
 
@@ -35,10 +35,10 @@ export interface AlertSubscriptionCardProps {
 export function AlertSubscriptionCard(props: AlertSubscriptionCardProps) {
   const { phase, message, support } = props;
   return (
-    <Card
+    <Section
       id="avisos"
       title="Suscripción a las alertas"
-      subtitle="Solo con consentimiento del hogar"
+      kicker="Solo con consentimiento del hogar"
     >
       {message !== null && <Notice tone={message.tone}>{message.text}</Notice>}
       {phase === 'checking' ? (
@@ -49,7 +49,7 @@ export function AlertSubscriptionCard(props: AlertSubscriptionCardProps) {
         <SubscriptionForm {...props} />
       )}
       {support !== 'unsupported' && <p className="field__note">Puedes cancelar la suscripción.</p>}
-    </Card>
+    </Section>
   );
 }
 
@@ -129,7 +129,7 @@ function SubscriptionForm(props: AlertSubscriptionCardProps) {
       </ul>
       {support === 'ios_install' && <IosInstallSteps />}
       {support === 'unsupported' && (
-        <Notice tone="warning">
+        <Notice tone="warn">
           Este navegador no puede recibir avisos. Usa Chrome, Firefox o Edge actualizados, o el
           horario de referencia.
         </Notice>

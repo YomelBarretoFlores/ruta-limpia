@@ -50,7 +50,7 @@ export function CitizenHomePage() {
       <main className="citizen__main">
         {citizenRoute.status === 'loading' && <p>Cargando la ruta…</p>}
         {citizenRoute.status === 'unavailable' && (
-          <Notice tone="error">
+          <Notice tone="danger">
             No se pudo cargar la ruta. Revisa tu conexión a internet e intenta otra vez.
           </Notice>
         )}

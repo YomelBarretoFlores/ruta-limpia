@@ -9,36 +9,36 @@ export function activationMessage(result: ActivationResult): SubscriptionMessage
   switch (result.status) {
     case 'subscribed':
       return {
-        tone: 'success',
+        tone: 'info',
         text: `Listo. Te avisaremos cuando el camión se acerque a tu punto ${result.subscription.pointCode}.`,
       };
     case 'denied':
       return {
-        tone: 'error',
+        tone: 'danger',
         text:
           'No diste permiso para mostrar avisos. Para activarlos, permite las notificaciones de ' +
           'este sitio en la configuración del navegador y vuelve a intentarlo.',
       };
     case 'unsupported':
       return {
-        tone: 'error',
+        tone: 'danger',
         text: 'Este dispositivo no puede recibir avisos. Usa el horario de referencia.',
       };
     case 'push_unavailable':
       return {
-        tone: 'error',
+        tone: 'danger',
         text: 'Los avisos no están disponibles en este momento. Intenta más tarde.',
       };
     case 'rate_limited':
       return {
-        tone: 'error',
+        tone: 'danger',
         text: 'Hubo muchos intentos. Espera un minuto y vuelve a intentarlo.',
       };
     case 'rejected':
-      return { tone: 'error', text: REJECTIONS[result.reason] ?? REJECTIONS.unknown_point! };
+      return { tone: 'danger', text: REJECTIONS[result.reason] ?? REJECTIONS.unknown_point! };
     case 'failed':
       return {
-        tone: 'error',
+        tone: 'danger',
         text: 'No se pudo activar los avisos. Revisa tu conexión a internet e intenta otra vez.',
       };
   }
@@ -125,7 +125,7 @@ export function useAlertSubscription(
       } else {
         setPhase('subscribed');
         setMessage({
-          tone: 'error',
+          tone: 'danger',
           text: 'No se pudo cancelar. Revisa tu conexión a internet e intenta otra vez.',
         });
       }

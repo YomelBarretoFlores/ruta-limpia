@@ -21,7 +21,8 @@ export default defineConfig({
       // Registered from main.tsx through `virtual:pwa-register`.
       injectRegister: false,
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // The self-hosted font is precached too, so the app keeps its face offline.
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest,woff2}'],
       },
       manifest: {
         name: 'Ruta Limpia',
@@ -33,8 +34,8 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'portrait',
-        theme_color: '#1a6b4f',
-        background_color: '#ffffff',
+        theme_color: '#24604a',
+        background_color: '#f6f5f1',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -58,5 +59,7 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
+    // CSS is stubbed in tests, except the tokens the contrast test reads (`tokens.css?raw`).
+    css: { include: [/tokens\.css/] },
   },
 });

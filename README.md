@@ -659,6 +659,15 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
 
 Push needs a secure context: `http://localhost` works for development; any other host needs HTTPS.
 
+### Design system
+
+The look is civic and plain: flat, ruled sections, one muted green accent, no gradients, shadows,
+emoji or pills. The decisions, tokens and component rules are in
+[`docs/design/design-system.md`](docs/design/design-system.md). The typeface is Atkinson
+Hyperlegible Next, self-hosted from `@fontsource-variable/atkinson-hyperlegible-next` (no CDN; the
+`woff2` files are precached for offline use). Tokens live in `apps/web/src/shared/styles/tokens.css`,
+and `tokens.test.ts` fails when a text/background pair the components use drops below WCAG AA.
+
 ## Scripts
 
 | Command                              | Description                                                                    |

@@ -1,0 +1,256 @@
+/*
+ * Shared primitives (docs/design/design-system.md): flat, ruled, small radii, no shadows, no
+ * gradients. State color always comes with words.
+ */
+
+/* Section */
+.section {
+  background: var(--surface);
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+}
+
+.section__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.section__kicker {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.section__title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.section__title:focus {
+  outline: none;
+}
+
+.section__title:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
+/* Button */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch);
+  padding: var(--space-2) var(--space-5);
+  border: var(--border) solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: var(--weight-title);
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
+}
+
+.button--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.button--primary:hover {
+  background: var(--accent-strong);
+}
+
+.button--secondary {
+  background: var(--surface);
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.button--secondary:hover {
+  background: var(--fill);
+}
+
+.button--destructive {
+  min-height: var(--touch);
+  padding-inline: 0;
+  background: transparent;
+  color: var(--danger);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.button--destructive:hover {
+  text-decoration-thickness: 2px;
+}
+
+.button:disabled,
+.button:disabled:hover {
+  cursor: not-allowed;
+  background: var(--fill);
+  border-color: var(--fill);
+  color: var(--ink-3);
+  text-decoration: none;
+}
+
+.button--destructive:disabled,
+.button--destructive:disabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* Notice: inset text with a state bar */
+.notice {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-left: var(--notice-bar) solid var(--accent);
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+
+.notice > :last-child {
+  margin-bottom: 0;
+}
+
+.notice__title {
+  font-weight: var(--weight-title);
+  margin-bottom: var(--space-1);
+}
+
+.notice--warn {
+  border-left-color: var(--warn);
+  background: var(--warn-tint);
+}
+
+.notice--warn .notice__title {
+  color: var(--warn);
+}
+
+.notice--danger {
+  border-left-color: var(--danger);
+  background: var(--danger-tint);
+}
+
+.notice--danger .notice__title {
+  color: var(--danger);
+}
+
+/* Field */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-4);
+}
+
+.field--error {
+  padding-left: var(--space-3);
+  border-left: var(--notice-bar) solid var(--danger);
+}
+
+.field__label {
+  font-weight: var(--weight-title);
+}
+
+.field__hint {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.field__error {
+  margin: 0;
+  font-weight: var(--weight-title);
+  color: var(--danger);
+}
+
+.input,
+.select {
+  width: 100%;
+  min-height: var(--touch);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: var(--border) solid var(--rule-control);
+  border-radius: var(--radius-sm);
+}
+
+.input[readonly] {
+  background: var(--fill);
+  border-color: var(--rule);
+}
+
+/* Checkbox and radio rows */
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: var(--touch);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+
+.choice input {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--accent);
+}
+
+fieldset.choices {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+fieldset.choices > legend {
+  padding: 0;
+  font-weight: var(--weight-title);
+}
+
+/* Status: text plus an 8 px square swatch */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-title);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.status__swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--ink-3);
+}
+
+.status--live .status__swatch {
+  background: var(--accent);
+}
+
+.status--stale .status__swatch {
+  background: var(--warn);
+}
+
+.status--lost .status__swatch {
+  background: var(--danger);
+}
+
+@media (max-width: 40rem) {
+  .button--primary,
+  .button--secondary {
+    width: 100%;
+  }
+}
