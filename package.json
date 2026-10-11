@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json && pnpm --recursive typecheck",
     "lint": "eslint .",
     "test": "vitest run && pnpm --filter @ruta-limpia/simulator test",
+    "test:e2e": "pnpm --filter @ruta-limpia/api test:e2e",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

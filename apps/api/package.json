@@ -11,6 +11,7 @@
     "test": "vitest run --config vitest.config.ts && vitest run --config vitest.integration.config.ts",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "db:migrate": "tsx --env-file-if-exists=../../.env src/shared/infrastructure/db/cli.ts migrate",
     "db:seed": "tsx --env-file-if-exists=../../.env src/shared/infrastructure/db/cli.ts seed",
     "vapid:generate": "tsx src/alerts/infrastructure/vapid-keys-cli.ts",
