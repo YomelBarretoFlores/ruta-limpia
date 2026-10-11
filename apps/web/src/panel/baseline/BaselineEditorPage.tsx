@@ -7,6 +7,7 @@ import { Notice } from '../../shared/ui/Notice';
 import { PanelApiError } from '../api/panel-api';
 import type { BaselineLog } from '../api/types';
 import { errorMessage } from '../components/errors';
+import { LoadState } from '../components/LoadState';
 import { PageHeader } from '../components/PageHeader';
 import { useAsync } from '../components/use-async';
 import { formatCalendarDate, localToday } from '../format';
@@ -18,6 +19,7 @@ import {
   baselineErrors,
   baselineFromLog,
   emptyBaseline,
+  retiredPointCodes,
   toBaselineLog,
   type BaselineForm,
 } from './baseline-form';
@@ -88,7 +90,16 @@ export function BaselineEditorPage() {
     return (
       <>
         {header}
-        <p className="panel-loading">Cargando los puntos de la ruta…</p>
+        {route.status === 'error' ? (
+          <LoadState
+            status="error"
+            error={route.error}
+            onRetry={route.reload}
+            what="los puntos de la ruta"
+          />
+        ) : (
+          <p className="panel-loading">Cargando los puntos de la ruta…</p>
+        )}
       </>
     );
   }
@@ -150,6 +161,14 @@ function BaselineLogForm({
   const errors = checked ? baselineErrors(form) : {};
   const set = <K extends keyof BaselineForm>(key: K, value: BaselineForm[K]) =>
     setForm({ ...form, [key]: value });
+  const pointOrder = points.map((p) => p.code);
+  const rows = [
+    ...points.map((point) => ({ code: point.code, name: point.name })),
+    ...retiredPointCodes(form, pointOrder).map((code) => ({
+      code,
+      name: 'ya no está en la ruta',
+    })),
+  ];
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -159,13 +178,7 @@ function BaselineLogForm({
     setError(null);
     setPointError(null);
     try {
-      await onSave(
-        toBaselineLog(
-          form,
-          routeCode,
-          points.map((p) => p.code),
-        ),
-      );
+      await onSave(toBaselineLog(form, routeCode, pointOrder));
     } catch (failure) {
       if (failure instanceof PanelApiError && failure.pointCode !== null) {
         setPointError({
@@ -282,7 +295,7 @@ function BaselineLogForm({
             </tr>
           </thead>
           <tbody>
-            {points.map((point) => {
+            {rows.map((point) => {
               const message =
                 pointError?.code === point.code ? pointError.message : errors[point.code];
               return (

@@ -50,7 +50,20 @@ export function baselineErrors(form: BaselineForm): Record<string, string> {
   return errors;
 }
 
-/** The log to send: only the points with a time, in the order of the route. */
+/**
+ * The points of the form that are not (or no longer) on the route, in the order of the log: an
+ * old log keeps its pass at a point retired since, and the editor shows it rather than dropping
+ * it silently on save.
+ */
+export function retiredPointCodes(form: BaselineForm, pointOrder: readonly string[]): string[] {
+  return Object.keys(form.passes).filter((code) => !pointOrder.includes(code));
+}
+
+/**
+ * The log to send: only the points with a time, in the order of the route, then the passes at
+ * points no longer on it (the API refuses those, and the editor asks to clear them; nothing is
+ * dropped without the user seeing it).
+ */
 export function toBaselineLog(
   form: BaselineForm,
   routeCode: string,
@@ -64,7 +77,7 @@ export function toBaselineLog(
     plannedStart: orNull(form.plannedStart),
     actualStart: orNull(form.actualStart),
     notes: orNull(form.notes),
-    passes: pointOrder
+    passes: [...pointOrder, ...retiredPointCodes(form, pointOrder)]
       .filter((code) => (form.passes[code] ?? '').trim() !== '')
       .map((code) => ({ pointCode: code, passedAt: form.passes[code]!.trim() })),
   };

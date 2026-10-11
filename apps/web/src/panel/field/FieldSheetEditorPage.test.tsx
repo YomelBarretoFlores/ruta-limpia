@@ -147,4 +147,46 @@ describe('FieldSheetEditorPage', () => {
       'Fichas de campo',
     );
   });
+
+  it('refuses a count that is not a whole number, saying so, and sends nothing', async () => {
+    const api = setup();
+    await fillRequired();
+    await userEvent.type(screen.getByLabelText('Bolsas al paso del camión'), '3,5');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+    expect(
+      screen.getByText('Escribe un número entero, sin decimales ni signos.'),
+    ).toBeInTheDocument();
+    expect(api.createObservation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored music of a sheet whose point left the route', async () => {
+    const music = { windowStart: '07:50', windowEnd: '07:56', musicSeconds: 90, conditions: null };
+    const api = setup('supervisor', '/panel/fichas/o-1');
+    api.getObservation.mockResolvedValue({ ...SAVED, pointCode: 'P05', music });
+    api.updateObservation.mockResolvedValue(SAVED);
+
+    await screen.findByLabelText('Bolsas al paso del camión');
+    await screen.findByRole('option', { name: /^P09/ });
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+    expect(api.updateObservation).toHaveBeenCalledWith(
+      'o-1',
+      expect.objectContaining({ pointCode: 'P05', music }),
+    );
+  });
+
+  it('says so, and offers a retry, when the route cannot be loaded', async () => {
+    const api = fakePanelApi(panelUser('observer'));
+    api.getRoute.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderPanel('/panel/fichas/nueva', fakePanelDeps(api));
+
+    expect(
+      await screen.findByText('No se pudieron cargar los puntos de la ruta'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Guardar ficha' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Intentar de nuevo' }));
+
+    expect(await pointSelect()).toBeInTheDocument();
+  });
 });

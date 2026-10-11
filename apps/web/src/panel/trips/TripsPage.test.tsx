@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { PanelApiError } from '../api/panel-api';
 import type { Trip, TripDetail } from '../api/types';
 import { panelUser } from '../test/fixtures';
 import { fakePanelApi, fakePanelDeps, renderPanel } from '../test/fake-panel-deps';
@@ -101,6 +102,21 @@ describe('TripsPage', () => {
   });
 });
 
+describe('TripsPage filters from the address', () => {
+  it('never sends an empty route, and ignores an unknown state in a shared link', async () => {
+    const api = fakePanelApi(panelUser('supervisor'));
+    api.listTrips.mockResolvedValue({ items: [TRIP], page: 1, pageSize: 20, total: 1 });
+    renderPanel('/panel/viajes?estado=borrar', fakePanelDeps(api));
+
+    await screen.findByRole('table');
+
+    const queries = api.listTrips.mock.calls.map(([query]) => query);
+    expect(queries.map((query) => query.route)).not.toContain('');
+    expect(queries.map((query) => query.status)).toEqual(queries.map(() => undefined));
+    expect(screen.getByLabelText('Estado')).toHaveValue('');
+  });
+});
+
 describe('TripDetailPage', () => {
   it('shows the summary, each point with its alert, the incidents and the track', async () => {
     const api = fakePanelApi(panelUser('supervisor'));
@@ -127,5 +143,14 @@ describe('TripDetailPage', () => {
     expect(within(second!).getByText('Sin aviso')).toBeInTheDocument();
     expect(screen.getByText('Pérdida de aceite')).toBeInTheDocument();
     expect(await screen.findByTestId('map')).toHaveTextContent('2 posiciones');
+  });
+
+  it('says so when the trip does not exist', async () => {
+    const api = fakePanelApi(panelUser('supervisor'));
+    api.getTrip.mockRejectedValue(new PanelApiError(404, 'trip_not_found'));
+    renderPanel('/panel/viajes/trip-x', fakePanelDeps(api));
+
+    expect(await screen.findByText('No se pudo abrir el viaje')).toBeInTheDocument();
+    expect(screen.getByText('No existe un viaje con esa dirección.')).toBeInTheDocument();
   });
 });

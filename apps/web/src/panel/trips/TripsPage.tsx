@@ -24,14 +24,17 @@ export function TripsPage() {
   const { routes, routeCode } = useSelectedRoute();
   const { values, page, setFilter, setPage } = useFilters(FILTERS);
   const route = values.ruta === '' ? (routeCode ?? '') : values.ruta;
-  const { desde, hasta, estado } = values;
+  const { desde, hasta } = values;
+  // A shared link may carry anything: an unknown state filters nothing.
+  const estado = Object.hasOwn(TRIP_STATUS, values.estado) ? (values.estado as TripStatus) : '';
   const load = useCallback(
     () =>
       api.listTrips({
-        route: route === 'todas' ? undefined : route,
+        // No route yet (the catalog is loading or empty), or "todas": every route.
+        route: route === 'todas' || route === '' ? undefined : route,
         from: desde,
         to: hasta,
-        status: estado === '' ? undefined : (estado as TripStatus),
+        status: estado === '' ? undefined : estado,
         page,
         pageSize: PAGE_SIZE,
       }),

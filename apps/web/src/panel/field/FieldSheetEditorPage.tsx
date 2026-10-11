@@ -5,6 +5,7 @@ import { Notice } from '../../shared/ui/Notice';
 import { PanelApiError } from '../api/panel-api';
 import type { ObservationProblem } from '../api/types';
 import { errorMessage } from '../components/errors';
+import { LoadState } from '../components/LoadState';
 import { PageHeader } from '../components/PageHeader';
 import { useAsync } from '../components/use-async';
 import { formatCalendarDate, localToday } from '../format';
@@ -89,7 +90,9 @@ export function FieldSheetEditorPage() {
   const save = (form: SheetForm) => {
     if (sheetRoute === null) return;
     const point = route.data?.points.find((p) => p.code === form.pointCode);
-    const sheet = toSheet(form, sheetRoute, point?.observesMusic ?? false);
+    // A point no longer on the route keeps what the stored sheet had: its music is not erased.
+    const observesMusic = point?.observesMusic ?? (observation?.music ?? null) !== null;
+    const sheet = toSheet(form, sheetRoute, observesMusic);
     void run(async () => {
       if (observation === null) await api.createObservation(sheet);
       else await api.updateObservation(observation.id, sheet);
@@ -137,6 +140,24 @@ export function FieldSheetEditorPage() {
     );
   }
   if (sheetRoute === null) return <p className="panel-loading">Cargando la ruta…</p>;
+  // The form needs the route's points (and which of them observe the music) before editing.
+  if (route.data == null) {
+    return (
+      <>
+        {header}
+        {route.status === 'error' ? (
+          <LoadState
+            status="error"
+            error={route.error}
+            onRetry={route.reload}
+            what="los puntos de la ruta"
+          />
+        ) : (
+          <p className="panel-loading">Cargando los puntos de la ruta…</p>
+        )}
+      </>
+    );
+  }
 
   return (
     <>
@@ -158,7 +179,7 @@ export function FieldSheetEditorPage() {
             : sheetFromObservation(observation)
         }
         routeCode={sheetRoute}
-        points={route.data?.points ?? []}
+        points={route.data.points}
         problems={problemsByField(problems)}
         error={error}
         working={working}

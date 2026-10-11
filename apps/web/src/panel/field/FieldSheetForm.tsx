@@ -11,7 +11,7 @@ import {
   type ObservationPhase,
 } from '../api/types';
 import { PHASE_LABELS } from '../labels';
-import { exposureOf, missingFields, type SheetForm } from './field-sheet';
+import { exposureOf, missingFields, numberErrors, type SheetForm } from './field-sheet';
 
 const DISPERSION: readonly { readonly value: Dispersion; readonly label: string }[] = [
   { value: 'none', label: 'No' },
@@ -56,7 +56,8 @@ export function FieldSheetForm(props: FieldSheetFormProps) {
   const [checked, setChecked] = useState(false);
   const set = <K extends keyof SheetForm>(key: K, value: SheetForm[K]) =>
     setForm({ ...form, [key]: value });
-  const missing = checked ? missingFields(form) : {};
+  const formErrors = (sheet: SheetForm) => ({ ...missingFields(sheet), ...numberErrors(sheet) });
+  const missing = checked ? formErrors(form) : {};
   const messageOf = (key: keyof SheetForm) => missing[key] ?? problems[key];
   const point = points.find((p) => p.code === form.pointCode);
   const exposure = exposureOf(form);
@@ -64,7 +65,7 @@ export function FieldSheetForm(props: FieldSheetFormProps) {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setChecked(true);
-    if (Object.keys(missingFields(form)).length > 0) return;
+    if (Object.keys(formErrors(form)).length > 0) return;
     props.onSubmit(form);
   };
 

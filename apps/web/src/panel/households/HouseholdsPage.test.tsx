@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { PanelApiError } from '../api/panel-api';
 import type { HouseholdListItem } from '../api/types';
 import { panelUser } from '../test/fixtures';
 import { fakePanelApi, fakePanelDeps, renderPanel } from '../test/fake-panel-deps';
@@ -81,6 +82,43 @@ describe('HouseholdsPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('refuses a consent date in the future, saying why', async () => {
+    const { api } = setup();
+    await userEvent.click(await screen.findByRole('button', { name: 'Inscribir hogar' }));
+    const form = screen.getByRole('region', { name: 'Inscribir hogar' });
+    await within(form).findByRole('option', { name: /^P09/ });
+    await userEvent.selectOptions(within(form).getByLabelText('Punto de referencia'), 'P09');
+    const date = within(form).getByLabelText('Fecha del consentimiento');
+
+    await userEvent.clear(date);
+    await userEvent.type(date, '2026-10-21');
+    await userEvent.click(within(form).getByRole('button', { name: 'Inscribir hogar' }));
+    expect(
+      within(form).getByText('La fecha del consentimiento no puede ser posterior a hoy.'),
+    ).toBeInTheDocument();
+
+    await userEvent.clear(date);
+    await userEvent.click(within(form).getByRole('button', { name: 'Inscribir hogar' }));
+    expect(within(form).getByText('Escribe la fecha en que el hogar firmó.')).toBeInTheDocument();
+    expect(api.createHousehold).not.toHaveBeenCalled();
+  });
+
+  it('explains a point the API refuses', async () => {
+    const { api } = setup();
+    api.createHousehold.mockRejectedValue(new PanelApiError(422, 'unknown_point'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Inscribir hogar' }));
+    const form = screen.getByRole('region', { name: 'Inscribir hogar' });
+    await within(form).findByRole('option', { name: /^P09/ });
+    await userEvent.selectOptions(within(form).getByLabelText('Punto de referencia'), 'P09');
+    await userEvent.click(within(form).getByRole('button', { name: 'Inscribir hogar' }));
+
+    expect(
+      await within(form).findByText(
+        'Ese punto no pertenece a la ruta o ya no está activo. Elige otro.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('takes a household out by deactivating it', async () => {
     const { api } = setup();
     api.updateHousehold.mockResolvedValue(household('H-001', { active: false }));
@@ -114,6 +152,31 @@ describe('HouseholdsPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Imprimir' }));
     expect(deps.print).toHaveBeenCalledOnce();
+  });
+});
+
+describe('StickerSheetPage', () => {
+  it('asks to select households when the link names none', async () => {
+    const api = fakePanelApi(panelUser('supervisor'));
+    renderPanel('/panel/hogares/stickers', fakePanelDeps(api));
+
+    expect(await screen.findByText('No hay hogares seleccionados')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Imprimir' })).toBeDisabled();
+    expect(api.getSticker).not.toHaveBeenCalled();
+  });
+
+  it('prints nothing, and says so, when one sticker cannot be prepared', async () => {
+    const api = fakePanelApi(panelUser('supervisor'));
+    api.getSticker.mockImplementation((code) =>
+      code === 'H-002'
+        ? Promise.reject(new PanelApiError(404, 'household_not_found'))
+        : Promise.resolve({ code, url: stickerUrl(code) }),
+    );
+    renderPanel('/panel/hogares/stickers?codigos=H-001,H-002', fakePanelDeps(api));
+
+    expect(await screen.findByText('No se pudieron preparar los stickers')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Stickers' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Imprimir' })).toBeDisabled();
   });
 });
 

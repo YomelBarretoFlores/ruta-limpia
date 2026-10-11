@@ -70,6 +70,20 @@ function useSubmit(describeError: (error: unknown) => string) {
   return { error, working, run };
 }
 
+/**
+ * Why a consent date cannot be sent, or null. The form has `noValidate`, so the input's `max` is
+ * not enforced by the browser: a future date is refused here, with a message.
+ */
+function consentDateError(date: string, today: string): string | null {
+  if (date === '') return 'Escribe la fecha en que el hogar firmó.';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const parsed = match === null ? Number.NaN : Date.UTC(+match[1]!, +match[2]! - 1, +match[3]!);
+  if (Number.isNaN(parsed) || new Date(parsed).toISOString().slice(0, 10) !== date) {
+    return 'Escribe una fecha válida (día, mes y año).';
+  }
+  return date > today ? 'La fecha del consentimiento no puede ser posterior a hoy.' : null;
+}
+
 /** "Inscribir hogar": the point, the consent date and version, and notes. The API gives the code. */
 export function EnrollForm({
   routeCode,
@@ -94,10 +108,12 @@ export function EnrollForm({
   const [checked, setChecked] = useState(false);
   const { error, working, run } = useSubmit(describeError);
 
+  const dateError = consentDateError(consentDate, today);
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setChecked(true);
-    if (pointCode === '' || !/^\d{4}-\d{2}-\d{2}$/.test(consentDate)) return;
+    if (pointCode === '' || dateError !== null) return;
     void run(() =>
       onEnroll({
         routeCode,
@@ -133,9 +149,7 @@ export function EnrollForm({
       <Field
         id="enroll-consent-date"
         label="Fecha del consentimiento"
-        error={
-          checked && consentDate === '' ? 'Escribe la fecha en que el hogar firmó.' : undefined
-        }
+        error={checked ? (dateError ?? undefined) : undefined}
         control={(control) => (
           <input
             {...control}

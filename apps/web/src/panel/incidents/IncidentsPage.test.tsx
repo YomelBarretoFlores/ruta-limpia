@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { PanelApiError } from '../api/panel-api';
 import type { Incident } from '../api/types';
 import { panelUser } from '../test/fixtures';
 import { fakePanelApi, fakePanelDeps, renderPanel } from '../test/fake-panel-deps';
@@ -23,12 +24,19 @@ const INCIDENT: Incident = {
   updatedAt: '2026-10-20T12:31:00.000Z',
 };
 
-function setup() {
+const RESOLVED: Incident = {
+  ...INCIDENT,
+  resolvedAt: '2026-10-20T14:00:00.000Z',
+  resolvedByUserId: 'u-1',
+  resolutionNote: 'Se recogió a las 9:00',
+};
+
+function setup(incident: Incident = INCIDENT, path = '/panel/incidencias') {
   const api = fakePanelApi(panelUser('supervisor'));
-  api.listIncidents.mockResolvedValue({ items: [INCIDENT], page: 1, pageSize: 20, total: 1 });
-  api.updateIncident.mockResolvedValue(INCIDENT);
-  api.createIncident.mockResolvedValue(INCIDENT);
-  renderPanel('/panel/incidencias', fakePanelDeps(api));
+  api.listIncidents.mockResolvedValue({ items: [incident], page: 1, pageSize: 20, total: 1 });
+  api.updateIncident.mockResolvedValue(incident);
+  api.createIncident.mockResolvedValue(incident);
+  renderPanel(path, fakePanelDeps(api));
   return api;
 }
 
@@ -47,7 +55,7 @@ describe('IncidentsPage', () => {
     );
   });
 
-  it('resolves an incident only with a note, and reopens a resolved one', async () => {
+  it('resolves an incident only with a note', async () => {
     const api = setup();
     await userEvent.click(
       await screen.findByRole('button', { name: 'Resolver Recolección omitida' }),
@@ -62,6 +70,46 @@ describe('IncidentsPage', () => {
       resolutionNote: 'Se recogió a las 9:00',
     });
     expect(await screen.findByText('La incidencia quedó resuelta.')).toBeInTheDocument();
+  });
+
+  it('reopens a resolved incident once, however often the button is pressed', async () => {
+    const api = setup(RESOLVED);
+    let answer: (incident: Incident) => void = () => undefined;
+    api.updateIncident.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const reopen = await screen.findByRole('button', { name: 'Reabrir Recolección omitida' });
+
+    await userEvent.click(reopen);
+    await userEvent.click(reopen);
+    expect(reopen).toBeDisabled();
+    answer(INCIDENT);
+
+    expect(await screen.findByText('Se reabrió la incidencia.')).toBeInTheDocument();
+    expect(api.updateIncident).toHaveBeenCalledOnce();
+    expect(api.updateIncident).toHaveBeenCalledWith('i-1', { resolved: false });
+  });
+
+  it('shows a failed reopening as an error', async () => {
+    const api = setup(RESOLVED);
+    api.updateIncident.mockRejectedValue(new PanelApiError(404, 'incident_not_found'));
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Reabrir Recolección omitida' }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No se encontró el registro. Es posible que otra persona lo haya eliminado.',
+    );
+    expect(screen.queryByText('Se reabrió la incidencia.')).not.toBeInTheDocument();
+  });
+
+  it('ignores an unknown kind or state in a shared link', async () => {
+    const api = setup(INCIDENT, '/panel/incidencias?tipo=borrar&estado=todo');
+
+    await screen.findByRole('table');
+
+    expect(api.listIncidents).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: undefined, status: undefined }),
+    );
   });
 
   it('registers a new incident with its time in Lima', async () => {
@@ -95,6 +143,22 @@ describe('IncidentsPage', () => {
     expect(api.updateIncident).toHaveBeenCalledWith('i-1', {
       kind: 'route_change',
       description: 'No pasó el camión',
+    });
+  });
+
+  it('clears the description with an empty text (the API has no null description)', async () => {
+    const api = setup();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Corregir Recolección omitida' }),
+    );
+    const form = screen.getByRole('region', { name: 'Corregir la incidencia' });
+
+    await userEvent.clear(within(form).getByLabelText('Descripción (opcional)'));
+    await userEvent.click(within(form).getByRole('button', { name: 'Guardar corrección' }));
+
+    expect(api.updateIncident).toHaveBeenCalledWith('i-1', {
+      kind: 'missed_collection',
+      description: '',
     });
   });
 });

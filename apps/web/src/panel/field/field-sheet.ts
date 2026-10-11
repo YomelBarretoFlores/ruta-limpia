@@ -171,6 +171,24 @@ export function missingFields(form: SheetForm): Partial<Record<keyof SheetForm, 
   };
 }
 
+const NOT_A_WHOLE_NUMBER = 'Escribe un número entero, sin decimales ni signos.';
+
+/**
+ * Counts typed in a way that is not a whole number (a decimal, a sign, a typo). They are refused
+ * with a message: sending them as "not recorded" would lose what the observer meant to record. A
+ * typed exposure is checked only when the two times do not give it.
+ */
+export function numberErrors(form: SheetForm): Partial<Record<keyof SheetForm, string>> {
+  const fields: (keyof SheetForm)[] = ['bagsAtPass', 'brokenBags', 'musicSeconds'];
+  if (!exposureOf(form).computed) fields.push('exposureMinutes');
+  const errors: Partial<Record<keyof SheetForm, string>> = {};
+  for (const field of fields) {
+    const value = (form[field] as string).trim();
+    if (value !== '' && wholeNumber(value) === null) errors[field] = NOT_A_WHOLE_NUMBER;
+  }
+  return errors;
+}
+
 /** Where each inconsistency the API finds is shown, and what it says. */
 export const PROBLEM_MESSAGES: Record<
   ObservationProblem,

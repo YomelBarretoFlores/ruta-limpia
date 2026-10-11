@@ -46,7 +46,10 @@ export function IncidentsPage() {
         ? Promise.resolve(undefined)
         : api.listIncidents({
             route: routeCode,
-            kind: tipo === '' ? undefined : (tipo as IncidentKind),
+            // A shared link may carry anything: unknown values filter nothing.
+            kind: INCIDENT_KINDS.includes(tipo as IncidentKind)
+              ? (tipo as IncidentKind)
+              : undefined,
             status: estado === 'open' || estado === 'resolved' ? estado : undefined,
             from: desde,
             to: hasta,
@@ -71,11 +74,14 @@ export function IncidentsPage() {
   const context = useAsync(loadContext);
   const [editing, setEditing] = useState<Editing>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [reopening, setReopening] = useState<string | null>(null);
   const canUpdate = canAny(user, ['incidents:update']);
   const describe = (error: unknown) => errorMessage(error, INCIDENT_ERRORS);
 
   const finish = (text: string) => {
     setEditing(null);
+    setFailure(null);
     setMessage(text);
     incidents.reload();
   };
@@ -92,11 +98,18 @@ export function IncidentsPage() {
     finish('La incidencia quedó resuelta.');
   };
   const reopen = async (incident: Incident) => {
+    // One request at a time: a double click must not send the change twice.
+    if (reopening !== null) return;
+    setReopening(incident.id);
+    setMessage(null);
+    setFailure(null);
     try {
       await api.updateIncident(incident.id, { resolved: false });
       finish('Se reabrió la incidencia.');
     } catch (error) {
-      setMessage(describe(error));
+      setFailure(describe(error));
+    } finally {
+      setReopening(null);
     }
   };
 
@@ -121,6 +134,11 @@ export function IncidentsPage() {
       {message !== null && (
         <Notice tone="info">
           <p>{message}</p>
+        </Notice>
+      )}
+      {failure !== null && (
+        <Notice tone="danger">
+          <p>{failure}</p>
         </Notice>
       )}
       {editing !== null && routeCode !== null && (
@@ -252,6 +270,7 @@ export function IncidentsPage() {
             canUpdate={canUpdate}
             onEdit={(incident) => setEditing({ mode: 'edit', incident })}
             onResolve={(incident) => setEditing({ mode: 'resolve', incident })}
+            reopeningId={reopening}
             onReopen={(incident) => void reopen(incident)}
           />
           <Pagination

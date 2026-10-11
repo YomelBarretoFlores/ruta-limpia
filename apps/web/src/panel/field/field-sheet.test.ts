@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { emptySheet, exposureOf, missingFields, problemsByField, toSheet } from './field-sheet';
+import {
+  emptySheet,
+  exposureOf,
+  missingFields,
+  numberErrors,
+  problemsByField,
+  toSheet,
+} from './field-sheet';
 
 const base = {
   ...emptySheet('2026-10-20'),
@@ -86,6 +93,34 @@ describe('sheet checks', () => {
       'observers',
     ]);
     expect(missingFields(base)).toEqual({});
+  });
+
+  it('refuses counts that are not whole numbers instead of sending them as "not recorded"', () => {
+    const message = 'Escribe un número entero, sin decimales ni signos.';
+    expect(
+      numberErrors({
+        ...base,
+        bagsAtPass: '3.5',
+        brokenBags: '-1',
+        exposureMinutes: '12a',
+        musicSeconds: '4,5',
+      }),
+    ).toEqual({
+      bagsAtPass: message,
+      brokenBags: message,
+      exposureMinutes: message,
+      musicSeconds: message,
+    });
+    expect(numberErrors({ ...base, bagsAtPass: ' 12 ', brokenBags: '0' })).toEqual({});
+    // A typed exposure is not used (nor checked) when the two times give it.
+    expect(
+      numberErrors({
+        ...base,
+        firstPlacementTime: '06:40',
+        truckPassTime: '07:55',
+        exposureMinutes: 'x',
+      }),
+    ).toEqual({});
   });
 
   it('places each API problem next to its field', () => {
