@@ -476,3 +476,85 @@ export interface IndicatorQuery {
   readonly from: string;
   readonly to: string;
 }
+
+// Instrument 3, household surveys: `/api/panel/household-surveys`
+
+export const SURVEY_WAVES = ['pre', 'post'] as const;
+export type SurveyWave = (typeof SURVEY_WAVES)[number];
+export const LEAD_TIMES = ['0_15', '15_60', '1_3h', 'gt_3h', 'after_pass'] as const;
+export type LeadTime = (typeof LEAD_TIMES)[number];
+export const MISSED_PICKUPS = ['0', '1_2', '3_plus'] as const;
+export type MissedPickups = (typeof MISSED_PICKUPS)[number];
+export const LITTER_SEEN = ['never', 'sometimes', 'often'] as const;
+export type LitterSeen = (typeof LITTER_SEEN)[number];
+export const SEPARATES = ['yes', 'sometimes', 'no'] as const;
+export type Separates = (typeof SEPARATES)[number];
+export const INTERRUPTIONS = ['never', '1_2', '3_plus', 'not_heard'] as const;
+export type Interruptions = (typeof INTERRUPTIONS)[number];
+export const CHANNELS = [
+  'music',
+  'alert',
+  'web_map',
+  'printed_schedule',
+  'neighbor',
+  'other',
+] as const;
+export type Channel = (typeof CHANNELS)[number];
+export const ACCESS = ['yes', 'with_help', 'no'] as const;
+export type Access = (typeof ACCESS)[number];
+
+/** Questions 6–11 (post wave only), on 1–5 scales. */
+export const POST_ONLY_QUESTIONS = [
+  'alertsHelped',
+  'easyToUse',
+  'etaReliable',
+  'streetCleaner',
+  'keepSystem',
+  'satisfaction',
+] as const;
+export type PostOnlyQuestion = (typeof POST_ONLY_QUESTIONS)[number];
+
+export interface SurveyInput {
+  readonly householdCode: string;
+  readonly wave: SurveyWave;
+  readonly surveyedOn: string;
+  readonly knowsSchedule: boolean | null;
+  readonly leadTime: LeadTime | null;
+  readonly missedPickups: MissedPickups | null;
+  readonly litterSeen: LitterSeen | null;
+  readonly separates: Separates | null;
+  readonly alertsHelped: number | null;
+  readonly easyToUse: number | null;
+  readonly etaReliable: number | null;
+  readonly streetCleaner: number | null;
+  readonly keepSystem: number | null;
+  readonly satisfaction: number | null;
+  readonly annoyance: number | null;
+  readonly notHeard: boolean;
+  readonly interrupted: Interruptions | null;
+  readonly channels: readonly Channel[];
+  readonly channelOther: string | null;
+  readonly access: Access | null;
+  readonly altChannel: string | null;
+}
+
+export interface Survey extends SurveyInput {
+  readonly id: string;
+  readonly routeCode: string;
+  readonly importBatchId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export type SurveyProblem =
+  | 'post_only_answer_in_pre'
+  | 'annoyance_and_not_heard'
+  | 'other_channel_text_required'
+  | 'other_channel_text_without_other'
+  | 'alt_channel_without_no_access';
+
+export interface SurveyQuery extends PageQuery {
+  readonly route?: string;
+  readonly wave?: SurveyWave;
+  readonly household?: string;
+}

@@ -78,7 +78,8 @@ export function FieldSheetEditorPage() {
       await action();
     } catch (failure) {
       if (failure instanceof PanelApiError && failure.problems.length > 0) {
-        setProblems(failure.problems);
+        // The sheet routes answer sheet problems only.
+        setProblems(failure.problems as readonly ObservationProblem[]);
       } else {
         setError(errorMessage(failure, SHEET_ERRORS));
       }

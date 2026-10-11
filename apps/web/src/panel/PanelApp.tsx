@@ -12,6 +12,8 @@ import { HouseholdsPage } from './households/HouseholdsPage';
 import { StickerSheetPage } from './households/StickerSheetPage';
 import { IncidentsPage } from './incidents/IncidentsPage';
 import { IndicatorsPage } from './indicators/IndicatorsPage';
+import { SurveyEditorPage } from './surveys/SurveyEditorPage';
+import { SurveysPage } from './surveys/SurveysPage';
 import { LivePage } from './live/LivePage';
 import { LoginPage } from './session/LoginPage';
 import { RequireSession } from './session/RequireSession';
@@ -152,6 +154,30 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={FIELD_READ}>
                   <BaselineEditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="encuestas"
+              element={
+                <RequirePermission anyOf={['surveys:read']}>
+                  <SurveysPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="encuestas/nueva"
+              element={
+                <RequirePermission anyOf={['surveys:write']}>
+                  <SurveyEditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="encuestas/:id"
+              element={
+                <RequirePermission anyOf={['surveys:read']}>
+                  <SurveyEditorPage />
                 </RequirePermission>
               }
             />

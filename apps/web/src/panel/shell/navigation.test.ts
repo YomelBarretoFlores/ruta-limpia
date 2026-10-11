@@ -37,6 +37,7 @@ describe('visibleNavItems', () => {
       'Hogares',
       'Fichas de campo',
       'Línea base',
+      'Encuestas',
       'Indicadores',
       'Usuarios',
     ]);
@@ -47,6 +48,7 @@ describe('visibleNavItems', () => {
       'Hogares',
       'Fichas de campo',
       'Línea base',
+      'Encuestas',
       'Indicadores',
     ]);
     expect(labels('observer', NAV_ITEMS)).toEqual([

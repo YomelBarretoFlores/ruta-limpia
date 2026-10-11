@@ -24,6 +24,10 @@ import type {
   PanelLiveSnapshot,
   PanelUser,
   Sticker,
+  Survey,
+  SurveyInput,
+  SurveyProblem,
+  SurveyQuery,
   Trip,
   TripDetail,
   TripQuery,
@@ -39,8 +43,8 @@ export class PanelApiError extends ApiError {
   constructor(
     status: number,
     code: string | null,
-    /** `422 invalid_observation`: the inconsistencies of a field sheet. */
-    readonly problems: readonly ObservationProblem[] = [],
+    /** `422 invalid_observation` / `invalid_survey`: the inconsistencies of a sheet or survey. */
+    readonly problems: readonly (ObservationProblem | SurveyProblem)[] = [],
     /** `400 weak_password`: `too_short` or `too_long`. */
     readonly problem: string | null = null,
     /** `422 duplicate_point` and `unknown_point` of a baseline log name the point. */
@@ -88,6 +92,11 @@ export interface PanelApi {
   updateBaselineLog(id: string, log: BaselineLogInput): Promise<BaselineLog>;
   deleteBaselineLog(id: string): Promise<void>;
   getIndicators(query: IndicatorQuery): Promise<IndicatorReport>;
+  listSurveys(query: SurveyQuery): Promise<Paged<Survey>>;
+  getSurvey(id: string): Promise<Survey>;
+  createSurvey(survey: SurveyInput): Promise<Survey>;
+  updateSurvey(id: string, survey: SurveyInput): Promise<Survey>;
+  deleteSurvey(id: string): Promise<void>;
   /** The URL of a CSV export (a plain link: the session cookie travels with it). */
   exportUrl(file: string, query?: object): string;
   listUsers(): Promise<readonly PanelUser[]>;
@@ -127,12 +136,13 @@ export function createPanelApi({ fetch, onUnauthorized, baseUrl = '' }: PanelApi
     const headers = new Headers({ accept: 'application/json' });
     if (MUTATING.has(method)) headers.set(CSRF_HEADER.name, CSRF_HEADER.value);
     if (init.body !== undefined) headers.set('content-type', 'application/json');
+    const body = init.body === undefined ? undefined : JSON.stringify(init.body);
     const response = await fetch(url, {
       method,
       headers,
       credentials: 'include',
       cache: 'no-store',
-      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      ...(body === undefined ? {} : { body }),
     });
     if (!response.ok) {
       const error = await errorOf(response);
@@ -211,6 +221,16 @@ export function createPanelApi({ fetch, onUnauthorized, baseUrl = '' }: PanelApi
     deleteBaselineLog: (id) => send<void>('DELETE', `${panel}/baseline-logs/${path(id)}`),
     getIndicators: (query) => request<IndicatorReport>(`${panel}/indicators${queryString(query)}`),
     exportUrl: (file, query = {}) => `${panel}/exports/${path(file)}${queryString(query)}`,
+    listSurveys: (query) =>
+      request<Paged<Survey>>(`${panel}/household-surveys${queryString(query)}`),
+    getSurvey: async (id) =>
+      (await request<{ survey: Survey }>(`${panel}/household-surveys/${path(id)}`)).survey,
+    createSurvey: async (survey) =>
+      (await send<{ survey: Survey }>('POST', `${panel}/household-surveys`, survey)).survey,
+    updateSurvey: async (id, survey) =>
+      (await send<{ survey: Survey }>('PUT', `${panel}/household-surveys/${path(id)}`, survey))
+        .survey,
+    deleteSurvey: (id) => send<void>('DELETE', `${panel}/household-surveys/${path(id)}`),
     listUsers: async () => (await request<{ users: PanelUser[] }>(`${panel}/users`)).users,
     createUser: async (user) =>
       (await send<{ user: PanelUser }>('POST', `${panel}/users`, user)).user,
@@ -230,7 +250,7 @@ async function errorOf(response: Response): Promise<PanelApiError> {
     return new PanelApiError(
       response.status,
       typeof body.error === 'string' ? body.error : null,
-      Array.isArray(body.problems) ? (body.problems as ObservationProblem[]) : [],
+      Array.isArray(body.problems) ? (body.problems as (ObservationProblem | SurveyProblem)[]) : [],
       typeof body.problem === 'string' ? body.problem : null,
       typeof body.pointCode === 'string' ? body.pointCode : null,
     );

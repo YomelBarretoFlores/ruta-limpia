@@ -42,6 +42,11 @@ const METHODS: readonly (keyof PanelApi)[] = [
   'deleteBaselineLog',
   'getIndicators',
   'exportUrl',
+  'listSurveys',
+  'getSurvey',
+  'createSurvey',
+  'updateSurvey',
+  'deleteSurvey',
   'listUsers',
   'createUser',
   'updateUser',
@@ -71,6 +76,7 @@ export function fakePanelApi(user: PanelUser | null = panelUser()): FakePanelApi
     'listHouseholds',
     'listObservations',
     'listBaselineLogs',
+    'listSurveys',
   ] as const) {
     api[list].mockResolvedValue(emptyPage);
   }
