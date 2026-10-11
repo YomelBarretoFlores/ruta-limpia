@@ -47,6 +47,8 @@ const METHODS: readonly (keyof PanelApi)[] = [
   'createSurvey',
   'updateSurvey',
   'deleteSurvey',
+  'importSurveys',
+  'surveyTemplateUrl',
   'listUsers',
   'createUser',
   'updateUser',
@@ -70,6 +72,7 @@ export function fakePanelApi(user: PanelUser | null = panelUser()): FakePanelApi
   api.getRoute.mockResolvedValue(PANEL_ROUTE);
   api.liveStreamUrl.mockImplementation((code) => `/api/live/routes/${code}/stream`);
   api.exportUrl.mockImplementation((file) => `/api/panel/exports/${file}`);
+  api.surveyTemplateUrl.mockReturnValue('/api/panel/household-surveys/template.csv');
   for (const list of [
     'listTrips',
     'listIncidents',

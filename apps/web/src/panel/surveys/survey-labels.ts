@@ -99,3 +99,28 @@ export const ANNOYANCE_OPTIONS = [
   { value: '4', label: '4 Extremadamente' },
   { value: 'not_heard', label: 'No la escuché' },
 ] as const;
+
+/** What each import problem means, in words. */
+export function importProblemLabel(problem: string): string {
+  const duplicate = /^duplicate_of_line_(\d+)$/.exec(problem);
+  if (duplicate !== null) return `Repite el hogar y la aplicación de la línea ${duplicate[1]}.`;
+  const fields = /^expected_(\d+)_fields$/.exec(problem);
+  if (fields !== null) return `La fila debe tener ${fields[1]} columnas, como el encabezado.`;
+  return IMPORT_PROBLEMS[problem] ?? problem;
+}
+
+const IMPORT_PROBLEMS: Readonly<Record<string, string>> = {
+  required: 'Falta este dato.',
+  invalid_value: 'El valor no es uno de los códigos permitidos.',
+  unknown_household: 'No hay un hogar inscrito con este código.',
+  unknown_column: 'La columna no es de la plantilla.',
+  duplicate_column: 'La columna está repetida.',
+  missing_column: 'Falta esta columna obligatoria.',
+  unterminated_quote: 'Unas comillas se abren y no se cierran.',
+  text_after_quote: 'Hay texto después de unas comillas de cierre.',
+  post_only_answer_in_pre: 'Las preguntas 6 a 11 son solo de la aplicación post.',
+  annoyance_and_not_heard: 'La pregunta 12 tiene puntaje y «No la escuché» a la vez.',
+  other_channel_text_required: 'Marcó «Otro» medio en la pregunta 14 sin decir cuál.',
+  other_channel_text_without_other: 'Hay un texto de «Otro» medio sin marcar «Otro».',
+  alt_channel_without_no_access: 'El medio alternativo de la pregunta 15 va solo con «No».',
+};

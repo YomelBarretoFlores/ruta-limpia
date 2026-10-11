@@ -558,3 +558,16 @@ export interface SurveyQuery extends PageQuery {
   readonly wave?: SurveyWave;
   readonly household?: string;
 }
+
+/** One problem of one row of an imported CSV file (`column` null: the whole row). */
+export interface ImportRowError {
+  readonly line: number;
+  readonly column: string | null;
+  readonly problem: string;
+}
+
+export interface SurveyImport {
+  readonly batchId: string;
+  readonly created: number;
+  readonly updated: number;
+}

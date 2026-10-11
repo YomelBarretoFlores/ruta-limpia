@@ -9,6 +9,7 @@ import type {
   HouseholdListItem,
   HouseholdQuery,
   Incident,
+  ImportRowError,
   IndicatorQuery,
   IndicatorReport,
   IncidentChanges,
@@ -25,6 +26,7 @@ import type {
   PanelUser,
   Sticker,
   Survey,
+  SurveyImport,
   SurveyInput,
   SurveyProblem,
   SurveyQuery,
@@ -49,6 +51,8 @@ export class PanelApiError extends ApiError {
     readonly problem: string | null = null,
     /** `422 duplicate_point` and `unknown_point` of a baseline log name the point. */
     readonly pointCode: string | null = null,
+    /** `400 invalid_csv` and `422 invalid_rows` of a survey import: each row's problems. */
+    readonly rowErrors: readonly ImportRowError[] = [],
   ) {
     super(status, code);
   }
@@ -97,6 +101,9 @@ export interface PanelApi {
   createSurvey(survey: SurveyInput): Promise<Survey>;
   updateSurvey(id: string, survey: SurveyInput): Promise<Survey>;
   deleteSurvey(id: string): Promise<void>;
+  /** Imports a CSV file of surveys (all or nothing). */
+  importSurveys(csv: string): Promise<SurveyImport>;
+  surveyTemplateUrl(): string;
   /** The URL of a CSV export (a plain link: the session cookie travels with it). */
   exportUrl(file: string, query?: object): string;
   listUsers(): Promise<readonly PanelUser[]>;
@@ -130,13 +137,14 @@ export function createPanelApi({ fetch, onUnauthorized, baseUrl = '' }: PanelApi
 
   async function request<T>(
     url: string,
-    init: { method?: string; body?: unknown; isLogin?: boolean } = {},
+    init: { method?: string; body?: unknown; csv?: string; isLogin?: boolean } = {},
   ): Promise<T> {
     const method = init.method ?? 'GET';
     const headers = new Headers({ accept: 'application/json' });
     if (MUTATING.has(method)) headers.set(CSRF_HEADER.name, CSRF_HEADER.value);
     if (init.body !== undefined) headers.set('content-type', 'application/json');
-    const body = init.body === undefined ? undefined : JSON.stringify(init.body);
+    if (init.csv !== undefined) headers.set('content-type', 'text/csv');
+    const body = init.csv ?? (init.body === undefined ? undefined : JSON.stringify(init.body));
     const response = await fetch(url, {
       method,
       headers,
@@ -231,6 +239,9 @@ export function createPanelApi({ fetch, onUnauthorized, baseUrl = '' }: PanelApi
       (await send<{ survey: Survey }>('PUT', `${panel}/household-surveys/${path(id)}`, survey))
         .survey,
     deleteSurvey: (id) => send<void>('DELETE', `${panel}/household-surveys/${path(id)}`),
+    importSurveys: (csv) =>
+      request<SurveyImport>(`${panel}/household-surveys/import`, { method: 'POST', csv }),
+    surveyTemplateUrl: () => `${panel}/household-surveys/template.csv`,
     listUsers: async () => (await request<{ users: PanelUser[] }>(`${panel}/users`)).users,
     createUser: async (user) =>
       (await send<{ user: PanelUser }>('POST', `${panel}/users`, user)).user,
@@ -246,6 +257,7 @@ async function errorOf(response: Response): Promise<PanelApiError> {
       problems?: unknown;
       problem?: unknown;
       pointCode?: unknown;
+      errors?: unknown;
     };
     return new PanelApiError(
       response.status,
@@ -253,6 +265,7 @@ async function errorOf(response: Response): Promise<PanelApiError> {
       Array.isArray(body.problems) ? (body.problems as (ObservationProblem | SurveyProblem)[]) : [],
       typeof body.problem === 'string' ? body.problem : null,
       typeof body.pointCode === 'string' ? body.pointCode : null,
+      Array.isArray(body.errors) ? (body.errors as ImportRowError[]) : [],
     );
   } catch {
     return new PanelApiError(response.status, null);
