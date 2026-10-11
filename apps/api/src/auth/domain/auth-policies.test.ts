@@ -55,6 +55,9 @@ describe('role matrix', () => {
       'incidents:update',
       'households:write',
       'field:write_all',
+      'indicators:read',
+      'surveys:write',
+      'exports:read',
     ] as const) {
       expect(can('supervisor', permission)).toBe(true);
     }
@@ -62,15 +65,18 @@ describe('role matrix', () => {
     expect(can('supervisor', 'households:delete')).toBe(false);
   });
 
-  it('limits an observer to the live view, new incidents and their own field records', () => {
+  it('limits an observer to the live view, new incidents, their own field records and the indicators', () => {
     expect(permissionsOf('observer')).toEqual([
       'live:read',
       'incidents:create',
       'field:read_own',
       'field:write_own',
+      'indicators:read',
     ]);
     expect(can('observer', 'trips:write')).toBe(false);
     expect(can('observer', 'field:read_all')).toBe(false);
+    expect(can('observer', 'exports:read')).toBe(false);
+    expect(can('observer', 'surveys:read')).toBe(false);
   });
 
   it('recognizes only the three roles', () => {

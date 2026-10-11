@@ -33,6 +33,9 @@ import { DEFAULT_ETA_SETTINGS } from './eta/domain/eta-settings.js';
 import { KyselyCompletedTripSamples } from './eta/infrastructure/kysely-completed-trip-samples.js';
 import { AppViewService } from './indicators/application/app-view-service.js';
 import { KyselyAppViewStore } from './indicators/infrastructure/kysely-app-view-store.js';
+import { IndicatorService } from './indicators/application/indicator-service.js';
+import { panelIndicatorRoutes } from './indicators/infrastructure/http/panel-indicator-routes.js';
+import { KyselyIndicatorReadModel } from './indicators/infrastructure/kysely-indicator-read-model.js';
 import { LiveSnapshotService } from './live/application/live-snapshot-service.js';
 import { KyselyLiveRouteReadModel } from './live/infrastructure/kysely-live-read-model.js';
 import { LiveStreamHub } from './live/infrastructure/sse/live-stream-hub.js';
@@ -356,6 +359,12 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelBaselineLogRoutes, { logs: baselineLogs }));
+
+  const indicators = new IndicatorService({
+    readModel: new KyselyIndicatorReadModel(db),
+    clock,
+  });
+  panelRoutes.push((scope) => scope.register(panelIndicatorRoutes, { indicators }));
 
   const panelLive = new PanelLiveService({
     snapshots: liveSnapshots,

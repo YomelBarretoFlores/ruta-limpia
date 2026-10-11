@@ -22,6 +22,13 @@ export const PERMISSIONS = [
   /** Field instruments of anyone. */
   'field:read_all',
   'field:write_all',
+  /** The impact indicators (Tabla 16). */
+  'indicators:read',
+  /** Instrument 3, the household surveys (create, edit, import). */
+  'surveys:read',
+  'surveys:write',
+  /** The CSV exports of the instruments, the indicators and the usage. */
+  'exports:read',
   'users:manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -40,6 +47,10 @@ const SUPERVISOR: readonly Permission[] = [
   'field:write_own',
   'field:read_all',
   'field:write_all',
+  'indicators:read',
+  'surveys:read',
+  'surveys:write',
+  'exports:read',
 ];
 
 const OBSERVER: readonly Permission[] = [
@@ -47,6 +58,7 @@ const OBSERVER: readonly Permission[] = [
   'incidents:create',
   'field:read_own',
   'field:write_own',
+  'indicators:read',
 ];
 
 const MATRIX: Readonly<Record<Role, ReadonlySet<Permission>>> = {

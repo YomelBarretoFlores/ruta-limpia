@@ -339,7 +339,13 @@ describe('panel sessions and CSRF (PostGIS)', () => {
       user: {
         username: 'omar.obs',
         role: 'observer',
-        permissions: ['live:read', 'incidents:create', 'field:read_own', 'field:write_own'],
+        permissions: [
+          'live:read',
+          'incidents:create',
+          'field:read_own',
+          'field:write_own',
+          'indicators:read',
+        ],
       },
     });
     const anonymous = await api.app.inject({ method: 'GET', url: '/api/panel/auth/me' });

@@ -243,6 +243,16 @@ cookie and checks the route's access rule (`config.panel`: `public`, `authentica
 or `{ anyOf }`; routes without a rule need a session). Other contexts add their panel routes through
 `PanelRouteRegistration` functions in the composition root, and read the actor with `actorOf`.
 
+### Impact indicators (`indicators`)
+
+`indicators/domain` is pure: `statistics` (median, proportions, the relative change with the
+zero-baseline rule, McNemar's exact test, the Wilcoxon signed-rank test), `impact-indicators` (the
+nine definitions of Tabla 16, their counts, changes, paired tests and target states) and `adoption`
+(weekly use per household). `IndicatorService` reads the recorded inputs of a route through the
+`IndicatorReadModel` port (`KyselyIndicatorReadModel`, one read-only `REPEATABLE READ` snapshot) and
+computes them; `GET /api/panel/indicators?route=&from=&to=` serves them (`indicators:read`). The
+operational definitions and the pilot's methodological decisions are in `docs/indicators.md`.
+
 ### Persistence
 
 PostgreSQL 16 + PostGIS through Kysely. Migrations are registered in code
@@ -265,6 +275,9 @@ instead of failing. `0007-household-registry` makes `push_subscriptions.househol
 times, photo codes only). `0009-baseline-route-logs` stores the hand-written baseline logs and
 creates the `instrument1_export` view (system and baseline rows, `source` column).
 `0011-household-code-counter` keeps the last generated household code, so a code is never reused.
+`0014-indicator-inputs` adds the Instrument 2 flags `exposure_incomplete` and `comparable_window`
+and the Instrument 3 table `household_surveys` (one row per household and wave; questions 6–11
+only in the post wave; deleted with its household).
 The `instrument1_route_log` view
 produces the Instrument 1 rows (dates in America/Lima); the alert columns and the ETA error stay null
 when no alert was sent.
