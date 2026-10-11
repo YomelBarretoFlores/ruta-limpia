@@ -160,7 +160,8 @@ export class KyselyHouseholdSurveyStore implements HouseholdSurveyStore {
     const [rows, count] = await Promise.all([
       scope
         .orderBy('h.code')
-        .orderBy('s.wave', 'desc')
+        // The pre wave first.
+        .orderBy(sql`s.wave = 'post'`)
         .limit(window.limit)
         .offset(window.offset)
         .execute(),

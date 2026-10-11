@@ -250,8 +250,11 @@ zero-baseline rule, McNemar's exact test, the Wilcoxon signed-rank test), `impac
 nine definitions of Tabla 16, their counts, changes, paired tests and target states) and `adoption`
 (weekly use per household). `IndicatorService` reads the recorded inputs of a route through the
 `IndicatorReadModel` port (`KyselyIndicatorReadModel`, one read-only `REPEATABLE READ` snapshot) and
-computes them; `GET /api/panel/indicators?route=&from=&to=` serves them (`indicators:read`). The
-operational definitions and the pilot's methodological decisions are in `docs/indicators.md`.
+computes them; `GET /api/panel/indicators?route=&from=&to=` serves them (`indicators:read`).
+`GET /api/panel/exports/{instrumento1,instrumento2,instrumento3,indicadores,uso}.csv`
+(`exports:read`) download the instruments, the indicators and the weekly use as CSV
+(`InstrumentExports` port, `KyselyInstrumentExports`). The operational definitions, the pilot's
+methodological decisions and every export column are in `docs/indicators.md`.
 
 ### Household surveys (`field`, Instrument 3)
 

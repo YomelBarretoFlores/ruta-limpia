@@ -11,7 +11,7 @@ taken for the pilot, the data each one reads, and how to reproduce the paired te
 2. Read the table: value, target, valid and missing records, baseline → exit, change, and the
    state (Cumple / No cumple / Sin datos).
 3. For analysis outside the panel, download `indicadores.csv` and the instrument exports from
-   **Exportaciones**.
+   **Exportaciones** (see [Exports](#exports)).
 
 API: `GET /api/panel/indicators?route=RI-01&from=YYYY-MM-DD&to=YYYY-MM-DD` (permission
 `indicators:read`: administrators, supervisors and observers).
@@ -160,6 +160,87 @@ Empty cells are unanswered questions. A survey is refused when a question 6–11
 pre wave, when Q12 has a score and "No la escuché", when Q14 "Otro" lacks its text (or the text
 lacks "Otro"), or when an alternative channel is given without Q15 = `no`. Deleting a household
 (consent withdrawn) deletes its surveys.
+
+## Exports
+
+Panel → **Exportaciones**, or `GET /api/panel/exports/<file>` with the session cookie (permission
+`exports:read`: administrators and supervisors). Every file is UTF-8 with a byte order mark (Excel
+opens it as UTF-8), comma separated, CRLF line ends and RFC 4180 quoting. Dates are ISO
+(`YYYY-MM-DD`), times of day America/Lima `HH:MM`, booleans `yes`/`no`, lists separated by `|`,
+empty cells are unknown or not recorded. No file holds personal data: no addresses, no user
+accounts or e-mails; observers appear as written on the sheet (initials). A text cell that starts
+with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading apostrophe, so a spreadsheet
+never runs it as a formula.
+
+| File               | Filters                                            | One row per                                             |
+| ------------------ | -------------------------------------------------- | ------------------------------------------------------- |
+| `instrumento1.csv` | `route`, `from`, `to` (optional)                   | reference point of a trip (system) or of a baseline log |
+| `instrumento2.csv` | `route`, `from`, `to` (optional, on `observed_on`) | Instrument 2 sheet                                      |
+| `instrumento3.csv` | `route` (optional)                                 | household survey (the import format, see above)         |
+| `indicadores.csv`  | `route`, `from`, `to` (required)                   | indicator × scope × phase                               |
+| `uso.csv`          | `route`, `from`, `to` (required)                   | enrolled household × week                               |
+
+### `instrumento1.csv`
+
+| Column                                 | Meaning                                                                                |
+| -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `source`                               | `system` (the trip log) or `baseline_manual` (a hand-written baseline log)             |
+| `record_id`                            | The trip or baseline log id                                                            |
+| `service_date`                         | Local service date                                                                     |
+| `route_code`, `vehicle`                | Route; vehicle code (system) or label (baseline)                                       |
+| `planned_start`, `actual_start`        | Planned and actual start, `HH:MM`                                                      |
+| `point_sequence`, `point_code`         | The reference point                                                                    |
+| `actual_passed_at`                     | When the truck passed the point, `HH:MM`                                               |
+| `alert_emitted_at`, `communicated_eta` | When the alert was sent and the arrival it announced, `HH:MM` (empty without an alert) |
+| `abs_error_minutes`                    | \|communicated ETA − pass\| in minutes, 2 decimals (empty without an alert or a pass)  |
+| `point_incidents_count`                | Incidents of the trip at that point                                                    |
+| `notes`                                | Baseline log notes                                                                     |
+
+### `instrumento2.csv`
+
+| Column                                                                             | Meaning                                                                                          |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `record_id`, `observed_on`, `route_code`, `point_code`, `phase`                    | The sheet, its date, point and phase (`baseline`, `intervention`, `post`)                        |
+| `observers`                                                                        | As written on the sheet                                                                          |
+| `trip_id`                                                                          | The trip observed, when linked                                                                   |
+| `first_placement_time`, `truck_pass_time`                                          | `HH:MM`                                                                                          |
+| `exposure_minutes`, `exposure_computed`                                            | Exposure; `yes` when computed from the two times                                                 |
+| `exposure_incomplete`                                                              | `yes`: placement seen before the observation began (a minimum time)                              |
+| `bags_at_pass`, `broken_bags`                                                      | Counts                                                                                           |
+| `dispersion`                                                                       | `none`, `few`, `many`                                                                            |
+| `dispersion_causes`, `dispersion_cause_other`                                      | `animals`, `wind`, `manipulation`, `undetermined`, `other` (separated by `\|`); the "other" text |
+| `waste_remaining_after_pass`                                                       | `yes`/`no`                                                                                       |
+| `photo_before_taken`, `photo_before_code`, `photo_after_taken`, `photo_after_code` | Photo taken and its archive code (never the image)                                               |
+| `music_window_start`, `music_window_end`, `music_seconds`, `music_conditions`      | The music observation window, seconds of music heard in it, and conditions                       |
+| `comparable_window`                                                                | "Mismo punto y ventana": `yes`, `no`, or empty when not answered                                 |
+| `notes`                                                                            | Sheet notes                                                                                      |
+
+### `indicadores.csv`
+
+Long form, one row per indicator, scope and phase:
+
+| Column                                         | Meaning                                                                                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `route_code`, `period_from`, `period_to`       | The request                                                                                                                                                                           |
+| `indicator`, `name`                            | `I1` … `I9` and the Tabla 16 name                                                                                                                                                     |
+| `scope`                                        | `route`, or a point code for the per-point rows                                                                                                                                       |
+| `phase`                                        | `all` (the headline row), `baseline`/`pre`/`post` (a compared phase), or the name of a secondary figure (`confirmedValue`, `weeks`, `activeHouseholds`, `brokenBagsShareBaseline`, …) |
+| `value`, `unit`                                | The value (2 decimals; 4 for secondary figures) and its unit (`minutes`, `ratio`, `percent`, `seconds`, `score`)                                                                      |
+| `n_valid`, `n_missing`, `n_incomplete`         | Record counts                                                                                                                                                                         |
+| `target`                                       | `<= 5`, `>= 70`, `<= -30%` (relative change), `>= +30 pp`, or empty (exploratory); on `all` rows                                                                                      |
+| `change_kind`, `change`                        | `relative` (%), `absolute` (zero baseline) or `points` (p.p.)                                                                                                                         |
+| `paired_test`, `pairs`, `statistic`, `p_value` | `wilcoxon` or `mcnemar`, the pairs, the Wilcoxon statistic, the p-value (4 decimals)                                                                                                  |
+| `status`                                       | `met`, `not_met`, `no_data`, `exploratory`; on `all` rows                                                                                                                             |
+
+### `uso.csv`
+
+| Column                                    | Meaning                                                                            |
+| ----------------------------------------- | ---------------------------------------------------------------------------------- |
+| `route_code`, `week_start`                | The route and the Monday of the week (clipped to the period)                       |
+| `household_code`                          | An active household enrolled by the week's end                                     |
+| `viewed`, `alert_sent`, `alert_confirmed` | A linked app view; an alert delivered (`sent`); a confirmed reception, in the week |
+| `active`                                  | The I5 rule: `viewed` or `alert_sent`                                              |
+| `active_confirmed`                        | The stricter rule: `viewed` or `alert_confirmed`                                   |
 
 ## Data sources
 

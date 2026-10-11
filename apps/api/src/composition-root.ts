@@ -36,6 +36,8 @@ import { KyselyAppViewStore } from './indicators/infrastructure/kysely-app-view-
 import { IndicatorService } from './indicators/application/indicator-service.js';
 import { panelIndicatorRoutes } from './indicators/infrastructure/http/panel-indicator-routes.js';
 import { KyselyIndicatorReadModel } from './indicators/infrastructure/kysely-indicator-read-model.js';
+import { panelExportRoutes } from './indicators/infrastructure/http/panel-export-routes.js';
+import { KyselyInstrumentExports } from './indicators/infrastructure/kysely-instrument-exports.js';
 import { LiveSnapshotService } from './live/application/live-snapshot-service.js';
 import { KyselyLiveRouteReadModel } from './live/infrastructure/kysely-live-read-model.js';
 import { LiveStreamHub } from './live/infrastructure/sse/live-stream-hub.js';
@@ -375,6 +377,13 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelIndicatorRoutes, { indicators }));
+  panelRoutes.push((scope) =>
+    scope.register(panelExportRoutes, {
+      instruments: new KyselyInstrumentExports(db),
+      indicators,
+      surveys,
+    }),
+  );
 
   const panelLive = new PanelLiveService({
     snapshots: liveSnapshots,
