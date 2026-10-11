@@ -8,9 +8,10 @@ export interface TrackingSettings {
   readonly maxPlausibleSpeedMps: number;
   /** Extra distance added to the plausible advance to absorb GPS noise. */
   readonly advanceSlackMeters: number;
-  /** A point counts as passed once progress is within this distance before it. */
-  readonly passToleranceMeters: number;
-  /** The trip completes once progress is within this distance of the route end. */
+  /**
+   * The trip completes once progress is within this distance of the route end. Points still ahead in
+   * that final stretch are then passed at the completing fix (`upper_bound` precision).
+   */
   readonly endToleranceMeters: number;
   /** A trip without fixes for this long is inactive (the application layer aborts it). */
   readonly inactivityTimeoutSec: number;
@@ -21,7 +22,6 @@ export const DEFAULT_TRACKING_SETTINGS: TrackingSettings = Object.freeze({
   backToleranceMeters: 30,
   maxPlausibleSpeedMps: 15,
   advanceSlackMeters: 50,
-  passToleranceMeters: 15,
   endToleranceMeters: 30,
   inactivityTimeoutSec: 30 * 60,
 });

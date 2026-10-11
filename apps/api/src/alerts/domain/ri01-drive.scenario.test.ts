@@ -20,7 +20,6 @@ import {
   type TrackedRoute,
   type TripEvent,
 } from '../../tracking/domain/trip-progress.js';
-import { DEFAULT_TRACKING_SETTINGS } from '../../tracking/domain/tracking-settings.js';
 import { decideAlerts, etaErrorMinutes, type AlertDecision } from './alert-policy.js';
 
 const geometry = buildRouteGeometry(RI01_ROUTE.polyline);
@@ -87,7 +86,10 @@ function runScenario() {
     progressAfter: Number.NaN,
     events: [],
   };
-  let outOfOrderEvents: readonly TripEvent[] = [];
+  let outOfOrder: { events: readonly TripEvent[]; stateUnchanged: boolean } = {
+    events: [],
+    stateUnchanged: false,
+  };
 
   const evaluate = (seconds: number) => {
     const now = new Date(T0 + seconds * 1000);
@@ -131,11 +133,10 @@ function runScenario() {
     evaluate(s);
     if (s === OUT_OF_ORDER_AFTER) {
       const late = advanceTrip(trip, fixAt(s - FIX_INTERVAL_SEC), route);
-      outOfOrderEvents = late.events;
-      expect(late.state).toBe(trip);
+      outOfOrder = { events: late.events, stateUnchanged: late.state === trip };
     }
   }
-  return { trip, events, alerts, evaluations, offRouteResult, outOfOrderEvents };
+  return { trip, events, alerts, evaluations, offRouteResult, outOfOrder };
 }
 
 const run = runScenario();
@@ -154,17 +155,13 @@ describe('RI-01 stop-and-go drive', () => {
 
   it('passes every point exactly once, with interpolated times close to the truth', () => {
     expect(passes.map((p) => p.pointId)).toEqual(points.map((p) => p.id));
-    const tolerance = DEFAULT_TRACKING_SETTINGS.passToleranceMeters;
     for (const point of points) {
       const pass = passes.find((p) => p.pointId === point.id)!;
       const seconds = (pass.passedAt.getTime() - T0) / 1000;
 
       expect(pass.precision).toBe('interpolated');
-      // Between reaching the pass tolerance and reaching the point, give or take one fix interval.
-      expect(seconds).toBeGreaterThanOrEqual(
-        trueTimeAt(point.chainage - tolerance) - FIX_INTERVAL_SEC,
-      );
-      expect(seconds).toBeLessThanOrEqual(trueTimeAt(point.chainage) + FIX_INTERVAL_SEC);
+      // Interpolated at the exact chainage: within one fix interval of the true crossing time.
+      expect(Math.abs(seconds - trueTimeAt(point.chainage))).toBeLessThanOrEqual(FIX_INTERVAL_SEC);
     }
   });
 
@@ -233,6 +230,7 @@ describe('RI-01 stop-and-go drive', () => {
   });
 
   it('ignores a fix that arrives out of order', () => {
-    expect(run.outOfOrderEvents).toEqual([{ type: 'fix_ignored', reason: 'out_of_order' }]);
+    expect(run.outOfOrder.events).toEqual([{ type: 'fix_ignored', reason: 'out_of_order' }]);
+    expect(run.outOfOrder.stateUnchanged).toBe(true);
   });
 });

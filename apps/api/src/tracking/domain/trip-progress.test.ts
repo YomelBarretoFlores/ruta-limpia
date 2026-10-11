@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { LatLon } from '../../shared/domain/geo.js';
 import { locateReferencePoints } from '../../routes/domain/reference-points.js';
+import type { LocatedReferencePoint } from '../../routes/domain/route.js';
 import { RI01_REFERENCE_POINTS, RI01_ROUTE } from '../../routes/domain/ri01.fixture.js';
 import { buildRouteGeometry, positionAtChainage } from '../../routes/domain/route-geometry.js';
 import type { PositionFix } from './position-fix.js';
@@ -34,11 +35,15 @@ function shiftEast(p: LatLon, meters: number): LatLon {
   return { lat: p.lat, lon: p.lon + meters / (111_320 * Math.cos((p.lat * Math.PI) / 180)) };
 }
 
-function drive(fixes: readonly PositionFix[], from: TripState = startTrip('trip-1')) {
+function drive(
+  fixes: readonly PositionFix[],
+  from: TripState = startTrip('trip-1'),
+  onRoute: TrackedRoute = route,
+) {
   let state = from;
   const events: TripEvent[] = [];
   for (const fix of fixes) {
-    const result = advanceTrip(state, fix, route);
+    const result = advanceTrip(state, fix, onRoute);
     state = result.state;
     events.push(...result.events);
   }
@@ -102,6 +107,27 @@ describe('advanceTrip: progress', () => {
     expect(rejoined.events[0]).toEqual({ type: 'route_rejoined', at: new Date(T0 + 60_000) });
   });
 
+  it('stays off route when the next on-route fix is an implausible jump', () => {
+    // Back on the line, but too far ahead to trust: progress and the off-route flag are kept, and
+    // no route_rejoined is emitted until a plausible on-route fix arrives.
+    const { state } = drive([fixAt(10, 0), fixAt(30, 20, 80)]);
+
+    const jump = advanceTrip(state, fixAt(900, 40), route);
+
+    expect(jump.state.offRoute).toBe(true);
+    expect(jump.state.progressChainage).toBe(state.progressChainage);
+    expect(jump.state.progressAt).toEqual(state.progressAt);
+    expect(jump.state.lastFixAt).toEqual(new Date(T0 + 40_000));
+    expect(jump.events).toEqual([
+      { type: 'jump_rejected', at: new Date(T0 + 40_000), chainage: expect.any(Number) as number },
+    ]);
+
+    const rejoined = advanceTrip(jump.state, fixAt(40, 60), route);
+
+    expect(rejoined.state.offRoute).toBe(false);
+    expect(rejoined.events[0]).toEqual({ type: 'route_rejoined', at: new Date(T0 + 60_000) });
+  });
+
   it('rejects an implausible jump ahead but accepts the same distance after a long gap', () => {
     const { state } = drive([fixAt(10, 0)]);
 
@@ -152,12 +178,33 @@ describe('advanceTrip: point passes', () => {
     ]);
   });
 
-  it('passes a point once progress is within the pass tolerance of it', () => {
-    const { events } = drive([fixAt(0, 0), fixAt(p01.chainage - 10, 20)]);
-
-    expect(passes(events)).toEqual([
-      expect.objectContaining({ pointId: p01.id, passedAt: new Date(T0 + 20_000) }),
+  it('does not pass a point when the truck stops just before it', () => {
+    const { state, events } = drive([
+      fixAt(0, 0),
+      fixAt(p01.chainage - 10, 20),
+      fixAt(p01.chainage - 9, 40),
+      fixAt(p01.chainage - 10, 60),
     ]);
+
+    expect(passes(events)).toEqual([]);
+    expect(state.passedPointIds).toEqual([]);
+  });
+
+  it('passes a point once progress reaches its exact chainage', () => {
+    // Stopped 10 m short for 60 s, then 2 m past it 20 s later: the pass is interpolated in that last
+    // interval, not at the moment the truck stopped nearby.
+    const { events } = drive([
+      fixAt(0, 0),
+      fixAt(p01.chainage - 10, 20),
+      fixAt(p01.chainage - 10, 80),
+      fixAt(p01.chainage + 2, 100),
+    ]);
+
+    const [pass] = passes(events);
+    expect(pass).toMatchObject({ pointId: p01.id, precision: 'interpolated' });
+    const seconds = pass?.type === 'point_passed' ? (pass.passedAt.getTime() - T0) / 1000 : NaN;
+    expect(seconds).toBeGreaterThan(95);
+    expect(seconds).toBeLessThan(100);
   });
 
   it('passes several points with one fix, in route order', () => {
@@ -203,5 +250,51 @@ describe('advanceTrip: completion', () => {
     expect(advanceTrip(state, fixAt(end, 40), route).events).toEqual([
       { type: 'fix_ignored', reason: 'trip_closed' },
     ]);
+  });
+
+  it('passes every remaining point before completing, including one inside the end tolerance', () => {
+    const end = geometry.lengthMeters;
+    const p15 = points.at(-1)!;
+    const nearEnd: LocatedReferencePoint = {
+      id: 'point-near-end',
+      code: 'PX',
+      name: 'Point 3 m before the route end',
+      sequence: 16,
+      ...positionAtChainage(geometry, end - 3),
+      chainage: end - 3,
+      offsetMeters: 0,
+    };
+    const withNearEnd: TrackedRoute = { geometry, points: [...points, nearEnd] };
+
+    // The second fix reaches the completion zone (end - 30 m) past P15 but short of the last point.
+    const { state, events } = drive(
+      [fixAt(p15.chainage - 40, 0), fixAt(end - 25, 20)],
+      startTrip('trip-1'),
+      withNearEnd,
+    );
+
+    expect(state.status).toBe('completed');
+    expect(state.passedPointIds).toEqual([...points.map((p) => p.id), nearEnd.id]);
+    expect(events.slice(-3)).toEqual([
+      expect.objectContaining({ pointId: p15.id, precision: 'interpolated' }),
+      {
+        type: 'point_passed',
+        pointId: nearEnd.id,
+        passedAt: new Date(T0 + 20_000),
+        precision: 'upper_bound',
+      },
+      { type: 'trip_completed', at: new Date(T0 + 20_000) },
+    ]);
+  });
+
+  it('completes a trip whose last point lies right at the completion threshold', () => {
+    const end = geometry.lengthMeters;
+    const p15 = points.at(-1)!;
+
+    const { state, events } = drive([fixAt(p15.chainage - 40, 0), fixAt(end - 29.5, 20)]);
+
+    expect(state.status).toBe('completed');
+    expect(passes(events).at(-1)).toMatchObject({ pointId: p15.id });
+    expect(events.at(-1)).toEqual({ type: 'trip_completed', at: new Date(T0 + 20_000) });
   });
 });

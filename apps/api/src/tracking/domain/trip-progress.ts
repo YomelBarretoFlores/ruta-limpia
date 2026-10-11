@@ -40,8 +40,16 @@ export interface TripUpdate {
  *   self-overlapping routes unambiguous and bounds how far one fix can move the truck.
  * - A fix farther than the off-route threshold does not move progress. If it lies on the route but
  *   outside the window, it is reported as an implausible jump instead.
- * - Progress is monotonic. Each reference point is passed once, at a time interpolated by chainage
- *   between the previous on-route fix and this one.
+ * - Progress is monotonic. A reference point is passed once, when progress reaches its exact
+ *   chainage, at a time interpolated by chainage between the previous on-route fix and this one. A
+ *   truck stopping just short of a point does not pass it early.
+ * - Points already behind the first fix of a trip are passed `upper_bound` at that fix.
+ * - When progress enters the completion zone (`routeLength - endTolerance`), every point not yet
+ *   passed is passed before `trip_completed`: crossed points keep their interpolated time, and points
+ *   in the final stretch the truck never reached are passed `upper_bound` at the completing fix. No
+ *   point is ever stranded unpassed in a completed trip.
+ * - An off-route trip whose next on-route fix is an implausible jump stays off route: only
+ *   `jump_rejected` is emitted, progress is kept, and `route_rejoined` waits for a plausible fix.
  */
 export function advanceTrip(
   state: TripState,
@@ -65,7 +73,8 @@ export function advanceTrip(
   const events: TripEvent[] = [];
   if (state.offRoute) events.push({ type: 'route_rejoined', at: fix.fixTime });
 
-  const passes = detectPasses(state, progressChainage, fix.fixTime, route.points, settings);
+  const completes = progressChainage >= route.geometry.lengthMeters - settings.endToleranceMeters;
+  const passes = detectPasses(state, progressChainage, fix.fixTime, route.points, completes);
   events.push(...passes);
 
   let next: TripState = {
@@ -76,7 +85,7 @@ export function advanceTrip(
     offRoute: false,
     passedPointIds: [...state.passedPointIds, ...passes.map((pass) => pass.pointId)],
   };
-  if (progressChainage >= route.geometry.lengthMeters - settings.endToleranceMeters) {
+  if (completes) {
     next = { ...next, status: 'completed', endedAt: fix.fixTime };
     events.push({ type: 'trip_completed', at: fix.fixTime });
   }
@@ -125,27 +134,28 @@ function detectPasses(
   progressChainage: number,
   at: Date,
   points: readonly LocatedReferencePoint[],
-  settings: TrackingSettings,
+  completes: boolean,
 ): PointPassed[] {
   const passed = new Set(state.passedPointIds);
   return points
     .filter((point) => !passed.has(point.id))
-    .filter((point) => progressChainage >= point.chainage - settings.passToleranceMeters)
+    .filter((point) => completes || progressChainage >= point.chainage)
     .sort((a, b) => a.chainage - b.chainage)
-    .map((point) =>
-      state.progressAt === null
-        ? { type: 'point_passed', pointId: point.id, passedAt: at, precision: 'upper_bound' }
-        : {
-            type: 'point_passed',
-            pointId: point.id,
-            passedAt: interpolateTime(
-              { chainage: state.progressChainage, at: state.progressAt },
-              { chainage: progressChainage, at },
-              point.chainage,
-            ),
-            precision: 'interpolated',
-          },
-    );
+    .map((point): PointPassed => {
+      if (state.progressAt === null || progressChainage < point.chainage) {
+        return { type: 'point_passed', pointId: point.id, passedAt: at, precision: 'upper_bound' };
+      }
+      return {
+        type: 'point_passed',
+        pointId: point.id,
+        passedAt: interpolateTime(
+          { chainage: state.progressChainage, at: state.progressAt },
+          { chainage: progressChainage, at },
+          point.chainage,
+        ),
+        precision: 'interpolated',
+      };
+    });
 }
 
 /** Time at which progress reached `chainage`, linearly between two samples (clamped to them). */

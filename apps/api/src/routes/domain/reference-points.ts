@@ -13,6 +13,11 @@ import { RouteValidationError } from './route-validation-error.js';
  * Each point is matched to its nearest place on the whole route, then the chainages must strictly
  * increase with the declared sequence. On a route that overlaps itself, a point on the shared stretch
  * is ambiguous; such routes need their points placed off the overlap.
+ *
+ * Points near the route end are accepted on purpose, even inside the trip completion zone: RI-01's
+ * P15 sits right at that threshold. Trip completion passes every remaining point (see `advanceTrip`),
+ * so none is ever stranded, and the end tolerance is a tracking setting the route catalog should not
+ * depend on.
  */
 export function locateReferencePoints(
   geometry: RouteGeometry,
