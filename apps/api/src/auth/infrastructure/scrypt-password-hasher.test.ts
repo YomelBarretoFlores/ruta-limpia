@@ -17,7 +17,8 @@ describe('ScryptPasswordHasher', () => {
     expect(decoded?.salt).toHaveLength(16);
     expect(decoded?.key).toHaveLength(64);
     await expect(hasher.verify('correct horse battery', hash)).resolves.toBe(true);
-  });
+    // Two full-cost derivations (128 MiB each): slow on a loaded machine running every project.
+  }, 30_000);
 
   it('rejects a wrong password', async () => {
     const hash = await fast.hash('correct horse battery');

@@ -138,7 +138,8 @@ describe('GET /api/live/routes/:code/stream', () => {
     const stream = await connect();
     await stream.next();
 
-    await vi.waitFor(() => expect(stream.comments).toContain('heartbeat'));
+    // Generous wait: under a loaded parallel run the 20 ms interval may slip well past 1 s.
+    await vi.waitFor(() => expect(stream.comments).toContain('heartbeat'), { timeout: 10_000 });
   });
 
   it('answers 503 when the stream capacity is reached and frees a slot on disconnect', async () => {
