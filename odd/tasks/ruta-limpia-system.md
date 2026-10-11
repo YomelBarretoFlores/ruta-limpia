@@ -72,7 +72,8 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T4 | Notifications: Web Push (VAPID), point subscriptions with consent/cancel, alert dispatch and delivery log | delegated (writer) | [x] |
 | T5 | Public API + SSE: routes, points, vehicle status, live ETA per point | delegated (writer) | [x] |
 | T6 | Citizen PWA: map, point selection, ETA, subscription flow, QR deep link, offline/printed fallback | delegated (writer) | [x] |
-| T7 | Municipal panel: auth/roles, live tracking, pass table, alert status, incidents, trips, field forms, household registry | delegated (writer) | [ ] |
+| T7a | Municipal panel backend: auth/sessions/roles, audit, live panel, trips, incidents, households, field observations, baseline logs | delegated (writer: 2+ non-trivial files) | [x] |
+| T7b | Municipal panel UI (`/panel`) + design system + T6 PWA hardening | delegated (writer) | [ ] |
 | T8 | Indicators and exports: KPI computation (Tabla 16), CSV exports for Instruments 1–3 | delegated (writer) | [ ] |
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer) | [ ] |
 | T10 | Production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5) | delegated (writer) | [ ] |
@@ -354,8 +355,74 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   `push_subscriptions.household_id` still has no `ON DELETE` action, so deleting a household with
   subscriptions fails (T7 household registry).
 
+- 2026-10-11: T6 was reviewed in three slices, `38f530d..8c3408a`, `8c3408a..7abe83d` and
+  `7abe83d..cf4e353` (commits `43b1967 8c3408a aad40e8 7abe83d cf4e353`); all were approved and
+  acknowledged. The reviewed boundary is now `cf4e353`.
+
+- 2026-10-11: T7 split into T7a (backend, done) and T7b (panel UI, design system, T6 PWA
+  hardening). T7a done in eleven work-unit commits, each under the ~1.5k-line review budget
+  (changed lines, lockfile excluded) and each building and passing its tests on its own:
+  - `730f91c` `test(live): close leftover sockets before closing the stream test servers` (3): a
+    pre-existing flake (about 1 run in 5) where an aborted `fetch` left an undici keep-alive socket
+    that held `app.close()` past the 10 s hook timeout.
+  - `f421095` `feat(auth): add panel credential, lockout, session, role and CSRF policies` (442).
+  - `39a0087` `feat(auth): add login, session and user administration use cases with scrypt
+    hashing` (1279).
+  - `82a88e3` `feat(auth): persist panel users, sessions and the audit trail` (590): migration
+    `0005-panel-auth`.
+  - `a39e0a6` `feat(auth): serve panel login, sessions, CSRF guard and user administration`
+    (1284): `@fastify/cookie` 11.1.3, `user:create` CLI.
+  - `12a727e` `feat(panel): add the fleet view, trip history and manual trip control` (1154):
+    migration `0006-panel-operations`.
+  - `a2f91e4` `feat(panel): add the incident log and the supervisor's live route view` (1169).
+  - `ff414e1` `feat(field): manage the household registry and its QR stickers from the panel`
+    (923): migration `0007-household-registry`.
+  - `a0e27ff` `feat(field): record Instrument 2 point observation sheets from the panel` (1275):
+    migration `0008-field-observations`.
+  - `925a8de` `test: give the full-cost scrypt and SSE heartbeat tests room under a loaded
+    parallel run` (6): both timed out once when `pnpm test` ran every project at once.
+  - The last commit (the parent records the hash) `feat(field): record baseline Instrument 1 logs
+    and unite them with the system log`: migration `0009-baseline-route-logs`, view
+    `instrument1_export`, this document.
+
+  Verification at the last commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0,
+  `pnpm format:check` clean, `pnpm test` 75 files / 523 tests passed twice in a row (14 PostGIS
+  integration files, 7 of them new for the panel). The intermediate commit `12a727e` was re-run alone in a worktree (api unit
+  46 files / 341 tests, integration 10 files / 76 tests). Smoke (compose db, `db:migrate` applied
+  0005–0009, `db:seed`, `user:create` from stdin for an admin and an observer, a short password
+  refused with `weak_password (too_short)`, built API with `SESSION_COOKIE_SECURE=false` on the
+  command line): login 200 with `Set-Cookie: rl_session=…; Max-Age=604800; Path=/api/panel;
+  HttpOnly; SameSite=Strict` and `no-store`; wrong password and unknown user both 401 with the
+  same body; `me` 200; a POST without `X-Requested-With` 403 `csrf_rejected` and one with a
+  foreign `Origin` 403; household `H-001` 201 and its sticker 200
+  (`/?r=RI-01&p=P08&h=H-001`); a field observation 201 with `exposureMinutes` 75 computed; panel
+  live snapshot 200; logout 204 then `me` 401; no password, token or cookie in the API log; API
+  stopped with SIGTERM, containers removed, volumes kept.
+
+  Decisions: hashing with Node's scrypt (N=2^17, r=8, p=1, PHC string, NFC-normalized input, at
+  most 2 concurrent hashes for memory); unknown usernames get an in-memory "phantom" lockout so
+  `423 account_locked` does not enumerate accounts; lockout answers `423`, bad credentials `401`;
+  a locked account burns the same verification work; the CSRF check also covers the login; the
+  panel is one encapsulated Fastify scope with per-route access rules (`config.panel`), fail
+  closed; sessions are revoked on role change, deactivation and password reset, and admins cannot
+  demote or deactivate themselves; audit events are written after the action (an audit failure
+  fails the request); manual trip ends keep `end_reason = manual` and the operator's reason in
+  `trips.end_note`; panel alert statuses are `sent`, `preparing`, `waiting`, `not_sent`;
+  household codes use a transaction-level advisory lock; the sticker falls back to the request
+  origin without `PUBLIC_ORIGIN`; field sheets and baseline logs are replaced with `PUT` (whole
+  document), observers read only their own records and may change them for 24 hours; the
+  exposure is computed only when both times were observed; the observer role reads only its own
+  field records (`field:read_own`). The incident `kind` is now a closed list (CHECK), so the
+  ingest test's `blocked_street` incident became `route_change` (folded into `12a727e`).
+  New env vars: `SESSION_COOKIE_SECURE` (true), `SESSION_IDLE_MINUTES` (480),
+  `SESSION_ABSOLUTE_HOURS` (168), `LOGIN_RATE_LIMIT_PER_MINUTE` (10), `PUBLIC_ORIGIN` (unset).
+  Pending: `.env.example` must gain these variables (agents cannot edit `.env*` files); production
+  must set `PUBLIC_ORIGIN`. Follow-ups: the phantom lockout and the login rate limit are per
+  process; `instrument1_export` has no HTTP endpoint yet (T8 exports).
+
 ## Next step
 
-T7 (municipal panel: auth and roles, live tracking, pass table, alert status, incidents, trips,
-field forms, household registry) at `/panel`, built on the public live API and new authenticated
-panel endpoints.
+T7b: the municipal panel UI at `/panel` (login, live route with the pass table and alert status,
+vehicles, trips and trip detail, incidents, households and stickers, Instrument 2 sheets,
+baseline logs, user administration), a small design system, and the T6 PWA hardening, built on
+the T7a endpoints documented in the README ("Municipal panel API").

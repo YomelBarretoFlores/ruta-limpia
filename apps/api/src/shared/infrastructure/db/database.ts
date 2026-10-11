@@ -297,6 +297,47 @@ export interface FieldObservationsTable {
   updated_at: Date;
 }
 
+/** Instrument 1 filled in by hand during the baseline (migration 0009-baseline-route-logs). */
+export interface BaselineRouteLogsTable {
+  id: Generated<string>;
+  route_id: string;
+  /** `YYYY-MM-DD`: written as text, read through `to_char`. */
+  service_date: ColumnType<string, string, string>;
+  vehicle_label: string | null;
+  /** Local times of day: written `HH:MM`, read back `HH:MM:SS`. */
+  planned_start: string | null;
+  actual_start: string | null;
+  notes: string | null;
+  created_by_user_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface BaselinePointPassesTable {
+  log_id: string;
+  point_id: string;
+  passed_at: string;
+}
+
+/** One Instrument 1 export row, from the system (`source = 'system'`) or a baseline log. */
+export interface Instrument1ExportView {
+  source: 'system' | 'baseline_manual';
+  record_id: string;
+  service_date: string;
+  route_code: string;
+  vehicle: string | null;
+  planned_start: string | null;
+  actual_start: Date | null;
+  point_sequence: number;
+  point_code: string;
+  actual_passed_at: Date | null;
+  alert_emitted_at: Date | null;
+  communicated_eta: Date | null;
+  abs_error_minutes: number | null;
+  point_incidents_count: number | null;
+  notes: string | null;
+}
+
 export interface Database {
   routes: RoutesTable;
   route_schedules: RouteSchedulesTable;
@@ -316,6 +357,9 @@ export interface Database {
   sessions: SessionsTable;
   audit_events: AuditEventsTable;
   field_observations: FieldObservationsTable;
+  baseline_route_logs: BaselineRouteLogsTable;
+  baseline_point_passes: BaselinePointPassesTable;
+  instrument1_export: Instrument1ExportView;
 }
 
 export interface DatabaseOptions {

@@ -10,7 +10,7 @@ folders name what the system does, not the technical layers.
 | `eta`        | ETA estimation per reference point and telemetry staleness.                              |
 | `alerts`     | Point subscriptions with consent, Web Push dispatch, and the alert log.                  |
 | `live`       | Public live views of a route: snapshot (trips, signal, ETAs, passes, alerts) and stream. |
-| `field`      | Field instruments: point observations, household registry, incidents.                    |
+| `field`      | Field instruments: point observations, baseline logs, household registry, incidents.     |
 | `indicators` | Impact indicators (ETA error, availability, adoption, ...) and CSV exports.              |
 | `auth`       | Panel users, sessions, and role-based access.                                            |
 | `shared`     | Cross-context kernel: common value objects, ports, and HTTP plumbing (`/health`).        |
@@ -107,6 +107,9 @@ field/domain             point-observation (Instrument 2 rules: exposure, consis
 field/application        FieldObservationService over the FieldObservationStore port;
                          field/infrastructure: KyselyFieldObservationStore,
                          http/panel-field-observation-routes
+field/application        BaselineLogService (manual Instrument 1 logs with point passes) over the
+                         BaselineLogStore port; field/infrastructure: KyselyBaselineLogStore,
+                         http/panel-baseline-log-routes
 field/application        HouseholdDirectory port (household registry: codes, never addresses)
 field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,
@@ -238,7 +241,8 @@ point), unique Traccar position ids, unique push endpoints, one delivery per (al
 a household's point always belongs to its route. `app_views` (migrations `0003-app-views` and
 `0004-app-views-household-set-null`: deleting a household or a subscription keeps its views and clears
 the link) logs app views with the point, the subscription and household only when proven by the
-management token, and the time; never an IP address or a user agent. `0008-field-observations` stores the Instrument 2 sheets (`field_observations`, local dates and
+management token, and the time; never an IP address or a user agent. `0009-baseline-route-logs` stores the hand-written baseline logs and creates the `instrument1_export`
+view (system and baseline rows, `source` column). `0008-field-observations` stores the Instrument 2 sheets (`field_observations`, local dates and
 times, photo codes only). `0007-household-registry` makes `push_subscriptions.household_id` `ON DELETE SET NULL` and adds
 the enrolling user and `updated_at` to `households`. `0006-panel-operations` adds `trips.end_note` and incident tracking (closed list of kinds,
 reporting and resolving user, resolution; the point must belong to the route). `0005-panel-auth` adds `users` (unique

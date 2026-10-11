@@ -10,6 +10,7 @@ import * as panelAuth from './migrations/0005-panel-auth.js';
 import * as panelOperations from './migrations/0006-panel-operations.js';
 import * as householdRegistry from './migrations/0007-household-registry.js';
 import * as fieldObservations from './migrations/0008-field-observations.js';
+import * as baselineRouteLogs from './migrations/0009-baseline-route-logs.js';
 
 /**
  * Migrations are registered in code (not discovered on disk) so they work the same from `src` with
@@ -24,6 +25,7 @@ const MIGRATIONS: Record<string, Migration> = {
   '0006-panel-operations': panelOperations,
   '0007-household-registry': householdRegistry,
   '0008-field-observations': fieldObservations,
+  '0009-baseline-route-logs': baselineRouteLogs,
 };
 
 export function createMigrator<DB>(db: Kysely<DB>): Migrator {

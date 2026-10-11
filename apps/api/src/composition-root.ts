@@ -49,6 +49,9 @@ import { PanelTripService } from './tracking/application/panel-trip-service.js';
 import { IncidentService } from './field/application/incident-service.js';
 import { HouseholdRegistryService } from './field/application/household-registry.js';
 import { FieldObservationService } from './field/application/field-observation-service.js';
+import { BaselineLogService } from './field/application/baseline-log-service.js';
+import { panelBaselineLogRoutes } from './field/infrastructure/http/panel-baseline-log-routes.js';
+import { KyselyBaselineLogStore } from './field/infrastructure/kysely-baseline-log-store.js';
 import { panelFieldObservationRoutes } from './field/infrastructure/http/panel-field-observation-routes.js';
 import { KyselyFieldObservationStore } from './field/infrastructure/kysely-field-observation-store.js';
 import { panelHouseholdRoutes } from './field/infrastructure/http/panel-household-routes.js';
@@ -323,6 +326,14 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     clock,
   });
   panelRoutes.push((scope) => scope.register(panelFieldObservationRoutes, { observations }));
+
+  const baselineLogs = new BaselineLogService({
+    store: new KyselyBaselineLogStore(db),
+    points: routePoints,
+    audit,
+    clock,
+  });
+  panelRoutes.push((scope) => scope.register(panelBaselineLogRoutes, { logs: baselineLogs }));
 
   const panelLive = new PanelLiveService({
     snapshots: liveSnapshots,

@@ -535,6 +535,33 @@ The sheet, one per point and visit (unset fields may be omitted or `null`):
 - The response adds `id`, `routeId`, `exposureComputed`, `createdByUserId`, `createdAt` and
   `updatedAt`. Audited as `field_observation.created`, `.updated`, `.deleted`.
 
+### Baseline route logs (manual Instrument 1)
+
+Before the alerts start, the route log is completed by hand. Same access rules as the observation
+sheets.
+
+| Route                                 | Access      | Request → response                                  |
+| ------------------------------------- | ----------- | --------------------------------------------------- |
+| `POST /api/panel/baseline-logs`       | field write | log → `201 { log }`                                 |
+| `GET /api/panel/baseline-logs`        | field read  | `?route=&from=&to=&page=&pageSize=` → paged `[log]` |
+| `GET /api/panel/baseline-logs/:id`    | field read  | → `{ log }`                                         |
+| `PUT /api/panel/baseline-logs/:id`    | field write | the whole log (passes are replaced) → `{ log }`     |
+| `DELETE /api/panel/baseline-logs/:id` | field write | → `204`                                             |
+
+Request: `{ routeCode, serviceDate: "YYYY-MM-DD", vehicleLabel?, plannedStart?: "HH:MM",
+actualStart?: "HH:MM", notes?, passes: [{ pointCode, passedAt: "HH:MM" }] }`. The `log` adds
+`id`, `routeCode`, `passes` in route order (`{ pointCode, sequence, passedAt }`),
+`createdByUserId`, `createdAt` and `updatedAt`. A point listed twice answers
+`422 duplicate_point`, an unknown one `422 unknown_point` (both with `pointCode`). Audited as
+`baseline_log.created`, `.updated`, `.deleted`.
+
+The `instrument1_export` view (migration `0009-baseline-route-logs`) unites both sources of
+Instrument 1 for the exports (T8): one row per point and trip or log, with `source` = `system`
+(the `instrument1_route_log` rows) or `baseline_manual` (local times turned into timestamps in
+America/Lima; alert columns null), plus `record_id`, `service_date`, `route_code`, `vehicle`,
+`planned_start`, `actual_start`, `point_sequence`, `point_code`, `actual_passed_at`,
+`alert_emitted_at`, `communicated_eta`, `abs_error_minutes`, `point_incidents_count` and `notes`.
+
 ## Citizen PWA (`apps/web`, `/`)
 
 The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an
