@@ -1,0 +1,60 @@
+# Local development infrastructure: PostGIS (application + Traccar databases) and Traccar.
+# The API and the web app run on the host through `pnpm dev`.
+#
+# Configuration comes from the repository root `.env` (copy `.env.example`). It is loaded with
+# `env_file` so a plain `docker compose -f infra/docker-compose.yml up -d` works from any directory.
+
+name: ruta-limpia
+
+services:
+  db:
+    # The official PostGIS image is published for linux/amd64 only; Apple Silicon runs it emulated.
+    image: postgis/postgis:16-3.5
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./db/init/20-create-traccar-database.sql:/docker-entrypoint-initdb.d/20-create-traccar-database.sql:ro
+    healthcheck:
+      # TCP check: the temporary server used during initialization only listens on the Unix socket.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  traccar:
+    image: traccar/traccar:6.16.0-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: ../.env
+    # The wrapper derives Traccar's settings (database, forward URL, X-Ingest-Token header) from .env.
+    entrypoint: ['/bin/sh', '/opt/traccar/ruta-limpia-entrypoint.sh']
+    extra_hosts:
+      # Lets Traccar reach the API running on the host (built in on Docker Desktop, needed on Linux).
+      - 'host.docker.internal:host-gateway'
+    ports:
+      - '8082:8082' # Web UI and REST API
+      - '5055:5055' # OsmAnd protocol (HTTP), used by the simulator
+      - '5023:5023' # GT06 protocol (TCP), common low-cost 4G trackers
+    volumes:
+      - ./traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+      - ./traccar/entrypoint.sh:/opt/traccar/ruta-limpia-entrypoint.sh:ro
+      - traccar-data:/opt/traccar/data
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8082/api/server']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+volumes:
+  db-data:
+  traccar-data:
