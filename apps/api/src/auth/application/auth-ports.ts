@@ -43,8 +43,8 @@ export interface UserStore {
   /** Null when the user does not exist. */
   update(userId: string, changes: UserChanges): Promise<PanelUser | null>;
   /**
-   * Read-modify-write of the login state under a row lock, so concurrent failures are all
-   * counted. Returns what `change` returned.
+   * Read-modify-write of the login state under a row lock, so concurrent attempts are all counted
+   * and only one of them can take a reserved slot. Returns what `change` returned.
    */
   modifyLoginState<T extends AccountLoginState>(
     userId: string,
@@ -62,6 +62,21 @@ export interface LoginSourceStore {
   find(key: string): Promise<LoginState>;
   /** Read-modify-write of one key's state; returns what `change` returned. */
   modify<T extends LoginState>(key: string, change: (current: LoginState) => T): Promise<T>;
+}
+
+/**
+ * Port: the client networks (IPv4 /24, IPv6 /64) from which each account signed in successfully,
+ * with the time of the last such sign-in. Attempts from a recent one skip the per-account spacing
+ * (see the lockout policy). Implementations should not keep the network in plain text.
+ */
+export interface KnownNetworkStore {
+  /** Whether the account signed in successfully from `network` at or after `since`. */
+  isKnown(userId: string, network: string, since: Date): Promise<boolean>;
+  /**
+   * Records a successful sign-in from `network` at `at`, and forgets every entry (of any account)
+   * last seen before `forgetBefore`.
+   */
+  remember(userId: string, network: string, at: Date, forgetBefore: Date): Promise<void>;
 }
 
 export interface StoredSession extends SessionTimes {
@@ -106,8 +121,8 @@ export interface PasswordHasher {
   hash(password: string): Promise<string>;
   verify(password: string, encodedHash: string): Promise<boolean>;
   /**
-   * Burns the same work as `verify` against a throwaway hash, so a login of an unknown or
-   * locked user takes as long as a real one (no user enumeration by timing).
+   * Burns the same work as `verify` against a throwaway hash, so a login of an unknown, paused or
+   * throttled user takes as long as a real one (no user enumeration by timing).
    */
   verifyDummy(password: string): Promise<void>;
 }

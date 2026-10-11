@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FakePasswordHasher,
   InMemoryAuditLog,
+  InMemoryKnownNetworkStore,
   InMemorySessionStore,
   InMemoryUserStore,
   SequentialSessionTokens,
@@ -21,6 +22,7 @@ let users: InMemoryUserStore;
 let sessions: InMemorySessionStore;
 let hasher: FakePasswordHasher;
 let audit: InMemoryAuditLog;
+let knownNetworks: InMemoryKnownNetworkStore;
 let warnings: { context: object; message: string | undefined }[];
 let auth: AuthService;
 let userId: string;
@@ -34,6 +36,7 @@ beforeEach(async () => {
   sessions = new InMemorySessionStore(users);
   hasher = new FakePasswordHasher();
   audit = new InMemoryAuditLog();
+  knownNetworks = new InMemoryKnownNetworkStore();
   warnings = [];
   const logger: Logger = {
     debug: () => undefined,
@@ -45,6 +48,7 @@ beforeEach(async () => {
     users,
     sessions,
     sources: new InMemoryLoginSourceStore(() => clock.now()),
+    knownNetworks,
     hasher,
     tokens: new SequentialSessionTokens(),
     audit,
@@ -135,14 +139,16 @@ describe('AuthService.login', () => {
 
   const seconds = (n: number) => new Date(T0.getTime() + n * 1000);
 
-  it('spaces out account attempts after 10 failures, refusing early ones without hashing', async () => {
+  it('spaces out account attempts after 10 failures, refusing early ones at the same cost', async () => {
     // One failure from each of ten networks: no network is paused.
     for (let n = 0; n < 10; n++) await attempt('wrong password!', `10.0.${n}.0/24`);
     const verifications = hasher.verifications;
 
-    // Even the right password, too early: refused like a wrong one, and no hash is computed.
+    // Even the right password, too early: refused like a wrong one, after the same hashing work
+    // (a dummy verification), so the timing does not reveal that the account exists.
     expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
-    expect(hasher.verifications).toBe(verifications);
+    expect(hasher.verifications).toBe(verifications + 1);
+    expect(hasher.dummyVerifications).toBe(1);
     expect(audit.events.at(-1)).toMatchObject({
       action: 'auth.login_blocked',
       details: { reason: 'account_throttled' },
@@ -154,6 +160,69 @@ describe('AuthService.login', () => {
 
     clock.set(seconds(1));
     expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+  });
+
+  it('checks only one of several attempts arriving together when an interval ends', async () => {
+    for (let n = 0; n < 10; n++) await attempt('wrong password!', `10.0.${n}.0/24`);
+    clock.set(seconds(1));
+    const checked: string[] = [];
+    hasher.onVerify = (password) => checked.push(password);
+
+    const results = await Promise.all(
+      [1, 2, 3, 4].map((n) => attempt(`wrong password ${n}`, `10.1.${n}.0/24`)),
+    );
+
+    expect(results.map((r) => r.status)).toEqual(Array<string>(4).fill('invalid_credentials'));
+    expect(hasher.dummyVerifications).toBe(3);
+    expect(users.rows.get(userId)).toMatchObject({ failedAttempts: 11 });
+    expect(audit.events.filter((e) => e.details?.['reason'] === 'account_throttled')).toHaveLength(
+      3,
+    );
+    expect(checked).toHaveLength(4);
+  });
+
+  it('lets the owner sign in from a known network while an attacker keeps the interval running', async () => {
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+    for (let n = 0; n < 16; n++) {
+      clock.set(minutes(n));
+      await attempt('wrong password!', `10.0.${n}.0/24`);
+    }
+
+    // The attacker's network is throttled (the interval is 60 s now) ...
+    expect(await attempt('another guess!', '10.9.9.0/24')).toEqual({
+      status: 'invalid_credentials',
+    });
+    expect(audit.events.at(-1)?.details).toEqual({ reason: 'account_throttled' });
+    // ... while the owner's known network is not, and signs in right away.
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+    // The owner's success ends the spacing but not the daily count.
+    expect(users.rows.get(userId)).toMatchObject({ failedAttempts: 0, windowFailures: 16 });
+  });
+
+  it('forgets a known network 30 days after the last sign-in from it', async () => {
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+    clock.set(minutes(30 * 24 * 60 + 1));
+    for (let n = 0; n < 10; n++) await attempt('wrong password!', `10.0.${n}.0/24`);
+
+    expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
+    expect(audit.events.at(-1)?.details).toEqual({ reason: 'account_throttled' });
+  });
+
+  it('applies the per-network pause to known networks too', async () => {
+    expect((await attempt(PASSWORD, OFFICE)).status).toBe('authenticated');
+    for (let i = 0; i < 5; i++) await attempt('wrong password!', OFFICE);
+
+    expect(await attempt(PASSWORD, OFFICE)).toEqual({ status: 'invalid_credentials' });
+    expect(audit.events.at(-1)?.details).toEqual({ reason: 'source_locked' });
+  });
+
+  it('remembers only networks of successful sign-ins, never without a client network', async () => {
+    await attempt('wrong password!', ELSEWHERE);
+    await auth.login({ username: 'ana', password: PASSWORD });
+    expect(knownNetworks.lastSeen.size).toBe(0);
+
+    await attempt(PASSWORD, OFFICE);
+    expect([...knownNetworks.lastSeen.keys()]).toEqual([`${userId}|${OFFICE}`]);
   });
 
   it('pauses the whole account after 100 failures within 24 hours, until the window ends', async () => {

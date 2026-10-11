@@ -6,6 +6,7 @@ import {
   registerAccountFailure,
 } from '../../src/auth/domain/lockout-policy.js';
 import {
+  KyselyKnownNetworkStore,
   KyselySessionStore,
   KyselyUserStore,
 } from '../../src/auth/infrastructure/kysely-auth-stores.js';
@@ -20,11 +21,13 @@ const hashOf = (n: number) => n.toString(16).padStart(64, '0');
 let db: AppDatabase;
 let users: KyselyUserStore;
 let sessions: KyselySessionStore;
+let knownNetworks: KyselyKnownNetworkStore;
 
 beforeAll(async () => {
   db = await connectTestDatabase();
   users = new KyselyUserStore(db);
   sessions = new KyselySessionStore(db);
+  knownNetworks = new KyselyKnownNetworkStore(db);
 });
 afterAll(async () => {
   await db.destroy();
@@ -73,31 +76,70 @@ describe('KyselyUserStore (PostGIS)', () => {
     expect(await users.findCredentials('ana')).toMatchObject({
       user: { id: user.id, role: 'supervisor', active: true },
       failedAttempts: 3,
+      windowFailures: 3,
       lockedUntil: null,
-      lastFailedAt: T0,
+      lastAttemptAt: T0,
       windowStartedAt: T0,
     });
   });
 
-  it('clears a lockout when the password is reset', async () => {
+  it('clears a lockout and the known networks when the password is reset', async () => {
     const user = await createUser();
     await users.modifyLoginState(user.id, () => ({
       failedAttempts: 12,
+      windowFailures: 40,
       lockedUntil: T0,
-      lastFailedAt: T0,
+      lastAttemptAt: T0,
       windowStartedAt: T0,
     }));
+    await knownNetworks.remember(user.id, '190.40.12.0/24', T0, T0);
 
     await users.update(user.id, { passwordHash: 'new-hash' });
 
     expect(await users.findCredentials('ana')).toMatchObject({
       passwordHash: 'new-hash',
       failedAttempts: 0,
+      windowFailures: 0,
       lockedUntil: null,
-      lastFailedAt: null,
+      lastAttemptAt: null,
       windowStartedAt: null,
     });
+    expect(await knownNetworks.isKnown(user.id, '190.40.12.0/24', T0)).toBe(false);
     expect(await users.findById('not-a-uuid')).toBeNull();
+  });
+});
+
+describe('KyselyKnownNetworkStore (PostGIS)', () => {
+  const NETWORK = '190.40.12.0/24';
+  const days = (n: number) => new Date(T0.getTime() + n * 86_400_000);
+
+  it('remembers a network per user, as a hash, and refreshes its last sign-in', async () => {
+    const ana = await createUser('ana');
+    const omar = await createUser('omar');
+
+    await knownNetworks.remember(ana.id, NETWORK, T0, days(-30));
+    await knownNetworks.remember(ana.id, NETWORK, days(10), days(-20));
+
+    expect(await knownNetworks.isKnown(ana.id, NETWORK, days(5))).toBe(true);
+    expect(await knownNetworks.isKnown(ana.id, '200.48.7.0/24', T0)).toBe(false);
+    expect(await knownNetworks.isKnown(omar.id, NETWORK, T0)).toBe(false);
+    expect(await knownNetworks.isKnown('not-a-uuid', NETWORK, T0)).toBe(false);
+    const rows = await db.selectFrom('user_known_networks').selectAll().execute();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.network_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(rows)).not.toContain('190.40');
+  });
+
+  it('ignores and forgets networks last seen before the cutoff', async () => {
+    const ana = await createUser('ana');
+    const omar = await createUser('omar');
+    await knownNetworks.remember(ana.id, NETWORK, T0, days(-30));
+
+    expect(await knownNetworks.isKnown(ana.id, NETWORK, days(1))).toBe(false);
+    await knownNetworks.remember(omar.id, NETWORK, days(31), days(1));
+
+    const rows = await db.selectFrom('user_known_networks').select('user_id').execute();
+    expect(rows).toEqual([{ user_id: omar.id }]);
   });
 });
 

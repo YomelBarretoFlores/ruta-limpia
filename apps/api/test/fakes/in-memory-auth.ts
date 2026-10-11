@@ -1,4 +1,5 @@
 import type {
+  KnownNetworkStore,
   NewUser,
   PanelUser,
   PasswordHasher,
@@ -20,8 +21,9 @@ interface UserRow {
   user: PanelUser;
   passwordHash: string;
   failedAttempts: number;
+  windowFailures: number;
   lockedUntil: Date | null;
-  lastFailedAt: Date | null;
+  lastAttemptAt: Date | null;
   windowStartedAt: Date | null;
 }
 
@@ -80,11 +82,18 @@ export class InMemoryUserStore implements UserStore {
   ): Promise<T> {
     const row = this.rows.get(userId);
     if (row === undefined) throw new Error(`No user ${userId}`);
-    const { failedAttempts, lockedUntil, lastFailedAt, windowStartedAt } = row;
-    const next = change({ failedAttempts, lockedUntil, lastFailedAt, windowStartedAt });
+    const { failedAttempts, windowFailures, lockedUntil, lastAttemptAt, windowStartedAt } = row;
+    const next = change({
+      failedAttempts,
+      windowFailures,
+      lockedUntil,
+      lastAttemptAt,
+      windowStartedAt,
+    });
     row.failedAttempts = next.failedAttempts;
+    row.windowFailures = next.windowFailures;
     row.lockedUntil = next.lockedUntil;
-    row.lastFailedAt = next.lastFailedAt;
+    row.lastAttemptAt = next.lastAttemptAt;
     row.windowStartedAt = next.windowStartedAt;
     return Promise.resolve(next);
   }
@@ -166,12 +175,31 @@ export class InMemorySessionStore implements SessionStore {
   }
 }
 
+/** Known networks in memory, keyed by user and network (in plain text: tests only). */
+export class InMemoryKnownNetworkStore implements KnownNetworkStore {
+  readonly lastSeen = new Map<string, Date>();
+
+  isKnown(userId: string, network: string, since: Date): Promise<boolean> {
+    const seen = this.lastSeen.get(`${userId}|${network}`);
+    return Promise.resolve(seen !== undefined && seen.getTime() >= since.getTime());
+  }
+
+  remember(userId: string, network: string, at: Date, forgetBefore: Date): Promise<void> {
+    for (const [key, seen] of this.lastSeen) {
+      if (seen.getTime() < forgetBefore.getTime()) this.lastSeen.delete(key);
+    }
+    this.lastSeen.set(`${userId}|${network}`, at);
+    return Promise.resolve();
+  }
+}
+
 /**
- * `hashed:<password>`; counts every verification so equal-cost paths can be asserted, and calls
- * `onVerify` with the password each verification received.
+ * `hashed:<password>`; counts every verification (and the dummy ones apart) so equal-cost paths
+ * can be asserted, and calls `onVerify` with the password each verification received.
  */
 export class FakePasswordHasher implements PasswordHasher {
   verifications = 0;
+  dummyVerifications = 0;
   onVerify: (password: string) => void = () => undefined;
 
   hash(password: string): Promise<string> {
@@ -186,6 +214,7 @@ export class FakePasswordHasher implements PasswordHasher {
 
   verifyDummy(password: string): Promise<void> {
     this.verifications += 1;
+    this.dummyVerifications += 1;
     this.onVerify(password);
     return Promise.resolve();
   }

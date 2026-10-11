@@ -239,6 +239,78 @@ describe('panel login (PostGIS)', () => {
     );
   });
 
+  it('checks only one of several attempts arriving together when an interval ends', async () => {
+    await api.app.close();
+    let checked = 0;
+    api = await composeApi({
+      config: TEST_API_CONFIG,
+      db,
+      clock,
+      logger: pino({ level: 'silent' }),
+      passwordHasher: {
+        hash: (password) => TEST_PASSWORD_HASHER.hash(password),
+        // A slow check, so the attempts overlap it.
+        verify: async (password, hash) => {
+          checked += 1;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return TEST_PASSWORD_HASHER.verify(password, hash);
+        },
+        verifyDummy: (password) => TEST_PASSWORD_HASHER.verifyDummy(password),
+      },
+    });
+    // Ten failures, the last one two seconds ago: the 1 s interval has just ended.
+    await db
+      .updateTable('users')
+      .set({
+        failed_attempts: 10,
+        window_failures: 10,
+        last_attempt_at: new Date(NOW.getTime() - 2000),
+        failure_window_started_at: new Date(NOW.getTime() - 60_000),
+      })
+      .where('username', '=', 'sara.super')
+      .execute();
+
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, (_, n) =>
+        loginFrom(`190.43.${n}.7`, 'sara.super', 'wrong password!!'),
+      ),
+    );
+
+    expect(responses.map((r) => r.statusCode)).toEqual(Array<number>(8).fill(401));
+    expect(checked).toBe(1);
+    const sara = await db
+      .selectFrom('users')
+      .select(['failed_attempts', 'window_failures'])
+      .where('username', '=', 'sara.super')
+      .executeTakeFirstOrThrow();
+    expect(sara).toEqual({ failed_attempts: 11, window_failures: 11 });
+    const blocked = await db
+      .selectFrom('audit_events')
+      .select('details')
+      .where('action', '=', 'auth.login_blocked')
+      .execute();
+    expect(blocked.map((e) => e.details)).toEqual(
+      Array<unknown>(7).fill({ reason: 'account_throttled' }),
+    );
+  });
+
+  it("lets the owner sign in from a known network while an attacker keeps the account's interval running", async () => {
+    expect((await loginFrom('200.48.7.1', 'sara.super')).statusCode).toBe(200);
+    for (let n = 0; n < 16; n++) {
+      clock.set(new Date(NOW.getTime() + n * 60_000));
+      await loginFrom(`190.41.${n}.7`, 'sara.super', 'wrong password!!');
+    }
+
+    // The attacker, from a new network, is throttled even with the right password ...
+    expect((await loginFrom('190.44.1.7', 'sara.super')).statusCode).toBe(401);
+    // ... while the owner, from another address of the known /24, signs in right away.
+    expect((await loginFrom('200.48.7.99', 'sara.super')).statusCode).toBe(200);
+
+    const stored = await db.selectFrom('user_known_networks').selectAll().execute();
+    expect(stored).toHaveLength(1);
+    expect(JSON.stringify(stored)).not.toMatch(/200\.48/);
+  });
+
   it('rate-limits login attempts per client IP', async () => {
     await api.app.close();
     api = await composeApi({

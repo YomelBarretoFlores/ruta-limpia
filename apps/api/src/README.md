@@ -226,8 +226,10 @@ are spaced out after ten failures and 100 failures in 24 hours pause the account
 `session-policy` (idle and absolute lifetimes, touch interval), `role` (the permission matrix;
 code asks `can(role, permission)`, never compares role names) and `csrf-policy` (custom header
 plus `Origin` check). `AuthService` burns one password verification on every failed path
-(unknown, inactive and paused users included) except an attempt too early for the account's
-throttle, which is refused without hashing; it counts failures under a row lock (`modifyLoginState`),
+(unknown, inactive, paused and throttled users included); it decides the account's spacing and
+reserves the attempt's slot under the row lock before hashing (`reserveAttempt` through
+`modifyLoginState`), skips the spacing for the account's known networks (`KnownNetworkStore`, a
+successful sign-in within 30 days), counts failures under the row lock,
 opens a fresh session at each login and revokes the presented one. `UserAdminService` revokes a
 user's sessions on a role change, a deactivation or a password reset.
 

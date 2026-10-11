@@ -16,8 +16,11 @@ import {
   DEFAULT_LOCKOUT_POLICY,
   isLocked,
   isThrottled,
+  knownNetworkCutoff,
   registerAccountFailure,
+  registerAccountSuccess,
   registerFailedLogin,
+  reserveAttempt,
   registerSuccessfulLogin,
   type AccountLoginState,
 } from './lockout-policy.js';
@@ -107,7 +110,13 @@ describe('lockout policy', () => {
   it('pauses one client network after 5 failures; spaces out and caps guessing per account', () => {
     expect(DEFAULT_LOCKOUT_POLICY).toEqual({
       perSource: { maxFailedAttempts: 5, lockoutMinutes: 15 },
-      perAccount: { freeAttempts: 10, maxIntervalSec: 60, maxFailures: 100, windowHours: 24 },
+      perAccount: {
+        freeAttempts: 10,
+        maxIntervalSec: 60,
+        maxFailures: 100,
+        windowHours: 24,
+        knownNetworkDays: 30,
+      },
     });
   });
 
@@ -133,6 +142,62 @@ describe('lockout policy', () => {
     expect(registerAccountFailure(tenth, at(1), throttle).throttledNow).toBe(false);
   });
 
+  it('admits one attempt per interval and reserves its slot before the password check', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    let state: AccountLoginState = CLEAN_ACCOUNT_LOGIN_STATE;
+    for (let i = 0; i < 10; i++) state = registerAccountFailure(state, T0, throttle);
+
+    // Too early: refused, nothing changes.
+    expect(reserveAttempt(state, new Date(T0.getTime() + 500), throttle)).toEqual({
+      ...state,
+      admitted: false,
+    });
+    // At the end of the interval the first attempt is admitted and takes the slot ...
+    const later = new Date(T0.getTime() + 1000);
+    const first = reserveAttempt(state, later, throttle);
+    expect(first).toMatchObject({ admitted: true, lastAttemptAt: later, failedAttempts: 10 });
+    // ... so a concurrent one, serialized after it by the row lock, is refused.
+    expect(reserveAttempt(first, later, throttle).admitted).toBe(false);
+  });
+
+  it('admits free attempts without reserving anything, and nothing while paused', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    const free = registerAccountFailure(CLEAN_ACCOUNT_LOGIN_STATE, T0, throttle);
+    expect(reserveAttempt(free, T0, throttle)).toEqual({ ...free, admitted: true });
+
+    const paused: AccountLoginState = { ...CLEAN_ACCOUNT_LOGIN_STATE, lockedUntil: at(10) };
+    expect(reserveAttempt(paused, at(5), throttle)).toEqual({ ...paused, admitted: false });
+  });
+
+  it('ends the spacing on success but keeps the failures of the window for the daily cap', () => {
+    const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
+    let state: AccountLoginState = CLEAN_ACCOUNT_LOGIN_STATE;
+    for (let i = 0; i < 60; i++) state = registerAccountFailure(state, at(i), throttle);
+
+    const signedIn = registerAccountSuccess(state, at(60));
+    expect(signedIn).toMatchObject({
+      failedAttempts: 0,
+      windowFailures: 60,
+      lastAttemptAt: null,
+      windowStartedAt: T0,
+    });
+    expect(isThrottled(signedIn, at(60), throttle)).toBe(false);
+
+    // Forty more failures in the same window still pause the account.
+    let after = signedIn;
+    for (let i = 0; i < 40; i++) after = registerAccountFailure(after, at(61 + i), throttle);
+    expect(isLocked(after, at(101))).toBe(true);
+
+    const paused: AccountLoginState = { ...CLEAN_ACCOUNT_LOGIN_STATE, lockedUntil: at(10) };
+    expect(registerAccountSuccess(paused, at(5))).toBe(paused);
+  });
+
+  it('knows a network for 30 days after a successful sign-in from it', () => {
+    expect(knownNetworkCutoff(at(0), DEFAULT_LOCKOUT_POLICY.perAccount)).toEqual(
+      new Date(T0.getTime() - 30 * 86_400_000),
+    );
+  });
+
   it('pauses the account at 100 failures within 24 h, until that window ends', () => {
     const throttle = DEFAULT_LOCKOUT_POLICY.perAccount;
     let state: AccountLoginState = CLEAN_ACCOUNT_LOGIN_STATE;
@@ -153,7 +218,11 @@ describe('lockout policy', () => {
 
     const later = registerAccountFailure(state, at(24 * 60), throttle);
 
-    expect(later).toMatchObject({ failedAttempts: 1, windowStartedAt: at(24 * 60) });
+    expect(later).toMatchObject({
+      failedAttempts: 1,
+      windowFailures: 1,
+      windowStartedAt: at(24 * 60),
+    });
   });
 
   it('locks for 15 minutes at the fifth consecutive failure of a threshold', () => {

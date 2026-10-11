@@ -3,13 +3,15 @@ import type { Clock } from '../../shared/application/clock.js';
 import type { Logger } from '../../shared/application/logger.js';
 import { loginPassword, loginUsername } from '../domain/credentials.js';
 import {
-  CLEAN_ACCOUNT_LOGIN_STATE,
   DEFAULT_LOCKOUT_POLICY,
   isLocked,
-  isThrottled,
+  knownNetworkCutoff,
   registerAccountFailure,
+  registerAccountSuccess,
   registerFailedLogin,
   registerSuccessfulLogin,
+  reserveAttempt,
+  type AccountLoginState,
   type LockoutPolicy,
   type LoginState,
 } from '../domain/lockout-policy.js';
@@ -22,6 +24,7 @@ import {
   type SessionPolicy,
 } from '../domain/session-policy.js';
 import type {
+  KnownNetworkStore,
   LoginSourceStore,
   PanelUser,
   PasswordHasher,
@@ -34,6 +37,7 @@ export interface AuthServiceDependencies {
   readonly users: UserStore;
   readonly sessions: SessionStore;
   readonly sources: LoginSourceStore;
+  readonly knownNetworks: KnownNetworkStore;
   readonly hasher: PasswordHasher;
   readonly tokens: SessionTokens;
   readonly audit: AuditLog;
@@ -83,12 +87,14 @@ const UNKNOWN_NETWORK = 'unknown';
  * Panel login, session validation and logout (OWASP ASVS L2):
  *
  * - oversized usernames and passwords are cut before any normalization, lookup or hashing;
- * - every failed path burns one password verification, so the response time does not reveal
- *   whether the user exists, is inactive or is paused; the one exception is an attempt that
- *   comes too early for the account's throttle: it is refused without hashing, so a flood of
- *   guesses against one account costs no CPU (its answer is still `invalid_credentials`);
+ * - every failed path burns one password verification (through the bounded hasher queue), so
+ *   the response time does not reveal whether the user exists, is inactive, paused or throttled;
  * - failures are counted per (account, client network) and per account, as the lockout policy
- *   says; a paused attempt answers `invalid_credentials` like a wrong password;
+ *   says; a paused or throttled attempt answers `invalid_credentials` like a wrong password;
+ * - the per-account spacing is decided, and a spaced-out attempt's slot reserved, under the
+ *   account's row lock before any hashing, so attempts arriving together when an interval ends
+ *   get one password check between them; attempts from a known network of the account (a
+ *   successful sign-in from it within 30 days) are not spaced out;
  * - a login always opens a new session with a fresh random token and revokes the session the
  *   browser presented (no session fixation);
  * - sessions end on idleness, on their absolute lifetime, on logout, and when an administrator
@@ -118,16 +124,13 @@ export class AuthService {
     }
 
     const user = credentials.user;
-    const source = `${user.id}|${command.clientNetwork ?? UNKNOWN_NETWORK}`;
-    if (!isLocked(credentials, now) && isThrottled(credentials, now, this.lockout.perAccount)) {
-      // Too early after the last failure: refused unchecked, without spending a hash on it.
-      await this.record('auth.login_blocked', user.id, now, { reason: 'account_throttled' });
-      return INVALID_CREDENTIALS;
-    }
-    const paused = await this.pauseOf(credentials, source, now);
-    if (paused !== null) {
+    const network = command.clientNetwork;
+    const source = `${user.id}|${network ?? UNKNOWN_NETWORK}`;
+    const refusal = await this.admit(credentials, user.id, network, source, now);
+    if (refusal !== null) {
+      // The same hashing work as a checked attempt: the timing reveals nothing.
       await hasher.verifyDummy(password.value);
-      await this.record('auth.login_blocked', user.id, now, { reason: paused });
+      await this.record('auth.login_blocked', user.id, now, { reason: refusal });
       return INVALID_CREDENTIALS;
     }
 
@@ -138,7 +141,7 @@ export class AuthService {
 
     // The password was checked outside the row lock: a parallel attempt may have locked it since.
     const state = await users.modifyLoginState(user.id, (current) =>
-      isLocked(current, now) ? current : CLEAN_ACCOUNT_LOGIN_STATE,
+      registerAccountSuccess(current, now),
     );
     const pausedMeanwhile = isLocked(state, now)
       ? 'account_locked'
@@ -148,6 +151,10 @@ export class AuthService {
       return INVALID_CREDENTIALS;
     }
     await this.deps.sources.modify(source, () => registerSuccessfulLogin());
+    if (network !== undefined) {
+      const forgetBefore = knownNetworkCutoff(now, this.lockout.perAccount);
+      await this.deps.knownNetworks.remember(user.id, network, now, forgetBefore);
+    }
 
     const opened = await this.openSession(user, now, command.userAgent);
     if (command.previousToken !== undefined) await this.revokeToken(command.previousToken, now);
@@ -194,6 +201,32 @@ export class AuthService {
   private async revokeToken(token: string, now: Date): Promise<void> {
     const previous = await this.deps.sessions.findByTokenHash(this.deps.tokens.hash(token));
     if (previous !== null) await this.deps.sessions.revoke(previous.id, now);
+  }
+
+  /**
+   * Admits an attempt to the password check, or says why it is refused. Outside the account's
+   * known networks, the throttle check and the reservation of the attempt's slot happen in one
+   * locked read-modify-write, before any hashing.
+   */
+  private async admit(
+    credentials: AccountLoginState,
+    userId: string,
+    network: string | undefined,
+    source: string,
+    now: Date,
+  ): Promise<'account_locked' | 'source_locked' | 'account_throttled' | null> {
+    const paused = await this.pauseOf(credentials, source, now);
+    if (paused !== null) return paused;
+    const throttle = this.lockout.perAccount;
+    const known =
+      network !== undefined &&
+      (await this.deps.knownNetworks.isKnown(userId, network, knownNetworkCutoff(now, throttle)));
+    if (known) return null;
+    const reserved = await this.deps.users.modifyLoginState(userId, (current) =>
+      reserveAttempt(current, now, throttle),
+    );
+    if (reserved.admitted) return null;
+    return isLocked(reserved, now) ? 'account_locked' : 'account_throttled';
   }
 
   /** Why sign-in is paused for this account and source, or null when it is not. */

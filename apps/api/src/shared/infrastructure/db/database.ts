@@ -238,12 +238,25 @@ export interface UsersTable {
   role: RoleColumn;
   password_hash: string;
   active: Generated<boolean>;
+  /** Consecutive failures since the last successful sign-in (the spacing). */
   failed_attempts: Generated<number>;
+  /** Failures of the current 24-hour window (the hard pause); migration 0013. */
+  window_failures: Generated<number>;
   locked_until: Date | null;
-  last_failed_at: Date | null;
+  last_attempt_at: Date | null;
   failure_window_started_at: Date | null;
   created_at: CreatedAt;
   last_login_at: Date | null;
+}
+
+/**
+ * Migration 0013-known-networks: a client network an account signed in from successfully, stored
+ * as the SHA-256 (hex) of the user id and the network, never as an address.
+ */
+export interface UserKnownNetworksTable {
+  user_id: string;
+  network_hash: string;
+  last_seen_at: Date;
 }
 
 /** A panel session; only the SHA-256 (hex) of its cookie token is stored. */
@@ -363,6 +376,7 @@ export interface Database {
   app_views: AppViewsTable;
   instrument1_route_log: Instrument1RouteLogView;
   users: UsersTable;
+  user_known_networks: UserKnownNetworksTable;
   sessions: SessionsTable;
   audit_events: AuditEventsTable;
   field_observations: FieldObservationsTable;

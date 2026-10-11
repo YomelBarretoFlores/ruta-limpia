@@ -13,6 +13,7 @@ import { DEFAULT_LOCKOUT_POLICY } from './auth/domain/lockout-policy.js';
 import { CryptoSessionTokens } from './auth/infrastructure/crypto-session-tokens.js';
 import { InMemoryLoginSourceStore } from './auth/infrastructure/in-memory-login-source-store.js';
 import {
+  KyselyKnownNetworkStore,
   kyselyUserAdminTransactions,
   KyselySessionStore,
   KyselyUserStore,
@@ -283,6 +284,7 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     users,
     sessions,
     sources: new InMemoryLoginSourceStore(() => clock.now()),
+    knownNetworks: new KyselyKnownNetworkStore(db),
     hasher,
     tokens: new CryptoSessionTokens(),
     audit,

@@ -10,12 +10,18 @@ export interface LockoutThreshold {
  * interval that doubles with each failure (`2^(n - freeAttempts)` seconds, at most
  * `maxIntervalSec`); `maxFailures` failures within `windowHours` pause the account until that
  * window ends.
+ *
+ * The spacing does not apply to an attempt from one of the account's known networks: a client
+ * network from which the account signed in successfully within the last `knownNetworkDays`. An
+ * attacker elsewhere who keeps the interval running therefore cannot starve the owner out. The
+ * hard pause and the per-network pause apply to every network.
  */
 export interface AccountThrottle {
   readonly freeAttempts: number;
   readonly maxIntervalSec: number;
   readonly maxFailures: number;
   readonly windowHours: number;
+  readonly knownNetworkDays: number;
 }
 
 /**
@@ -25,10 +31,12 @@ export interface AccountThrottle {
  *   /24 or an IPv6 /64) pause that network's attempts on that account. An attacker who knows a
  *   username therefore cannot lock its owner out from another network;
  * - **per account**: throttling rather than a low hard lock. Attempts are spaced out after a few
- *   failures from any network, and only a large count within a day pauses the account itself.
- *   Guessing stays slow and capped while a few failures cannot lock the owner out.
+ *   failures from any network except the account's known networks, and only a large count within
+ *   a day pauses the account itself. Guessing stays slow and capped while a few failures cannot
+ *   lock the owner out.
  *
- * A paused or throttled attempt gets the same answer as a wrong password (`invalid_credentials`).
+ * A paused or throttled attempt gets the same answer as a wrong password (`invalid_credentials`),
+ * after the same password-hashing work.
  */
 export interface LockoutPolicy {
   readonly perSource: LockoutThreshold;
@@ -42,6 +50,7 @@ export const DEFAULT_LOCKOUT_POLICY: LockoutPolicy = Object.freeze({
     maxIntervalSec: 60,
     maxFailures: 100,
     windowHours: 24,
+    knownNetworkDays: 30,
   }),
 });
 
@@ -87,18 +96,29 @@ export function registerSuccessfulLogin(): LoginState {
   return CLEAN_LOGIN_STATE;
 }
 
-/** The login state of an account: the consecutive failures of the current 24 h window. */
+/**
+ * The login state of an account. `failedAttempts` counts the consecutive failures since the last
+ * successful sign-in (it drives the spacing); `windowFailures` counts every failure of the current
+ * 24 h window (it drives the hard pause) and survives a successful sign-in, so an owner who signs
+ * in during an attack does not hand the attacker a fresh daily budget.
+ */
 export interface AccountLoginState extends LoginState {
-  /** The last counted failure: the next attempt must wait the throttle interval after it. */
-  readonly lastFailedAt: Date | null;
+  readonly windowFailures: number;
+  /**
+   * The last attempt that was checked against the password: a counted failure, or an admitted
+   * attempt (its slot is reserved before the check). The next spaced-out attempt must wait the
+   * throttle interval after it.
+   */
+  readonly lastAttemptAt: Date | null;
   /** The first failure of the current window; null without failures. */
   readonly windowStartedAt: Date | null;
 }
 
 export const CLEAN_ACCOUNT_LOGIN_STATE: AccountLoginState = Object.freeze({
   failedAttempts: 0,
+  windowFailures: 0,
   lockedUntil: null,
-  lastFailedAt: null,
+  lastAttemptAt: null,
   windowStartedAt: null,
 });
 
@@ -108,18 +128,37 @@ export function attemptIntervalSec(failedAttempts: number, throttle: AccountThro
   return Math.min(2 ** (failedAttempts - throttle.freeAttempts), throttle.maxIntervalSec);
 }
 
-/** Whether an attempt now comes too early after the last failure (it is refused unchecked). */
+/** Whether an attempt now comes too early after the last checked attempt. */
 export function isThrottled(state: AccountLoginState, now: Date, throttle: AccountThrottle) {
   const interval = attemptIntervalSec(state.failedAttempts, throttle);
-  if (interval === 0 || state.lastFailedAt === null) return false;
-  return now.getTime() - state.lastFailedAt.getTime() < interval * 1000;
+  if (interval === 0 || state.lastAttemptAt === null) return false;
+  return now.getTime() - state.lastAttemptAt.getTime() < interval * 1000;
+}
+
+/**
+ * Admits an attempt to the password check, or refuses it, atomically with the stored state (the
+ * caller runs it under the account's row lock, before any hashing). An admitted attempt while the
+ * spacing applies reserves its slot (`lastAttemptAt = now`), so concurrent attempts arriving when
+ * an interval ends get at most one password check between them. A paused account admits nothing
+ * and changes nothing.
+ */
+export function reserveAttempt(
+  state: AccountLoginState,
+  now: Date,
+  throttle: AccountThrottle,
+): AccountLoginState & { readonly admitted: boolean } {
+  if (isLocked(state, now) || isThrottled(state, now, throttle)) {
+    return { ...state, admitted: false };
+  }
+  if (attemptIntervalSec(state.failedAttempts, throttle) === 0) return { ...state, admitted: true };
+  return { ...state, lastAttemptAt: now, admitted: true };
 }
 
 /**
  * A wrong password against the account: counts it in the current window (a new window starts
- * when the last one is over); at `maxFailures` the account is paused until the window ends. A
- * failure while paused changes nothing. `throttledNow` marks the failure that starts the
- * spacing-out.
+ * when the last one is over); at `maxFailures` failures in the window the account is paused until
+ * the window ends. A failure while paused changes nothing. `throttledNow` marks the failure that
+ * starts the spacing-out.
  */
 export function registerAccountFailure(
   state: AccountLoginState,
@@ -128,11 +167,14 @@ export function registerAccountFailure(
 ): AccountLoginState & { readonly lockedNow: boolean; readonly throttledNow: boolean } {
   if (isLocked(state, now)) return { ...state, lockedNow: false, throttledNow: false };
   const windowMs = throttle.windowHours * 3_600_000;
-  const windowOver =
-    state.windowStartedAt === null || now.getTime() - state.windowStartedAt.getTime() >= windowMs;
-  const windowStartedAt = windowOver ? now : (state.windowStartedAt ?? now);
-  const failedAttempts = (windowOver ? 0 : state.failedAttempts) + 1;
-  if (failedAttempts >= throttle.maxFailures) {
+  const currentWindow =
+    state.windowStartedAt !== null && now.getTime() - state.windowStartedAt.getTime() < windowMs
+      ? state.windowStartedAt
+      : null;
+  const windowStartedAt = currentWindow ?? now;
+  const windowFailures = (currentWindow === null ? 0 : state.windowFailures) + 1;
+  const failedAttempts = (currentWindow === null ? 0 : state.failedAttempts) + 1;
+  if (windowFailures >= throttle.maxFailures) {
     return {
       ...CLEAN_ACCOUNT_LOGIN_STATE,
       lockedUntil: new Date(windowStartedAt.getTime() + windowMs),
@@ -142,10 +184,25 @@ export function registerAccountFailure(
   }
   return {
     failedAttempts,
+    windowFailures,
     lockedUntil: null,
-    lastFailedAt: now,
+    lastAttemptAt: now,
     windowStartedAt,
     lockedNow: false,
     throttledNow: failedAttempts === throttle.freeAttempts,
   };
+}
+
+/**
+ * A successful sign-in: ends the spacing (the consecutive failures and the last attempt) but keeps
+ * the failures of the current window, so the daily cap still holds. A paused account stays paused.
+ */
+export function registerAccountSuccess(state: AccountLoginState, now: Date): AccountLoginState {
+  if (isLocked(state, now)) return state;
+  return { ...state, failedAttempts: 0, lockedUntil: null, lastAttemptAt: null };
+}
+
+/** The oldest successful sign-in that still makes its network a known network of the account. */
+export function knownNetworkCutoff(now: Date, throttle: AccountThrottle): Date {
+  return new Date(now.getTime() - throttle.knownNetworkDays * 86_400_000);
 }

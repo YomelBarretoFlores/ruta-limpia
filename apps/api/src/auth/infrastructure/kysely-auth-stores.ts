@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { Selectable } from 'kysely';
 
 import type { AppDatabase, UsersTable } from '../../shared/infrastructure/db/database.js';
@@ -9,6 +11,7 @@ import {
 } from '../../shared/infrastructure/db/kysely-unit-of-work.js';
 import { isUuid } from '../../shared/infrastructure/db/uuid.js';
 import type {
+  KnownNetworkStore,
   NewUser,
   PanelUser,
   SessionStore,
@@ -47,29 +50,33 @@ function toPanelUser(row: ProfileRow): PanelUser {
 
 const LOGIN_STATE_COLUMNS = [
   'failed_attempts',
+  'window_failures',
   'locked_until',
-  'last_failed_at',
+  'last_attempt_at',
   'failure_window_started_at',
 ] as const;
 
 /** A password reset clears the failures, the throttle and any pause. */
 const CLEARED_LOGIN_STATE = {
   failed_attempts: 0,
+  window_failures: 0,
   locked_until: null,
-  last_failed_at: null,
+  last_attempt_at: null,
   failure_window_started_at: null,
 } as const;
 
 function toLoginState(row: {
   readonly failed_attempts: number;
+  readonly window_failures: number;
   readonly locked_until: Date | null;
-  readonly last_failed_at: Date | null;
+  readonly last_attempt_at: Date | null;
   readonly failure_window_started_at: Date | null;
 }): AccountLoginState {
   return {
     failedAttempts: row.failed_attempts,
+    windowFailures: row.window_failures,
     lockedUntil: row.locked_until,
-    lastFailedAt: row.last_failed_at,
+    lastAttemptAt: row.last_attempt_at,
     windowStartedAt: row.failure_window_started_at,
   };
 }
@@ -144,6 +151,11 @@ export class KyselyUserStore implements UserStore {
       .where('id', '=', userId)
       .returning(PROFILE_COLUMNS)
       .executeTakeFirst();
+    if (row !== undefined && changes.passwordHash !== undefined) {
+      // A reset password also forgets the networks the old one was used from (in the caller's
+      // transaction when there is one).
+      await this.db.deleteFrom('user_known_networks').where('user_id', '=', userId).execute();
+    }
     return row === undefined ? null : toPanelUser(row);
   }
 
@@ -163,8 +175,9 @@ export class KyselyUserStore implements UserStore {
         .updateTable('users')
         .set({
           failed_attempts: next.failedAttempts,
+          window_failures: next.windowFailures,
           locked_until: next.lockedUntil,
-          last_failed_at: next.lastFailedAt,
+          last_attempt_at: next.lastAttemptAt,
           failure_window_started_at: next.windowStartedAt,
         })
         .where('id', '=', userId)
@@ -180,6 +193,44 @@ export class KyselyUserStore implements UserStore {
       .where('id', '=', userId)
       .execute();
   }
+}
+
+/**
+ * Known networks in PostgreSQL (`user_known_networks`). The network is stored only as the SHA-256
+ * of the user id and the network, so the table lists no addresses in plain text. A /24 or /64 is
+ * no secret against a brute-force search of that hash; the point is only to keep networks out of
+ * plain sight (they are never more precise than the network itself).
+ */
+export class KyselyKnownNetworkStore implements KnownNetworkStore {
+  constructor(private readonly db: AppDatabase) {}
+
+  async isKnown(userId: string, network: string, since: Date): Promise<boolean> {
+    if (!isUuid(userId)) return false;
+    const row = await this.db
+      .selectFrom('user_known_networks')
+      .select('last_seen_at')
+      .where('user_id', '=', userId)
+      .where('network_hash', '=', networkHash(userId, network))
+      .where('last_seen_at', '>=', since)
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
+  async remember(userId: string, network: string, at: Date, forgetBefore: Date): Promise<void> {
+    await this.db
+      .insertInto('user_known_networks')
+      .values({ user_id: userId, network_hash: networkHash(userId, network), last_seen_at: at })
+      .onConflict((oc) => oc.columns(['user_id', 'network_hash']).doUpdateSet({ last_seen_at: at }))
+      .execute();
+    await this.db
+      .deleteFrom('user_known_networks')
+      .where('last_seen_at', '<', forgetBefore)
+      .execute();
+  }
+}
+
+function networkHash(userId: string, network: string): string {
+  return createHash('sha256').update(`${userId}|${network}`).digest('hex');
 }
 
 /** Panel sessions in PostgreSQL (`sessions`), looked up by the SHA-256 of their token. */

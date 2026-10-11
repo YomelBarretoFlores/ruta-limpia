@@ -355,26 +355,41 @@ Administrators then manage every other account from the panel.
     (IPv4 /24, IPv6 /64) pause that network's sign-in on that account for 15 minutes;
   - **per account, throttling**: the first ten consecutive failures from any networks are free;
     after the n-th failure (n ≥ 10) the next attempt must wait 2^(n−10) seconds (1, 2, 4 … at most
-    60 s). An attempt that comes earlier is refused with the same `401` **without running scrypt**
-    (and audited as `auth.login_blocked` with `reason: account_throttled`), so a flood of guesses
-    against one account costs no hashing;
+    60 s). An attempt that comes earlier is refused with the same `401` after the same scrypt
+    work as a checked one (a dummy verification through the bounded hashing queue), so its timing
+    does not reveal that the account exists; it is audited as `auth.login_blocked` with `reason:
+account_throttled`. The check and the reservation of the attempt's slot happen under the
+    account's row lock before any hashing, so attempts arriving together when an interval ends get
+    one password check between them (an integration test fires eight at once);
+  - **known networks**: the spacing does not apply to an attempt from a network (IPv4 /24, IPv6
+    /64) from which the account signed in successfully within the last 30 days, so an attacker
+    who keeps the interval running from elsewhere cannot starve the owner out (an integration test
+    proves the owner signs in during such an attack). Known networks are stored per account as
+    the SHA-256 of the user id and the network, never as an address, with the time of the last
+    sign-in; entries older than 30 days are deleted at each successful sign-in, and a password
+    reset forgets the account's (migration `0013-known-networks`). The hash keeps networks out of
+    plain sight; a /24 is no secret against a brute-force search of it;
   - **per account, hard pause**: 100 failures within a 24-hour window (it starts at the first
-    failure and restarts once over) pause the account until that window ends;
-  - a successful login resets both counts; an administrator's password reset clears the account's
-    count, throttle and pause (an integration test proves it), though not the per-network pauses.
+    failure and restarts once over) pause the account until that window ends, from every network;
+  - a successful login resets the network's count and the account's spacing, but not the
+    failures of the account's 24-hour window, so an owner signing in during an attack does not
+    reset the attacker's daily budget; an administrator's password reset clears the account's
+    counts, throttle and pause (an integration test proves it), though not the per-network pauses.
 
-  Tradeoffs: one generic answer, so no message reveals a pause; but a throttled attempt answers
-  faster than a checked one (no hash), so its timing shows that the account exists and is under
-  attack. That is the price of not spending 128 MiB of scrypt on every early guess. Guessing is
-  slow and capped (after ten free tries, about one per minute, and at most 100 per account per
-  window), while a few failures never lock the owner out; the owner may wait up to a minute
-  between tries while an attack runs. Pausing an account outright takes 100 failures, which,
-  at five per network every 15 minutes, needs twenty networks or about five hours, and an
+  Tradeoffs: one generic answer at one cost, so neither the message nor the timing reveals a
+  pause or a throttle; the price is that every early guess still costs one scrypt verification,
+  bounded by the hashing queue (a flood is shed with `503 auth_busy`, as for unknown usernames).
+  Guessing is slow and capped (after ten free tries, about one per minute, and at most 100 per
+  account per window), while a few failures never lock the owner out, and the owner's known
+  networks are not spaced out during an attack; from a new network the owner may wait up to a
+  minute between tries while an attack runs. Pausing an account outright takes 100 failures,
+  which, at five per network every 15 minutes, needs twenty networks or about five hours, and an
   administrator ends the pause by resetting the password. The per-network counts live in process
   memory (at most 10,000 pairs), so a restart forgets them; when the store is full, the oldest
   count is forgotten but a running pause never is (while every entry is a running pause, a new
-  count is not kept until one ends; the account limits still apply). The account state (count,
-  last failure, window start, pause; migration `0012-account-throttle`) is stored with the user.
+  count is not kept until one ends; the account limits still apply). The account state
+  (consecutive and window failures, last checked attempt, window start, pause; migrations
+  `0012-account-throttle` and `0013-known-networks`) is stored with the user.
   Logins are also rate-limited per client IP (`LOGIN_RATE_LIMIT_PER_MINUTE`). Pauses and the start
   of throttling are logged as a warning with the user id only (never the username, the password
   or the address).
