@@ -42,7 +42,8 @@ class FakeEventSource implements EventSourceLike {
 
 const latest = () => FakeEventSource.instances[FakeEventSource.instances.length - 1]!;
 
-function start() {
+/** `random` is the jitter source of the refetch rounds: 1 (by default) waits the longest. */
+function start(random: () => number = () => 1) {
   const actions: LiveAction[] = [];
   const fetchSnapshot = vi.fn(() => Promise.resolve(snapshot([])));
   const close = connectLive({
@@ -50,6 +51,7 @@ function start() {
     fetchSnapshot,
     createEventSource: (url) => new FakeEventSource(url),
     dispatch: (action) => actions.push(action),
+    random,
   });
   const statuses = () => actions.flatMap((a) => (a.type === 'connection' ? [a.status] : []));
   return { actions, fetchSnapshot, close, statuses };
@@ -275,5 +277,48 @@ describe('connectLive', () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(5_000);
     expect(fetchSnapshot).toHaveBeenCalledTimes(6);
+  });
+
+  it('spreads the refetch rounds with a growing, random delay so clients do not retry in step', async () => {
+    const draws = [0.5, 0.25, 0.1, 1];
+    const { fetchSnapshot } = start(() => draws.shift() ?? 1);
+    latest().emit('snapshot', snapshot());
+    fetchSnapshot.mockImplementation(() => Promise.reject(new TypeError('offline')));
+    const callsAfter = async (ms: number) => {
+      await vi.advanceTimersByTimeAsync(ms);
+      return fetchSnapshot.mock.calls.length;
+    };
+
+    latest().emit('trip.started', { tripId: 'trip-2', startedAt: 'x', startMode: 'auto' });
+    expect(await callsAfter(0)).toBe(1);
+    // Round 2 after 0.5 × 5 s, round 3 after 0.25 × 10 s, round 4 after 0.1 × 20 s, round 5
+    // after 1 × 40 s.
+    expect([await callsAfter(2_499), await callsAfter(1)]).toEqual([1, 2]);
+    expect([await callsAfter(2_499), await callsAfter(1)]).toEqual([2, 3]);
+    expect([await callsAfter(1_999), await callsAfter(1)]).toEqual([3, 4]);
+    expect([await callsAfter(39_999), await callsAfter(1)]).toEqual([4, 5]);
+    // Five rounds at most.
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(fetchSnapshot).toHaveBeenCalledTimes(5);
+  });
+
+  it('lets a new trip.started replace the previous refetch chain, keeping the round cap', async () => {
+    const { fetchSnapshot } = start();
+    latest().emit('snapshot', snapshot());
+    let rejectFirst: (error: Error) => void = () => undefined;
+    fetchSnapshot.mockImplementationOnce(() => new Promise((_, reject) => (rejectFirst = reject)));
+    fetchSnapshot.mockImplementation(() => Promise.reject(new TypeError('offline')));
+
+    // The first chain's fetch is still in flight when the second trip.started arrives.
+    latest().emit('trip.started', { tripId: 'trip-2', startedAt: 'x', startMode: 'auto' });
+    latest().emit('trip.started', { tripId: 'trip-3', startedAt: 'x', startMode: 'auto' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchSnapshot).toHaveBeenCalledTimes(2);
+    // Its failure, arriving late, schedules nothing: only the second chain goes on.
+    rejectFirst(new TypeError('offline'));
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+    // One fetch of the old chain, then five rounds of one fetch each for the new one.
+    expect(fetchSnapshot).toHaveBeenCalledTimes(1 + 5);
   });
 });

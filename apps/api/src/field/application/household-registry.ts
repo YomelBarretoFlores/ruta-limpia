@@ -155,6 +155,15 @@ export class HouseholdRegistryService {
     command: UpdateHouseholdCommand,
     actor: PanelActor,
   ): Promise<HouseholdResult> {
+    // The point is resolved before the transaction: resolving it while holding the row lock
+    // would take a second pool connection for the lock's whole duration. A household stays on its
+    // route, so the route read here is the locked row's route too (checked below).
+    const before = await this.deps.store.findByCode(code);
+    if (before === null) return { status: 'not_found' };
+    const resolved =
+      command.pointCode === undefined
+        ? null
+        : await this.deps.points.resolve(before.routeCode, command.pointCode);
     return this.deps.transactions.run(async ({ store, audit }) => {
       // Diff against the locked row, not an earlier read: a concurrent change may have committed
       // in between, and a stale "nothing to change" would answer with a record that is not stored.
@@ -164,10 +173,15 @@ export class HouseholdRegistryService {
         command.pointCode !== undefined && command.pointCode !== current.pointCode;
       let point: { readonly id: string; readonly code: string } | undefined;
       if (changesPoint) {
-        // Only a new point is resolved: echoing the stored one back (a form saving every field)
-        // must not fail because that point was retired since. A household stays on its route.
-        const resolved = await this.deps.points.resolve(current.routeCode, command.pointCode);
-        if (resolved.status !== 'ok' || resolved.point === null) return { status: 'unknown_point' };
+        // Only a new point must resolve: echoing the stored one back (a form saving every field)
+        // must not fail because that point was retired since.
+        if (
+          resolved?.status !== 'ok' ||
+          resolved.point === null ||
+          resolved.routeCode !== current.routeCode
+        ) {
+          return { status: 'unknown_point' };
+        }
         point = { id: resolved.point.id, code: resolved.point.code };
       }
       const changesActive = command.active !== undefined && command.active !== current.active;

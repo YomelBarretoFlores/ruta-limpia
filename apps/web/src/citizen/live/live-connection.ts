@@ -34,8 +34,13 @@ export interface LiveConnectionOptions {
   readonly reconnectDelayMs?: number;
   /** While polling, the stream is tried again after this delay. */
   readonly streamRetryMs?: number;
-  /** A `trip.started` refetch that failed or was always overtaken runs again after this delay. */
+  /**
+   * The base delay of the later rounds of a `trip.started` refetch that failed or was always
+   * overtaken: round n waits a random time up to `refetchRetryMs × 2^(n−1)` (full jitter).
+   */
   readonly refetchRetryMs?: number;
+  /** The jitter source, in [0, 1) (tests pass a fixed one). */
+  readonly random?: () => number;
 }
 
 /** Fetches a `trip.started` refetch may take when stream data keeps overtaking it. */
@@ -67,6 +72,7 @@ export function connectLive(options: LiveConnectionOptions): () => void {
     reconnectDelayMs = 5_000,
     streamRetryMs = 5 * 60_000,
     refetchRetryMs = 5_000,
+    random = Math.random,
   } = options;
   let closed = false;
   let source: EventSourceLike | null = null;
@@ -74,6 +80,8 @@ export function connectLive(options: LiveConnectionOptions): () => void {
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Counts `trip.started` refetch chains: only the latest one may schedule a later round. */
+  let refetchChain = 0;
   /** Trips of the last applied snapshot: events of other trips change nothing the page shows. */
   let knownTrips: ReadonlySet<string> = new Set();
   /**
@@ -129,17 +137,26 @@ export function connectLive(options: LiveConnectionOptions): () => void {
   /**
    * A new trip: the snapshot carries its vehicle and progress. A round that failed or was always
    * overtaken by a busy stream runs again later (a few times), so the new trip is not left out
-   * while the stream stays open and nothing polls.
+   * while the stream stays open and nothing polls. Every page on the route gets `trip.started`
+   * at the same moment, so the later rounds wait a random, growing delay: a struggling server is
+   * not hit by every page again in step. A new `trip.started` replaces the running chain: the
+   * rounds of the old one, even one still in flight, schedule nothing more.
    */
-  const refetchForNewTrip = (round = 0) => {
+  const refetchForNewTrip = () => {
     if (refetchTimer !== null) clearTimeout(refetchTimer);
     refetchTimer = null;
+    refetchChain += 1;
+    runRefetchRound(refetchChain, 0);
+  };
+
+  const runRefetchRound = (chain: number, round: number) => {
     void refresh(TRIP_STARTED_FETCHES).then((applied) => {
-      if (applied || closed || round + 1 >= TRIP_STARTED_ROUNDS) return;
+      if (applied || closed || chain !== refetchChain || round + 1 >= TRIP_STARTED_ROUNDS) return;
+      const delayMs = random() * refetchRetryMs * 2 ** round;
       refetchTimer = setTimeout(() => {
         refetchTimer = null;
-        if (!closed) refetchForNewTrip(round + 1);
-      }, refetchRetryMs);
+        if (!closed && chain === refetchChain) runRefetchRound(chain, round + 1);
+      }, delayMs);
     });
   };
 

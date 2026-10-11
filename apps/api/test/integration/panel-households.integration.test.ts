@@ -377,6 +377,50 @@ describe('panel household registry (PostGIS)', () => {
     expect(event?.details).toEqual({ fields: ['active'], active: false });
   });
 
+  it('resolves a new point before the row lock, never on a second connection while holding it', async () => {
+    await enroll('P08');
+    let holdingLock = false;
+    const resolvedWhileLocked: boolean[] = [];
+    const resolver = new KyselyRoutePointResolver(db);
+    const uow = new KyselyUnitOfWork(db, (trx) => ({
+      store: new KyselyHouseholdStore(trx),
+      audit: new KyselyAuditLog(trx),
+    }));
+    const registry = new HouseholdRegistryService({
+      store: new KyselyHouseholdStore(db),
+      transactions: {
+        run: async (work) => {
+          holdingLock = true;
+          try {
+            return await uow.run(work);
+          } finally {
+            holdingLock = false;
+          }
+        },
+      },
+      points: {
+        resolve: (routeCode, pointCode) => {
+          resolvedWhileLocked.push(holdingLock);
+          return resolver.resolve(routeCode, pointCode);
+        },
+      },
+      clock: new ManualClock(NOW),
+    });
+    const actor = {
+      userId: (await db.selectFrom('users').select('id').executeTakeFirstOrThrow()).id,
+      role: 'supervisor' as const,
+    };
+
+    const moved = await registry.update('H-001', { pointCode: 'P09' }, actor);
+    const unknown = await registry.update('H-001', { pointCode: 'P99' }, actor);
+    const missing = await registry.update('H-999', { pointCode: 'P09' }, actor);
+
+    expect(moved).toMatchObject({ status: 'ok', household: { pointCode: 'P09' } });
+    expect(unknown).toEqual({ status: 'unknown_point' });
+    expect(missing).toEqual({ status: 'not_found' });
+    expect(resolvedWhileLocked).toEqual([false, false]);
+  });
+
   it('keeps observers out of the registry', async () => {
     expect((await observer.get('/api/panel/households')).statusCode).toBe(403);
     expect(

@@ -667,8 +667,10 @@ Open http://localhost:5173/?r=RI-01&p=P08&h=H-001. Vite forwards `/api` to the A
   `trip.started`) is applied only when no stream data arrived while it was in flight, so a late
   answer never brings back a finished trip or undoes a fresher stream snapshot (the `trip.started`
   refetch tries up to three times; events of a trip the page does not know yet do not count as
-  overtaking it, and a refetch that failed or was always overtaken runs again 5 s later, up to five
-  rounds). After three failed attempts the page polls `GET /api/live/routes/:code`
+  overtaking it, and a refetch that failed or was always overtaken runs again after a random delay
+  of up to 5, 10, 20 and 40 s, up to five rounds, so pages that got the same `trip.started` do not
+  retry in step; a newer `trip.started` replaces a running refetch, whose late answers schedule
+  nothing). After three failed attempts the page polls `GET /api/live/routes/:code`
   every 30 s and tries the stream again after 5 minutes. The section's status (text plus a small
   square) is the truck's signal: "En vivo", "Sin actualización", "Esperando señal" or "Sin
   recorrido"; the page's connection is shown next to it only when degraded ("Reconectando…" or
