@@ -155,22 +155,21 @@ export class HouseholdRegistryService {
     command: UpdateHouseholdCommand,
     actor: PanelActor,
   ): Promise<HouseholdResult> {
-    const preview = await this.deps.store.findByCode(code);
-    if (preview === null) return { status: 'not_found' };
-    let point: { readonly id: string; readonly code: string } | undefined;
-    if (command.pointCode !== undefined) {
-      // A household stays on its route: a new point must belong to it.
-      const resolved = await this.deps.points.resolve(preview.routeCode, command.pointCode);
-      if (resolved.status !== 'ok' || resolved.point === null) return { status: 'unknown_point' };
-      point = { id: resolved.point.id, code: command.pointCode };
-    }
-
     return this.deps.transactions.run(async ({ store, audit }) => {
-      // Diff against the locked row, not the read above: a concurrent change may have committed
+      // Diff against the locked row, not an earlier read: a concurrent change may have committed
       // in between, and a stale "nothing to change" would answer with a record that is not stored.
       const current = await store.findByCodeForUpdate(code);
       if (current === null) return { status: 'not_found' };
-      const changesPoint = point !== undefined && point.code !== current.pointCode;
+      const changesPoint =
+        command.pointCode !== undefined && command.pointCode !== current.pointCode;
+      let point: { readonly id: string; readonly code: string } | undefined;
+      if (changesPoint) {
+        // Only a new point is resolved: echoing the stored one back (a form saving every field)
+        // must not fail because that point was retired since. A household stays on its route.
+        const resolved = await this.deps.points.resolve(current.routeCode, command.pointCode);
+        if (resolved.status !== 'ok' || resolved.point === null) return { status: 'unknown_point' };
+        point = { id: resolved.point.id, code: resolved.point.code };
+      }
       const changesActive = command.active !== undefined && command.active !== current.active;
       const changesNotes = command.notes !== undefined && command.notes !== current.notes;
       const fields = [

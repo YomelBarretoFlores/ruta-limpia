@@ -45,7 +45,8 @@ export const RI01_REFERENCE_POINTS: readonly ReferencePoint[] = RI01_POINT_COORD
     return {
       id: `point-ri-01-${code.toLowerCase()}`,
       code,
-      name: `Reference point ${code}`,
+      // Named after the avenue and the point's order along it, as the field team calls them.
+      name: `Av. Centenario · punto ${index + 1}`,
       sequence: index + 1,
       lat: position.lat,
       lon: position.lon,

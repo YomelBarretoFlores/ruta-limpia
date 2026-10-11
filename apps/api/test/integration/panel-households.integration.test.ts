@@ -316,6 +316,32 @@ describe('panel household registry (PostGIS)', () => {
     expect(updates).toEqual([]);
   });
 
+  it('accepts an unchanged point that can no longer be resolved, and still refuses a new one', async () => {
+    await enroll('P08', { notes: 'Blue gate' });
+    // The point was retired from the route after the household was enrolled.
+    await db
+      .updateTable('reference_points')
+      .set({ active: false })
+      .where('code', '=', 'P08')
+      .execute();
+
+    const echoed = await supervisor.patch('/api/panel/households/H-001', {
+      pointCode: 'P08',
+      notes: 'Green gate',
+    });
+    expect(echoed.statusCode).toBe(200);
+    expect(echoed.json()).toMatchObject({ household: { pointCode: 'P08', notes: 'Green gate' } });
+
+    await db
+      .updateTable('reference_points')
+      .set({ active: false })
+      .where('code', '=', 'P09')
+      .execute();
+    const moved = await supervisor.patch('/api/panel/households/H-001', { pointCode: 'P09' });
+    expect(moved.statusCode).toBe(422);
+    expect(moved.json()).toMatchObject({ error: 'unknown_point' });
+  });
+
   it('diffs a change against the stored row, not a stale read taken before it', async () => {
     await enroll('P08');
     const live = new KyselyHouseholdStore(db);

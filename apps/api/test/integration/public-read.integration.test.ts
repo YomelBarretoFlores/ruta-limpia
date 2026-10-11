@@ -96,7 +96,7 @@ describe('public route catalog (PostGIS)', () => {
     expect(body.points.map((p) => p.code)).toEqual(RI01_SNAPSHOT.points.map((p) => p.code));
     expect(body.points[7]).toEqual({
       code: 'P08',
-      name: 'Reference point P08',
+      name: 'Av. Centenario · punto 8',
       sequence: 8,
       lat: expect.closeTo(-9.517875, 6) as unknown,
       lon: expect.closeTo(-77.530031, 6) as unknown,
