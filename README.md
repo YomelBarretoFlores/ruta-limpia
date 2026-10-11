@@ -418,6 +418,34 @@ secondsRemainingAtEmission, insideTargetWindow, recipients, delivered, receiptsR
   the reason as `endNote`; an ended trip answers `409 trip_not_active`. Both are audited
   (`trip.started`, `trip.ended`).
 
+### Live route and incidents
+
+| Route                              | Access             | Request → response                                                                           |
+| ---------------------------------- | ------------------ | -------------------------------------------------------------------------------------------- |
+| `GET /api/panel/live/routes/:code` | `live:read`        | → public live snapshot + per-trip `points` + `openIncidents`; `404 route_not_found`          |
+| `POST /api/panel/incidents`        | `incidents:create` | `{ kind, routeCode, pointCode?, tripId?, occurredAt?, description? }` → `201 { incident }`   |
+| `GET /api/panel/incidents`         | `incidents:read`   | `?route=&tripId=&kind=&status=open\|resolved&from=&to=&page=&pageSize=` → paged `[incident]` |
+| `PATCH /api/panel/incidents/:id`   | `incidents:update` | `{ kind?, description?, resolved?, resolutionNote? }` → `200 { incident }`                   |
+
+- The live route has the public snapshot's shape (`route`, `generatedAt`, `staleAfterSeconds`,
+  `trips` with `vehicle`, `signal`, `lastPosition`, `progress`, `etas`, `passes`, `alerts`). Each
+  trip adds `points`: every active point in sequence, `{ pointId, pointCode, name, sequence,
+alertStatus, eta, passedAt, alert }`, with `alert` null or `{ emittedAt,
+communicatedPredictedPassAt, recipients, delivered, receiptsReceived, failed }`. `alertStatus` is
+  `sent` ("Enviado"), `preparing` ("En preparación": live ETA, not yet alerted), `waiting`
+  ("En espera": no live prediction) or `not_sent` (passed without an alert). `openIncidents` lists
+  up to 50 unresolved incidents of the route: `{ id, kind, tripId, pointCode, description,
+occurredAt }`. For live updates the panel listens to the public stream
+  (`/api/live/routes/:code/stream`) and refetches this snapshot on `alert.emitted`,
+  `point.passed`, `trip.started` and `trip.completed`.
+- `kind` is one of `truck_breakdown`, `route_change`, `gps_failure`, `alert_failure`,
+  `missed_collection`, `weather`, `other`. `occurredAt` (ISO with offset) defaults to now.
+- `incident`: `{ id, kind, routeCode, tripId, pointCode, description, occurredAt, reportedBy,
+reportedByUserId, resolvedAt, resolvedByUserId, resolutionNote, createdAt, updatedAt }`.
+- `422 unknown_route`, `unknown_point`, `unknown_trip` or `trip_route_mismatch` (the trip runs on
+  another route). `resolved: true` records the time, the user and the note; `resolved: false`
+  reopens. Audited as `incident.created`, `incident.updated`, `incident.resolved`.
+
 ## Citizen PWA (`apps/web`, `/`)
 
 The citizen app is an installable PWA in Spanish (Peru) for households. It shows the truck on an

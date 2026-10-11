@@ -90,6 +90,14 @@ shared/application       AuditLog and AuditTrail ports; shared/infrastructure/au
 indicators/application   AppViewService (app views for the adoption indicator) over the AppViewStore
                          and SubscriberIdentification ports (SubscriptionService.identify provides it)
 indicators/infrastructure KyselyAppViewStore, http/ (POST /api/usage/views)
+field/application        IncidentService (report, list, edit, resolve; audited) over the IncidentStore
+                         port; field/infrastructure: KyselyIncidentStore, http/panel-incident-routes
+live/application         PanelLiveService (public snapshot + pass table with alert status and
+                         delivery counts + open incidents; pure mapping in panel-live-views) over
+                         the PanelLiveReadModel port; live/infrastructure: KyselyPanelLiveReadModel,
+                         http/panel-live-routes (/api/panel/live/routes/:code)
+routes/application       RoutePointResolver port (active route and point codes for the panel);
+                         routes/infrastructure: KyselyRoutePointResolver
 field/application        HouseholdDirectory port (household registry: codes, never addresses)
 field/infrastructure     KyselyHouseholdDirectory
 tracking/application     ports (VehicleDirectory, TrackingStore/TrackingTransaction), TrackingEvents,

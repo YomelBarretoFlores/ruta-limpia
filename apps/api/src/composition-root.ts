@@ -46,6 +46,13 @@ import { EtaRefreshService } from './tracking/application/eta-refresh-service.js
 import { EtaRefreshJob } from './tracking/infrastructure/eta-refresh-job.js';
 import { InactivityJob } from './tracking/infrastructure/inactivity-job.js';
 import { PanelTripService } from './tracking/application/panel-trip-service.js';
+import { IncidentService } from './field/application/incident-service.js';
+import { panelIncidentRoutes } from './field/infrastructure/http/panel-incident-routes.js';
+import { KyselyIncidentStore } from './field/infrastructure/kysely-incident-store.js';
+import { PanelLiveService } from './live/application/panel-live-service.js';
+import { panelLiveRoutes } from './live/infrastructure/http/panel-live-routes.js';
+import { KyselyPanelLiveReadModel } from './live/infrastructure/kysely-panel-live-read-model.js';
+import { KyselyRoutePointResolver } from './routes/infrastructure/kysely-route-point-resolver.js';
 import { panelTripRoutes } from './tracking/infrastructure/http/panel-trip-routes.js';
 import { KyselyTripHistoryQueries } from './tracking/infrastructure/kysely-trip-history.js';
 import {
@@ -283,6 +290,21 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     maxFixAgeSec: DEFAULT_ETA_SETTINGS.maxFixAgeSec,
   });
   panelRoutes.push((scope) => scope.register(panelTripRoutes, { trips: panelTrips }));
+
+  const routePoints = new KyselyRoutePointResolver(db);
+  const incidents = new IncidentService({
+    store: new KyselyIncidentStore(db),
+    points: routePoints,
+    audit,
+    clock,
+  });
+  panelRoutes.push((scope) => scope.register(panelIncidentRoutes, { incidents }));
+
+  const panelLive = new PanelLiveService({
+    snapshots: liveSnapshots,
+    readModel: new KyselyPanelLiveReadModel(db),
+  });
+  panelRoutes.push((scope) => scope.register(panelLiveRoutes, { live: panelLive }));
 
   const app = await buildApp({
     loggerInstance: logger,
