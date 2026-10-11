@@ -5,13 +5,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { CitizenDepsContext } from '../citizen/citizen-deps';
 import { fakeApi, fakeDeps, type FakeApi } from '../citizen/test/fake-deps';
 import { ROUTE } from '../citizen/test/fixtures';
+import { PanelDepsContext } from '../panel/panel-deps';
+import { fakePanelApi, fakePanelDeps } from '../panel/test/fake-panel-deps';
+import mainSource from '../main.tsx?raw';
+import lazyPanelSource from './LazyPanel.tsx?raw';
+import routesSource from './routes.tsx?raw';
 import { appRoutes } from './routes';
 
 function renderAt(path: string, api: FakeApi = loadingApi()) {
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
   render(
     <CitizenDepsContext.Provider value={fakeDeps({ api })}>
-      <RouterProvider router={router} />
+      <PanelDepsContext.Provider value={fakePanelDeps(fakePanelApi(null))}>
+        <RouterProvider router={router} />
+      </PanelDepsContext.Provider>
     </CitizenDepsContext.Provider>,
   );
 }
@@ -30,10 +37,24 @@ describe('app routes', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Ruta Limpia' })).toBeInTheDocument();
   });
 
-  it('renders the municipal panel at /panel', () => {
+  it('loads the municipal panel at /panel, starting with the sign-in page', async () => {
     renderAt('/panel');
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Panel municipal' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Ingresar al panel' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the panel out of the citizen bundle: it is only imported dynamically', () => {
+    const staticImports = (source: string) =>
+      [...source.matchAll(/^import[^;]*?from\s+'([^']+)'/gms)].map((match) => match[1] ?? '');
+    const importsPanel = (source: string) =>
+      staticImports(source).some((path) => path.includes('/panel/'));
+
+    expect(importsPanel(mainSource)).toBe(false);
+    expect(importsPanel(routesSource)).toBe(false);
+    expect(importsPanel(lazyPanelSource)).toBe(false);
+    expect(lazyPanelSource).toContain("import('../panel/PanelApp')");
   });
 
   it('shows a calm Spanish page when the citizen page fails to render', async () => {

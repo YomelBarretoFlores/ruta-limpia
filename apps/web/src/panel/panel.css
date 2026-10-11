@@ -1,0 +1,262 @@
+/*
+ * Municipal panel (docs/design/design-system.md, "Layout · Panel"): a dense, table-first back
+ * office. Flat and ruled: hairlines, type and spacing make the hierarchy; one accent; no tiles,
+ * shadows or gradients.
+ */
+
+/* Shell: top bar across, 232 px navigation, content with 24 px gutters */
+.panel {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'top top'
+    'nav main';
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+.panel-skip {
+  position: absolute;
+  left: var(--space-2);
+  top: -3rem;
+  z-index: 10;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: var(--border) solid var(--ink);
+}
+
+.panel-skip:focus {
+  top: var(--space-2);
+}
+
+.panel-wordmark {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-title);
+  letter-spacing: 0.01em;
+}
+
+.panel-topbar {
+  grid-area: top;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface);
+  border-bottom: var(--border) solid var(--rule);
+}
+
+.panel-topbar__brand {
+  width: calc(232px - var(--space-5));
+  flex: none;
+}
+
+.panel-topbar__sub {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.panel-topbar__route {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-title);
+}
+
+.panel-topbar__route .select {
+  width: auto;
+  min-width: 16rem;
+  font-weight: var(--weight-body);
+}
+
+.panel-topbar__user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: auto;
+  font-size: var(--text-sm);
+}
+
+.panel-topbar__role {
+  color: var(--ink-2);
+}
+
+.panel-menu-button {
+  display: none;
+}
+
+.panel-nav {
+  grid-area: nav;
+  padding: var(--space-4) 0;
+  background: var(--surface);
+  border-right: var(--border) solid var(--rule);
+}
+
+.panel-nav ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.panel-nav li + li {
+  margin-top: 0;
+}
+
+.panel-nav__link {
+  display: block;
+  padding: var(--space-2) var(--space-5) var(--space-2) calc(var(--space-5) - 4px);
+  border-left: 4px solid transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  transition: background-color var(--transition);
+}
+
+.panel-nav__link:hover {
+  color: var(--ink);
+  background: var(--fill);
+  text-decoration: underline;
+}
+
+.panel-nav__link[aria-current='page'] {
+  border-left-color: var(--accent);
+  font-weight: var(--weight-title);
+  color: var(--accent-strong);
+}
+
+.panel-main {
+  grid-area: main;
+  min-width: 0;
+  padding: var(--space-5);
+}
+
+.panel-main:focus {
+  outline: none;
+}
+
+.panel-loading {
+  padding: var(--space-5);
+  color: var(--ink-2);
+}
+
+.panel-failure {
+  padding: var(--space-5);
+}
+
+@media (max-width: 899px) {
+  .panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'top'
+      'nav'
+      'main';
+  }
+
+  .panel-topbar {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .panel-topbar__brand {
+    width: auto;
+  }
+
+  .panel-menu-button {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch);
+    margin-left: auto;
+    padding: 0 var(--space-4);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-title);
+    color: var(--ink);
+    background: var(--surface);
+    border: var(--border) solid var(--ink);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+
+  .panel-topbar__user {
+    margin-left: 0;
+  }
+
+  .panel-nav {
+    display: none;
+    padding: var(--space-2) 0;
+    border-right: 0;
+    border-bottom: var(--border) solid var(--rule);
+  }
+
+  .panel-nav--open {
+    display: block;
+  }
+
+  .panel-main {
+    padding: var(--space-4);
+  }
+}
+
+/* Sign-in */
+.panel-login {
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+.panel-login__header {
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface);
+  border-bottom: var(--border) solid var(--rule);
+}
+
+.panel-login__district {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.panel-login__main {
+  max-width: 26rem;
+  padding: var(--space-6) var(--space-5);
+}
+
+.panel-login__main form .button {
+  width: 100%;
+}
+
+/* Compact buttons and text buttons */
+.button--compact {
+  min-height: var(--touch);
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.link-button {
+  min-height: 2rem;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--accent);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--accent-strong);
+  text-decoration-thickness: 2px;
+}
+
+.link-button:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+.link-button--danger {
+  color: var(--danger);
+}

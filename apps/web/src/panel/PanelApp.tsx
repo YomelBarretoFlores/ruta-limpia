@@ -1,0 +1,53 @@
+import './panel.css';
+
+import { Route, Routes } from 'react-router';
+
+import { ErrorBoundary } from '../shared/ui/ErrorBoundary';
+import { Notice } from '../shared/ui/Notice';
+import { LoginPage } from './session/LoginPage';
+import { RequireSession } from './session/RequireSession';
+import { SessionProvider } from './session/SessionProvider';
+import { PanelIndex } from './shell/PanelIndex';
+import { PanelShell } from './shell/PanelShell';
+
+const renderFailure = (
+  <div className="panel-failure" data-density="panel">
+    <Notice tone="danger" title="No pudimos mostrar esta página">
+      <p>Vuelve a cargar la página. Si el problema sigue, avisa al administrador.</p>
+    </Notice>
+  </div>
+);
+
+function NotFound() {
+  return (
+    <Notice tone="warn" title="Página no encontrada">
+      <p>La dirección no corresponde a ninguna sección del panel. Elige una en el menú.</p>
+    </Notice>
+  );
+}
+
+/**
+ * The municipal panel (`/panel/*`), loaded on demand: citizens never download it. Sign-in at
+ * `/panel/ingresar`; every other page needs a session and is shown inside the shell.
+ */
+export default function PanelApp() {
+  return (
+    <ErrorBoundary fallback={renderFailure}>
+      <SessionProvider>
+        <Routes>
+          <Route path="ingresar" element={<LoginPage />} />
+          <Route
+            element={
+              <RequireSession>
+                <PanelShell />
+              </RequireSession>
+            }
+          >
+            <Route index element={<PanelIndex />} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </SessionProvider>
+    </ErrorBoundary>
+  );
+}
