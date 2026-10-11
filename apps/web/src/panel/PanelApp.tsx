@@ -8,6 +8,8 @@ import { LivePage } from './live/LivePage';
 import { LoginPage } from './session/LoginPage';
 import { RequireSession } from './session/RequireSession';
 import { SessionProvider } from './session/SessionProvider';
+import { TripDetailPage } from './trips/TripDetailPage';
+import { TripsPage } from './trips/TripsPage';
 import { PanelIndex } from './shell/PanelIndex';
 import { PanelShell } from './shell/PanelShell';
 import { RequirePermission } from './shell/RequirePermission';
@@ -52,6 +54,22 @@ export default function PanelApp() {
               element={
                 <RequirePermission anyOf={['live:read']}>
                   <LivePage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="viajes"
+              element={
+                <RequirePermission anyOf={['trips:read']}>
+                  <TripsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="viajes/:id"
+              element={
+                <RequirePermission anyOf={['trips:read']}>
+                  <TripDetailPage />
                 </RequirePermission>
               }
             />

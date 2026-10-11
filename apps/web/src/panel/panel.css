@@ -573,3 +573,15 @@ textarea.input {
   background: var(--fill);
   border: var(--border) solid var(--rule);
 }
+
+.back-link {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.data-table + .pagination,
+.table-wrap + .panel-section,
+.summary-row + .table-wrap,
+.notice + .table-wrap {
+  margin-top: var(--space-4);
+}
