@@ -19,6 +19,7 @@ import { DEFAULT_ETA_SETTINGS } from './eta/domain/eta-settings.js';
 import { KyselyCompletedTripSamples } from './eta/infrastructure/kysely-completed-trip-samples.js';
 import { LiveSnapshotService } from './live/application/live-snapshot-service.js';
 import { KyselyLiveRouteReadModel } from './live/infrastructure/kysely-live-read-model.js';
+import { LiveStreamHub } from './live/infrastructure/sse/live-stream-hub.js';
 import { RouteCatalog } from './routes/application/route-catalog.js';
 import { KyselyPublicRouteQueries } from './routes/infrastructure/kysely-public-route-queries.js';
 import { KyselyReferencePointLookup } from './routes/infrastructure/kysely-reference-point-lookup.js';
@@ -43,6 +44,10 @@ import {
 
 /** Speed profiles use this many recent completed trips of a route. */
 const SPEED_PROFILE_MAX_TRIPS = 20;
+/** Live streams send a heartbeat comment this often, below common proxy idle timeouts (60 s). */
+const SSE_HEARTBEAT_MS = 15_000;
+/** `EventSource` reconnects this long after a dropped stream. */
+const SSE_RETRY_MS = 5_000;
 
 export type ApiConfig = Pick<
   AppConfig,
@@ -51,6 +56,7 @@ export type ApiConfig = Pick<
   | 'tripInactivityTimeoutSec'
   | 'tripInactivityCheckIntervalSec'
   | 'etaRefreshIntervalSec'
+  | 'sseMaxConnections'
   | 'trustProxy'
   | 'publicRateLimitPerMinute'
   | 'vapid'
@@ -84,6 +90,7 @@ export interface Api {
   readonly etaRefreshJob: EtaRefreshJob;
   readonly subscriptions: SubscriptionService;
   readonly liveSnapshots: LiveSnapshotService;
+  readonly liveStreams: LiveStreamHub;
 }
 
 /**
@@ -200,6 +207,14 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     etaSettings: DEFAULT_ETA_SETTINGS,
   });
 
+  const liveStreams = new LiveStreamHub({
+    events,
+    maxConnections: config.sseMaxConnections,
+    heartbeatMs: SSE_HEARTBEAT_MS,
+    retryMs: SSE_RETRY_MS,
+    logger: logger.child({ component: 'live-stream' }),
+  });
+
   const app = await buildApp({
     loggerInstance: logger,
     trustProxy: config.trustProxy,
@@ -211,7 +226,10 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     },
     publicRead: {
       catalog: { queries: routeQueries },
-      live: { snapshots: liveSnapshots },
+      live: {
+        snapshots: liveSnapshots,
+        stream: { hub: liveStreams, maxFixAgeSec: DEFAULT_ETA_SETTINGS.maxFixAgeSec },
+      },
     },
   });
 
@@ -227,5 +245,6 @@ export async function composeApi(deps: ApiDependencies): Promise<Api> {
     etaRefreshJob,
     subscriptions,
     liveSnapshots,
+    liveStreams,
   };
 }

@@ -20,6 +20,7 @@ const configSchema = z
     TRIP_INACTIVITY_TIMEOUT_SEC: positiveInt(30 * 60),
     TRIP_INACTIVITY_CHECK_INTERVAL_SEC: positiveInt(60),
     ETA_REFRESH_INTERVAL_SEC: positiveInt(15),
+    SSE_MAX_CONNECTIONS: positiveInt(500),
     SHUTDOWN_TIMEOUT_SEC: positiveInt(10),
     TRUST_PROXY: z.stringbool().default(false),
     PUBLIC_RATE_LIMIT_PER_MINUTE: positiveInt(20),
@@ -62,6 +63,8 @@ export interface AppConfig {
   readonly tripInactivityCheckIntervalSec: number;
   /** How often the ETAs of active trips are recomputed and republished between fixes. */
   readonly etaRefreshIntervalSec: number;
+  /** Open live streams (SSE) across all routes; more answer 503. */
+  readonly sseMaxConnections: number;
   /** Graceful-shutdown deadline before the process is forced to exit. */
   readonly shutdownTimeoutSec: number;
   /** Trust `X-Forwarded-*` from the reverse proxy (client IPs for rate limiting). */
@@ -122,6 +125,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tripInactivityTimeoutSec: raw.TRIP_INACTIVITY_TIMEOUT_SEC,
     tripInactivityCheckIntervalSec: raw.TRIP_INACTIVITY_CHECK_INTERVAL_SEC,
     etaRefreshIntervalSec: raw.ETA_REFRESH_INTERVAL_SEC,
+    sseMaxConnections: raw.SSE_MAX_CONNECTIONS,
     shutdownTimeoutSec: raw.SHUTDOWN_TIMEOUT_SEC,
     trustProxy: raw.TRUST_PROXY,
     publicRateLimitPerMinute: raw.PUBLIC_RATE_LIMIT_PER_MINUTE,

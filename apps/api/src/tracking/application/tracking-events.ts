@@ -11,6 +11,8 @@ export interface TrackingEvents {
     readonly vehicleId: string;
     readonly vehicleCode: string;
     readonly tripId: string | null;
+    /** The route of the trip; null when the fix belongs to no trip. */
+    readonly routeId: string | null;
     readonly fixTime: Date;
     readonly lat: number;
     readonly lon: number;

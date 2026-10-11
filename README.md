@@ -85,6 +85,7 @@ invalid values. An empty value (`PORT=`) counts as unset, so the default applies
 | `TRIP_INACTIVITY_TIMEOUT_SEC`        | `1800`                 | An active trip without fixes for this long is aborted.                           |
 | `TRIP_INACTIVITY_CHECK_INTERVAL_SEC` | `60`                   | How often the inactivity job runs.                                               |
 | `ETA_REFRESH_INTERVAL_SEC`           | `15`                   | How often the ETAs of active trips are recomputed and republished between fixes. |
+| `SSE_MAX_CONNECTIONS`                | `500`                  | Open live streams (SSE) across all routes; more answer `503`.                    |
 | `SHUTDOWN_TIMEOUT_SEC`               | `10`                   | Graceful-shutdown deadline before the process is forced to exit.                 |
 | `SEED_VEHICLE_UNIQUE_ID`             | `ruta-limpia-unidad-a` | Traccar identifier given to UNIDAD-A by `db:seed`.                               |
 | `TRUST_PROXY`                        | `false`                | Trust `X-Forwarded-*` from the reverse proxy (real client IPs).                  |
@@ -175,11 +176,12 @@ The citizen PWA and the municipal panel read the route catalog and the live stat
 endpoints (no authentication, no personal data). Route codes are case-insensitive. An unknown or
 inactive route answers `404 { error: "route_not_found" }`, a malformed code `400`.
 
-| Endpoint                     | Cache-Control         | Description                                                                        |
-| ---------------------------- | --------------------- | ---------------------------------------------------------------------------------- |
-| `GET /api/routes`            | `public, max-age=300` | Active routes: `{ routes: [{ code, name, district, lengthMeters, pointCount }] }`. |
-| `GET /api/routes/:code`      | `public, max-age=300` | Route detail: geometry, reference points, weekly schedule.                         |
-| `GET /api/live/routes/:code` | `no-store`            | Live snapshot: active trips, truck, signal, ETAs, passes, alerts.                  |
+| Endpoint                            | Cache-Control         | Description                                                                        |
+| ----------------------------------- | --------------------- | ---------------------------------------------------------------------------------- |
+| `GET /api/routes`                   | `public, max-age=300` | Active routes: `{ routes: [{ code, name, district, lengthMeters, pointCount }] }`. |
+| `GET /api/routes/:code`             | `public, max-age=300` | Route detail: geometry, reference points, weekly schedule.                         |
+| `GET /api/live/routes/:code`        | `no-store`            | Live snapshot: active trips, truck, signal, ETAs, passes, alerts.                  |
+| `GET /api/live/routes/:code/stream` | `no-store`            | Live stream (Server-Sent Events) of the route; see below.                          |
 
 Route detail (`GET /api/routes/RI-01`):
 
@@ -254,6 +256,31 @@ printed schedule); it holds one entry per active trip otherwise:
   remaining time ±max(1 min, 20 %), in whole minutes.
 - `alerts` holds the alert of each point in the current trip (at most one per point) with its push
   delivery counts.
+
+#### Live stream (SSE)
+
+`GET /api/live/routes/:code/stream` answers `text/event-stream` (use `EventSource`). It first sends a
+`snapshot` event with the same data as `GET /api/live/routes/:code`, then forwards the route's events
+as they happen. Events published while the snapshot is built are sent right after it. A `: heartbeat`
+comment arrives every 15 s, and `retry: 5000` sets the reconnection delay. The response carries
+`X-Accel-Buffering: no`, so reverse proxies do not buffer it. Beyond `SSE_MAX_CONNECTIONS` open
+streams, the endpoint answers `503` with `Retry-After: 30`. On reconnection a new `snapshot` resyncs
+the client.
+
+| Event              | Data                                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------------- |
+| `snapshot`         | The live snapshot (see above).                                                               |
+| `vehicle.position` | `{ tripId, vehicleCode, fixTime, lat, lon, speedKmh, course }` (valid fixes of a trip only). |
+| `eta.updated`      | `{ tripId, computedAt, lastFixAt, signal, etas }`: replaces the trip's `etas` and `signal`.  |
+| `point.passed`     | `{ tripId, pointId, pointCode, passedAt, precision }`.                                       |
+| `trip.started`     | `{ tripId, startedAt, startMode }`: fetch the snapshot for the vehicle and progress.         |
+| `trip.completed`   | `{ tripId, status, endedAt, endReason }`: `status` is `completed` or `aborted`.              |
+| `alert.emitted`    | `{ tripId, pointId, pointCode, emittedAt, communicatedPredictedPassAt }`.                    |
+
+`eta.updated` arrives after every fix and from the periodic refresh, so a silent truck turns
+`stale` within `ETA_REFRESH_INTERVAL_SEC` after its fix is 60 s old. The `etas` entries have the
+same shape as in the snapshot (no prediction unless `live`). Stream data never contains vehicle,
+alert or subscription ids, nor tokens.
 
 ## Scripts
 

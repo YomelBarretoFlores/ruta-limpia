@@ -68,8 +68,11 @@ routes/infrastructure    KyselyRouteRepository (PostGIS → RouteSnapshot), Kyse
                          KyselyPublicRouteQueries, http/ (GET /api/routes, /api/routes/:code)
 live/application         LiveSnapshotService over the LiveRouteReadModel port; live-views (pure
                          mapping to the public JSON views, shared by the snapshot and the stream)
-live/infrastructure      KyselyLiveRouteReadModel, http/ (GET /api/live/routes/:code, zod response
-                         schemas)
+live/application         live-event-views (pure mapping and route filtering of the streamed tracking
+                         events to public views)
+live/infrastructure      KyselyLiveRouteReadModel, http/ (GET /api/live/routes/:code and its /stream,
+                         zod response schemas), sse/ (LiveStreamHub: SSE streams with heartbeat,
+                         connection cap and shutdown close; wire format)
 eta/application          SpeedProfileProvider (cached per route) over CompletedTripSamplesSource
 eta/infrastructure       KyselyCompletedTripSamples (accepted positions of recent completed trips)
 alerts/application       AlertNotifier port; PushAlertNotifier over the PushGateway and
@@ -132,7 +135,18 @@ predictions between fixes. It never writes and never emits alerts.
 
 `vehicle.position`, `trip.started`, `trip.updated`, `trip.completed` (carries `status` completed or
 aborted and `endReason`), `point.passed`, `eta.updated` (every point's `PointEta`, plus the trip's
-`lastFixAt`; `stale` entries carry no prediction) and `alert.emitted`. They are published only after the transaction commits.
+`lastFixAt`; `stale` entries carry no prediction) and `alert.emitted`. They are published only after
+the transaction commits. `vehicle.position` carries the trip's `routeId` (null without a trip) so the
+live stream can filter by route.
+
+### Live stream (`LiveStreamHub`)
+
+Each SSE stream subscribes to the streamed tracking events (`trip.updated` stays internal), maps them
+with `toLiveStreamEvent` (null for other routes, invalid fixes and points no longer on the route), and
+writes them after the initial `snapshot`; events that arrive while the snapshot is built are queued.
+The hub caps open streams (`SSE_MAX_CONNECTIONS`), sends a heartbeat every 15 s, disconnects a client
+whose unsent output exceeds 1 MiB, releases everything when the response closes, and ends every stream
+in Fastify's `preClose` hook so graceful shutdown is not held by open streams.
 
 ### Subscriptions (`SubscriptionService`)
 

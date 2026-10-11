@@ -161,6 +161,7 @@ export class IngestPositionService {
         vehicleId: vehicle.id,
         vehicleCode: vehicle.code,
         tripId: trip?.state.tripId ?? null,
+        routeId: trip?.routeId ?? null,
         fixTime: fix.fixTime,
         lat: fix.lat,
         lon: fix.lon,
