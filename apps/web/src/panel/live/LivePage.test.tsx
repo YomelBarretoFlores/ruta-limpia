@@ -1,6 +1,8 @@
 import { screen, within } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { PanelApiError } from '../api/panel-api';
 import type { Vehicle } from '../api/types';
 import { panelUser } from '../test/fixtures';
 import { fakePanelApi, fakePanelDeps, renderPanel } from '../test/fake-panel-deps';
@@ -59,5 +61,53 @@ describe('LivePage', () => {
       await screen.findByRole('table', { name: 'Puntos de la ruta (sin viaje en curso)' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Sin recorrido')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Iniciar viaje' })).toBeInTheDocument();
+  });
+
+  it('starts a trip with the route vehicle, and ends one only with a note', async () => {
+    const api = setup('supervisor', liveSnapshot({ trips: [] }));
+    api.startTrip.mockResolvedValue({} as never);
+    await userEvent.click(await screen.findByRole('button', { name: 'Iniciar viaje' }));
+    const form = screen.getByRole('region', { name: 'Iniciar viaje' });
+    await within(form).findByRole('option', { name: 'Unidad A (compactadora)' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Iniciar viaje' }));
+    expect(api.startTrip).toHaveBeenCalledWith('UNIDAD-A', 'RI-01');
+    expect(await screen.findByText('Se inició el viaje.')).toBeInTheDocument();
+  });
+
+  it('requires a note to end a trip and explains a trip that already ended', async () => {
+    const api = setup();
+    api.endTrip.mockRejectedValue(new PanelApiError(409, 'trip_not_active'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Finalizar viaje' }));
+    const form = screen.getByRole('region', { name: 'Finalizar viaje' });
+
+    await userEvent.click(within(form).getByRole('button', { name: 'Finalizar viaje' }));
+    expect(within(form).getByText('Escribe por qué se finaliza el viaje.')).toBeInTheDocument();
+    expect(api.endTrip).not.toHaveBeenCalled();
+
+    await userEvent.type(within(form).getByRole('textbox'), 'Avería hidráulica');
+    await userEvent.click(within(form).getByRole('button', { name: 'Finalizar viaje' }));
+    expect(api.endTrip).toHaveBeenCalledWith('trip-1', 'Avería hidráulica');
+    expect(await within(form).findByText('El viaje ya había terminado.')).toBeInTheDocument();
+  });
+
+  it('lets an observer register an incident but not drive trips', async () => {
+    const api = setup('observer');
+    api.createIncident.mockResolvedValue({} as never);
+    await userEvent.click(await screen.findByRole('button', { name: 'Registrar incidencia' }));
+    expect(screen.queryByRole('button', { name: 'Finalizar viaje' })).not.toBeInTheDocument();
+    const form = screen.getByRole('region', { name: 'Registrar incidencia' });
+
+    await userEvent.selectOptions(within(form).getByLabelText('Tipo'), 'gps_failure');
+    await userEvent.selectOptions(within(form).getByLabelText('Punto (opcional)'), 'P08');
+    await userEvent.click(within(form).getByRole('button', { name: 'Registrar incidencia' }));
+
+    expect(api.createIncident).toHaveBeenCalledWith({
+      kind: 'gps_failure',
+      routeCode: 'RI-01',
+      pointCode: 'P08',
+      tripId: 'trip-1',
+      occurredAt: '2026-10-20T17:30:00-05:00',
+    });
   });
 });
