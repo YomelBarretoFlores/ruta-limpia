@@ -36,7 +36,11 @@ pantalla de inicio**) y activa los avisos desde ese ícono. La página te muestr
   quieras.
 - **¿Qué datos guardan?** Solo el código de tu hogar, el punto que elegiste y los datos técnicos de
   tu navegador para enviarte el aviso. Nunca tu dirección, tu nombre ni tu número. Se conservan por
-  el plazo que se te informó al inscribirte y luego se eliminan.
+  el plazo que se te informó al inscribirte. Al terminar ese plazo se borran los datos de tu
+  navegador, y el código de tu hogar se cambia por uno anónimo que ya no te identifica (si tu hogar
+  sigue inscrito, eso ocurre cuando se da de baja). Para las estadísticas del proyecto quedan solo
+  datos sin identificación: las respuestas de las encuestas y las horas en que se consultó cada
+  punto.
 - **¿Y si no tengo celular con internet?** El horario impreso y los avisos de siempre siguen
   funcionando.
 

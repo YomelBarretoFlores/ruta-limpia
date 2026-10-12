@@ -3,6 +3,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { purgePersonalData } from '../../src/privacy/infrastructure/kysely-personal-data-purge.js';
 import type { AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { seedDatabase } from '../../src/shared/infrastructure/db/seed.js';
+import { sql } from 'kysely';
+
 import { connectTestDatabase, resetData } from './database.js';
 
 const at = (iso: string) => new Date(iso);
@@ -20,7 +22,8 @@ let ids: Awaited<ReturnType<typeof seedPilot>>;
  *   2026-11-25), `dead` (never delivered, created 2026-11-01), `ofH2` (H-002, last push
  *   2026-11-22).
  * - Alerts A1 (2026-11-10, delivered to `cancelled` and `active`) and A2 (2026-11-25, to `active`).
- * - Views: H-001 before and after the cutoff, H-002 after it, one anonymous before it.
+ * - Views: H-001 before and after the cutoff, H-002 before and after it, one anonymous before it,
+ *   and one after it from the `dead` subscription's device (opened after the cutoff, never pushed).
  */
 async function seedPilot() {
   const { routeId, vehicleId } = await seedDatabase(db, { vehicleUniqueId: 'imei-1' });
@@ -140,8 +143,15 @@ async function seedPilot() {
         viewed_at: at('2026-11-10T14:00:00Z'),
       },
       { point_id: point('P02'), household_id: h1, viewed_at: at('2026-11-25T14:00:00Z') },
+      { point_id: point('P02'), household_id: h2, viewed_at: at('2026-11-03T14:00:00Z') },
       { point_id: point('P02'), household_id: h2, viewed_at: at('2026-11-25T14:00:00Z') },
       { point_id: point('P02'), household_id: null, viewed_at: at('2026-11-10T14:00:00Z') },
+      {
+        point_id: point('P02'),
+        household_id: null,
+        subscription_id: dead,
+        viewed_at: at('2026-11-26T14:00:00Z'),
+      },
     ])
     .execute();
   await db
@@ -211,8 +221,12 @@ describe('purgePersonalData (PostGIS)', () => {
 
     expect(summary).toEqual({
       householdsAnonymized: 1,
+      // H-001's view with its subscription, and H-002's view, before the cutoff.
+      viewsUnlinked: 2,
+      // H-002's live subscription and its view after the cutoff.
       householdLinksCleared: 2,
-      viewsUnlinked: 1,
+      // The view after the cutoff from the deleted `dead` subscription.
+      viewsOfDeletedSubscriptions: 1,
       deliveriesDeleted: 2,
       subscriptionsDeleted: 2,
     });
@@ -237,13 +251,45 @@ describe('purgePersonalData (PostGIS)', () => {
     ]);
     expect(after.alerts.map((a) => a.delivered_count)).toEqual([2, 1]);
 
-    // Views stay (point and time) but lose their household before the cutoff and for H-002.
+    // Views stay (point and time) but lose their household before the cutoff and for H-002, and
+    // their link to a deleted subscription.
     expect(after.views).toEqual([
+      { household_id: null, subscription_id: null, viewed_at: at('2026-11-03T14:00:00Z') },
       { household_id: null, subscription_id: null, viewed_at: at('2026-11-10T14:00:00Z') },
       { household_id: null, subscription_id: null, viewed_at: at('2026-11-10T14:00:00Z') },
       { household_id: ids.h1, subscription_id: null, viewed_at: at('2026-11-25T14:00:00Z') },
       { household_id: null, subscription_id: null, viewed_at: at('2026-11-25T14:00:00Z') },
+      { household_id: null, subscription_id: null, viewed_at: at('2026-11-26T14:00:00Z') },
     ]);
+  });
+
+  it("deletes a subscription viewed after the cutoff without relying on the foreign key's ON DELETE", async () => {
+    // Migration 0003 declares app_views.subscription_id ON DELETE SET NULL; the purge must not
+    // depend on it. With a plain (NO ACTION) key, a remaining reference would abort the purge.
+    await sql`
+      ALTER TABLE app_views
+        DROP CONSTRAINT app_views_subscription_id_fkey,
+        ADD CONSTRAINT app_views_subscription_id_fkey
+          FOREIGN KEY (subscription_id) REFERENCES push_subscriptions (id)`.execute(db);
+    try {
+      const summary = await purgePersonalData(db, { cutoff: CUTOFF, now: NOW, dryRun: false });
+
+      expect(summary).toMatchObject({ viewsOfDeletedSubscriptions: 1, subscriptionsDeleted: 2 });
+      const dead = await db
+        .selectFrom('push_subscriptions')
+        .select('id')
+        .where('id', '=', ids.dead)
+        .execute();
+      expect(dead).toEqual([]);
+    } finally {
+      await sql`
+        ALTER TABLE app_views
+          DROP CONSTRAINT app_views_subscription_id_fkey,
+          ADD CONSTRAINT app_views_subscription_id_fkey
+            FOREIGN KEY (subscription_id) REFERENCES push_subscriptions (id) ON DELETE SET NULL`.execute(
+        db,
+      );
+    }
   });
 
   it('records the purge in the audit trail, without any personal data', async () => {
@@ -280,8 +326,9 @@ describe('purgePersonalData (PostGIS)', () => {
 
     expect(again).toEqual({
       householdsAnonymized: 0,
-      householdLinksCleared: 0,
       viewsUnlinked: 0,
+      householdLinksCleared: 0,
+      viewsOfDeletedSubscriptions: 0,
       deliveriesDeleted: 0,
       subscriptionsDeleted: 0,
     });

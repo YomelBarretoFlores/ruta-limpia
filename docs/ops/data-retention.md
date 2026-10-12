@@ -6,6 +6,8 @@ who runs the purge and for whoever confirms the retention period with the munici
 
 > **Default policy (to be confirmed with the municipality):** personal data are kept until
 > **12 months after the pilot ends** (pilot end: 20 December 2026, so until **20 December 2027**).
+> The code derives that date from two constants, `PILOT_END_DATE` and `RETENTION_MONTHS`
+> (`apps/api/src/privacy/domain/retention-policy.ts`): a confirmed period changes one number.
 > The proposal requires that each household is told the retention period at enrolment (p. 17) and
 > that the project follows Ley 29733 (personal data protection). Record the confirmed period in
 > the handover record (`docs/entrega/acta-transferencia.md`).
@@ -36,7 +38,8 @@ On a development machine the same command is `pnpm --filter api data:purge [--dr
 | none                  | 20 December 2027, 00:00 America/Lima (the default retention end).         |
 | `--before YYYY-MM-DD` | That day, 00:00 America/Lima. Use only for a period the municipality set. |
 
-A cutoff after today is refused: the command cannot purge data that are still within their
+A cutoff after today is refused before the command connects to the database, and so are an
+invalid date and an unknown option: the command cannot purge data that are still within their
 retention period. So running it with the default before 20 December 2027 stops with an error and
 changes nothing.
 
@@ -49,9 +52,24 @@ Everything runs in one database transaction: either all of it applies or none.
 | Push subscriptions (browser endpoint, keys)  | Last activity before the cutoff: revocation time, else last successful push, else creation time. | Deleted, with their deliveries.                                                 |
 | Alert deliveries (alert ↔ subscription link) | Sent before the cutoff, or belonging to a deleted subscription.                                  | Deleted.                                                                        |
 | App views                                    | Viewed before the cutoff.                                                                        | Household and subscription links cleared; the point and the time stay.          |
+| App views from the cutoff on                 | Linked to a subscription the purge deletes.                                                      | Subscription link cleared before the subscription is deleted.                   |
 | Household codes                              | Inactive household whose last change is before the cutoff.                                       | Code replaced by `ANON-<10 hex>`, notes erased, every later link to it cleared. |
 
 Running the purge again changes nothing more (anonymous codes are never re-anonymized).
+
+### What the counts mean
+
+The command prints these counts, and the `privacy.purge` audit event stores them (never a code, an
+endpoint or a note). Each changed row is counted once.
+
+| Printed line                    | Audit field                   | Counts                                                                      |
+| ------------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| households anonymized           | `householdsAnonymized`        | Inactive households given an anonymous code.                                |
+| app views before the cutoff     | `viewsUnlinked`               | Views before the cutoff that lost their household or subscription link.     |
+| later links to those households | `householdLinksCleared`       | Their subscriptions (any date) and their views from the cutoff on.          |
+| later views of deleted devices  | `viewsOfDeletedSubscriptions` | Views from the cutoff on that pointed to a subscription the purge deletes.  |
+| alert deliveries deleted        | `deliveriesDeleted`           | Deliveries sent before the cutoff, or of a deleted subscription.            |
+| push subscriptions deleted      | `subscriptionsDeleted`        | Subscriptions whose last activity is before the cutoff (endpoint and keys). |
 
 ## What is kept
 

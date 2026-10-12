@@ -8,8 +8,11 @@
 /** The last day of the pilot (proposal, schedule). */
 export const PILOT_END_DATE = '2026-12-20';
 
-/** Default cutoff: 12 months after the pilot ends. To be confirmed with the municipality. */
-export const DEFAULT_RETENTION_END = '2027-12-20';
+/** Months personal data are kept after the pilot ends. To be confirmed with the municipality. */
+export const RETENTION_MONTHS = 12;
+
+/** Default cutoff: RETENTION_MONTHS after PILOT_END_DATE (2027-12-20 with the values above). */
+export const DEFAULT_RETENTION_END = addCalendarMonths(PILOT_END_DATE, RETENTION_MONTHS);
 
 /** America/Lima keeps UTC−5 all year (no daylight saving time). */
 const LIMA_OFFSET = '-05:00';
@@ -38,4 +41,18 @@ export function resolveCutoff(date: string | undefined, now: Date): CutoffResolu
   const cutoff = new Date(`${day}T00:00:00${LIMA_OFFSET}`);
   if (cutoff.getTime() > now.getTime()) return { status: 'in_future', date: day };
   return { status: 'ok', date: day, cutoff };
+}
+
+/**
+ * `day` (a valid `YYYY-MM-DD`) plus `months` calendar months, on the same day of the month, or on
+ * the last day of the resulting month when that day does not exist (31 January + 1 = 28/29 February).
+ */
+export function addCalendarMonths(day: string, months: number): string {
+  const [year, month, dayOfMonth] = day.split('-').map(Number) as [number, number, number];
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(dayOfMonth, lastDay));
+  return target.toISOString().slice(0, 10);
 }

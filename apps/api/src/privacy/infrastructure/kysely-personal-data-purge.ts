@@ -2,14 +2,19 @@ import { sql } from 'kysely';
 
 import type { AppDatabase } from '../../shared/infrastructure/db/database.js';
 
-/** What a purge removed (or, in a dry run, would remove). */
+/** What a purge removed (or, in a dry run, would remove). Rows are counted once, in one field. */
 export interface PurgeSummary {
   /** Inactive households (last changed before the cutoff) given an anonymous code. */
   readonly householdsAnonymized: number;
-  /** Subscriptions and views later than the cutoff unlinked from those households. */
-  readonly householdLinksCleared: number;
-  /** Views before the cutoff unlinked from their household and subscription. */
+  /** Views before the cutoff unlinked from their household and subscription (any household). */
   readonly viewsUnlinked: number;
+  /**
+   * Rows that still pointed to an anonymized household and lost that link: its subscriptions (any
+   * date) and its views from the cutoff on (earlier views are counted in `viewsUnlinked`).
+   */
+  readonly householdLinksCleared: number;
+  /** Views from the cutoff on unlinked from a subscription this purge deletes. */
+  readonly viewsOfDeletedSubscriptions: number;
   /** Deliveries sent before the cutoff, or of a deleted subscription. */
   readonly deliveriesDeleted: number;
   /** Subscriptions (push endpoint and keys) whose last activity is before the cutoff. */
@@ -61,24 +66,8 @@ export async function purgePersonalData(
         .execute();
       const householdIds = anonymized.map((row) => row.id);
 
-      // 2. Nothing later still points to them.
-      let householdLinksCleared = 0;
-      if (householdIds.length > 0) {
-        const subscriptions = await trx
-          .updateTable('push_subscriptions')
-          .set({ household_id: null })
-          .where('household_id', 'in', householdIds)
-          .executeTakeFirst();
-        const views = await trx
-          .updateTable('app_views')
-          .set({ household_id: null })
-          .where('household_id', 'in', householdIds)
-          .executeTakeFirst();
-        householdLinksCleared = Number(subscriptions.numUpdatedRows) + Number(views.numUpdatedRows);
-      }
-
-      // 3. Views before the cutoff keep their point and time only.
-      const views = await trx
+      // 2. Views before the cutoff keep their point and time only.
+      const earlyViews = await trx
         .updateTable('app_views')
         .set({ household_id: null, subscription_id: null })
         .where('viewed_at', '<', cutoff)
@@ -87,27 +76,52 @@ export async function purgePersonalData(
         )
         .executeTakeFirst();
 
+      // 3. Nothing later still points to the anonymized households.
+      let householdLinksCleared = 0;
+      if (householdIds.length > 0) {
+        const subscriptionLinks = await trx
+          .updateTable('push_subscriptions')
+          .set({ household_id: null })
+          .where('household_id', 'in', householdIds)
+          .executeTakeFirst();
+        const laterViewLinks = await trx
+          .updateTable('app_views')
+          .set({ household_id: null })
+          .where('household_id', 'in', householdIds)
+          .executeTakeFirst();
+        householdLinksCleared =
+          Number(subscriptionLinks.numUpdatedRows) + Number(laterViewLinks.numUpdatedRows);
+      }
+
       // 4. Subscriptions whose last activity (revocation, else last push, else creation) is
-      //    before the cutoff: their deliveries, then the endpoint and keys themselves.
+      //    before the cutoff: every reference to them (later views, deliveries), then the
+      //    endpoint and keys themselves. References are cleared explicitly, whatever the
+      //    foreign keys' ON DELETE action says.
       const ended = trx
         .selectFrom('push_subscriptions')
         .select('id')
         .where(sql<Date>`coalesce(revoked_at, last_success_at, created_at)`, '<', cutoff);
-      const deliveries = await trx
+      const viewsOfDeleted = await trx
+        .updateTable('app_views')
+        .set({ subscription_id: null })
+        .where('subscription_id', 'in', ended)
+        .executeTakeFirst();
+      const deletedDeliveries = await trx
         .deleteFrom('alert_deliveries')
         .where((eb) => eb.or([eb('sent_at', '<', cutoff), eb('subscription_id', 'in', ended)]))
         .executeTakeFirst();
-      const subscriptions = await trx
+      const deletedSubscriptions = await trx
         .deleteFrom('push_subscriptions')
         .where('id', 'in', ended)
         .executeTakeFirst();
 
       const summary: PurgeSummary = {
         householdsAnonymized: householdIds.length,
+        viewsUnlinked: Number(earlyViews.numUpdatedRows),
         householdLinksCleared,
-        viewsUnlinked: Number(views.numUpdatedRows),
-        deliveriesDeleted: Number(deliveries.numDeletedRows),
-        subscriptionsDeleted: Number(subscriptions.numDeletedRows),
+        viewsOfDeletedSubscriptions: Number(viewsOfDeleted.numUpdatedRows),
+        deliveriesDeleted: Number(deletedDeliveries.numDeletedRows),
+        subscriptionsDeleted: Number(deletedSubscriptions.numDeletedRows),
       };
       if (dryRun) throw new DryRunRollback(summary);
 
