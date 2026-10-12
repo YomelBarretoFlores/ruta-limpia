@@ -39,6 +39,7 @@ import { TEST_API_CONFIG } from '../support/api-config.js';
 import { createPanelUser, panelClient } from '../support/panel-client.js';
 import { openSse, type SseConnection, type SseMessage } from '../support/sse-client.js';
 import { composeApi, type Api } from '../../src/composition-root.js';
+import { DEFAULT_ETA_SETTINGS } from '../../src/eta/domain/eta-settings.js';
 import { parseCsv } from '../../src/shared/domain/csv.js';
 import { createDatabase, type AppDatabase } from '../../src/shared/infrastructure/db/database.js';
 import { migrateToLatest } from '../../src/shared/infrastructure/db/migrator.js';
@@ -60,6 +61,11 @@ const T0 = new Date(Math.floor((Date.now() - 30 * 60_000) / 60_000) * 60_000);
 const SERVICE_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(T0);
 /** A signal gap long enough (over 60 s) to make the ETA stale, in the middle of the drive. */
 const GAP = { atSec: 400, durationSec: 100 };
+/**
+ * When, after the last fix before the gap, the test refreshes the ETAs and expects them stale:
+ * the API's staleness threshold (`maxFixAgeSec`, 60 s) plus a margin, still inside the gap.
+ */
+const STALE_CHECK_AFTER_SEC = DEFAULT_ETA_SETTINGS.maxFixAgeSec + 15;
 /** How long one forwarded position may take to come back on the stream. */
 const STEP_TIMEOUT_MS = 15_000;
 
@@ -193,10 +199,10 @@ describe('RI-01 through Traccar, end to end', () => {
     const plan = planRi01Drive({ startAt: T0, gap: GAP });
     const send = (fix: PlannedFix) => sendOsmAnd(traccarUrl(5055), DEVICE, fix);
     const last = plan.fixes.at(-1)!;
-    // The last fix before the gap, and when the ETA is first older than 60 s without a new one.
+    // The last fix before the gap, and a moment inside the gap when the ETA is already stale.
     const beforeGap = plan.fixes.findLast((fix) => fix.offsetSec < GAP.atSec)!;
     const afterGap = plan.fixes.find((fix) => fix.offsetSec >= GAP.atSec)!;
-    const staleAtSec = beforeGap.offsetSec + 75;
+    const staleAtSec = beforeGap.offsetSec + STALE_CHECK_AFTER_SEC;
     expect(staleAtSec).toBeLessThan(afterGap.offsetSec);
 
     for (const fix of plan.fixes) {
@@ -208,7 +214,7 @@ describe('RI-01 through Traccar, end to end', () => {
       const fixTime = fix.at.toISOString();
       await events.until((m) => m.event === 'vehicle.position' && field(m, 'fixTime') === fixTime);
       if (fix === beforeGap) {
-        // No fix for 75 s: the next refresh suspends the ETA.
+        // No fix for longer than the staleness threshold: the next refresh suspends the ETA.
         clock.set(new Date(T0.getTime() + staleAtSec * 1000));
         await api.etaRefresh.refreshAll();
         await events.until((m) => m.event === 'eta.updated' && field(m, 'signal') === 'stale');
