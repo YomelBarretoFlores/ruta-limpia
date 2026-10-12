@@ -1001,7 +1001,15 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   on one VPS") is met for the repository, but the pilot is not yet deployed or verified on the
   real VPS, tracker and phones.
 
+- 2026-10-12: T10b reviewed (`e55dda3..d95127d`, 4 lenses): approved and acknowledged. Open follow-up
+  (advisory, not blocking): R3-purge-double-count, a view of an anonymized household that also referenced a
+  deleted subscription is counted in both `householdLinksCleared` and `viewsOfDeletedSubscriptions`; the
+  summary docs claim one count per row. Suggestions on restore swap tests, interrupted swap and the double
+  disk space a scratch restore needs remain open.
+
 ## Next step
 
-Review the T10b commits (`e55dda3..3087617`), then the human-only steps above: VPS and domain,
-first deploy, real tracker, Web Push check, retention confirmation, handover session.
+All repository tasks are done and reviewed. Remaining steps are human-only: VPS and domain, first
+deploy (`docs/ops/deploy.md`), real Traccar admin and GT06 tracker, real Web Push check
+(`docs/ops/push-check.md`), retention confirmation, hosting after the three paid months, handover session
+and acta (`docs/entrega/acta-transferencia.md`), and the `.env.example` review.
