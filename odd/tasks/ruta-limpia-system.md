@@ -1004,7 +1004,9 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
 - 2026-10-12: T10b reviewed (`e55dda3..d95127d`, 4 lenses): approved and acknowledged. Open follow-up
   (advisory, not blocking): R3-purge-double-count, a view of an anonymized household that also referenced a
   deleted subscription is counted in both `householdLinksCleared` and `viewsOfDeletedSubscriptions`; the
-  summary docs claim one count per row. Suggestions on restore swap tests, interrupted swap and the double
+  summary docs claim one count per row. Fixed on 2026-10-12 at the user's request: a later view of an
+  anonymized household drops its ended-subscription link in the same update and is counted once
+  (integration test, RED then GREEN; 944 tests pass). Suggestions on restore swap tests, interrupted swap and the double
   disk space a scratch restore needs remain open.
 
 ## Next step

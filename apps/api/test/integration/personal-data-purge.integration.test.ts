@@ -166,7 +166,7 @@ async function seedPilot() {
     })
     .execute();
 
-  return { h1, h2, h3, cancelled, active, dead, ofH2, a1, a2 };
+  return { h1, h2, h3, cancelled, active, dead, ofH2, a1, a2, pointP02: point('P02') };
 }
 
 /** Everything the purge may touch, in a stable order, to compare before and after. */
@@ -261,6 +261,30 @@ describe('purgePersonalData (PostGIS)', () => {
       { household_id: null, subscription_id: null, viewed_at: at('2026-11-25T14:00:00Z') },
       { household_id: null, subscription_id: null, viewed_at: at('2026-11-26T14:00:00Z') },
     ]);
+  });
+
+  it('counts a later view once when it loses both an anonymized household and a deleted subscription', async () => {
+    // After the cutoff, from H-002 (anonymized) on the `dead` subscription's device (deleted).
+    await db
+      .insertInto('app_views')
+      .values({
+        point_id: ids.pointP02,
+        household_id: ids.h2,
+        subscription_id: ids.dead,
+        viewed_at: at('2026-11-27T14:00:00Z'),
+      })
+      .execute();
+
+    const summary = await purgePersonalData(db, { cutoff: CUTOFF, now: NOW, dryRun: false });
+
+    // Counted with the household links only: the base fixture's 2 plus this view.
+    expect(summary).toMatchObject({ householdLinksCleared: 3, viewsOfDeletedSubscriptions: 1 });
+    const view = await db
+      .selectFrom('app_views')
+      .select(['household_id', 'subscription_id'])
+      .where('viewed_at', '=', at('2026-11-27T14:00:00Z'))
+      .executeTakeFirstOrThrow();
+    expect(view).toEqual({ household_id: null, subscription_id: null });
   });
 
   it("deletes a subscription viewed after the cutoff without relying on the foreign key's ON DELETE", async () => {

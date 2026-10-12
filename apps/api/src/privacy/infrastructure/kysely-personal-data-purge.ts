@@ -13,7 +13,10 @@ export interface PurgeSummary {
    * date) and its views from the cutoff on (earlier views are counted in `viewsUnlinked`).
    */
   readonly householdLinksCleared: number;
-  /** Views from the cutoff on unlinked from a subscription this purge deletes. */
+  /**
+   * Views from the cutoff on unlinked from a subscription this purge deletes, unless already
+   * counted in `householdLinksCleared` (a view of an anonymized household loses both links there).
+   */
   readonly viewsOfDeletedSubscriptions: number;
   /** Deliveries sent before the cutoff, or of a deleted subscription. */
   readonly deliveriesDeleted: number;
@@ -76,7 +79,15 @@ export async function purgePersonalData(
         )
         .executeTakeFirst();
 
-      // 3. Nothing later still points to the anonymized households.
+      // Subscriptions whose last activity (revocation, else last push, else creation) is before
+      // the cutoff: deleted in step 4.
+      const ended = trx
+        .selectFrom('push_subscriptions')
+        .select('id')
+        .where(sql<Date>`coalesce(revoked_at, last_success_at, created_at)`, '<', cutoff);
+
+      // 3. Nothing later still points to the anonymized households. A later view of one also
+      //    drops its link to an ended subscription here, so it is counted once.
       let householdLinksCleared = 0;
       if (householdIds.length > 0) {
         const subscriptionLinks = await trx
@@ -86,21 +97,24 @@ export async function purgePersonalData(
           .executeTakeFirst();
         const laterViewLinks = await trx
           .updateTable('app_views')
-          .set({ household_id: null })
+          .set((eb) => ({
+            household_id: null,
+            subscription_id: eb
+              .case()
+              .when('subscription_id', 'in', ended)
+              .then(null)
+              .else(eb.ref('subscription_id'))
+              .end(),
+          }))
           .where('household_id', 'in', householdIds)
           .executeTakeFirst();
         householdLinksCleared =
           Number(subscriptionLinks.numUpdatedRows) + Number(laterViewLinks.numUpdatedRows);
       }
 
-      // 4. Subscriptions whose last activity (revocation, else last push, else creation) is
-      //    before the cutoff: every reference to them (later views, deliveries), then the
-      //    endpoint and keys themselves. References are cleared explicitly, whatever the
-      //    foreign keys' ON DELETE action says.
-      const ended = trx
-        .selectFrom('push_subscriptions')
-        .select('id')
-        .where(sql<Date>`coalesce(revoked_at, last_success_at, created_at)`, '<', cutoff);
+      // 4. Ended subscriptions: every remaining reference to them (later views, deliveries),
+      //    then the endpoint and keys themselves. References are cleared explicitly, whatever
+      //    the foreign keys' ON DELETE action says.
       const viewsOfDeleted = await trx
         .updateTable('app_views')
         .set({ subscription_id: null })

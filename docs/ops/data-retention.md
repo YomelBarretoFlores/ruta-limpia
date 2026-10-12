@@ -62,14 +62,14 @@ Running the purge again changes nothing more (anonymous codes are never re-anony
 The command prints these counts, and the `privacy.purge` audit event stores them (never a code, an
 endpoint or a note). Each changed row is counted once.
 
-| Printed line                    | Audit field                   | Counts                                                                      |
-| ------------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
-| households anonymized           | `householdsAnonymized`        | Inactive households given an anonymous code.                                |
-| app views before the cutoff     | `viewsUnlinked`               | Views before the cutoff that lost their household or subscription link.     |
-| later links to those households | `householdLinksCleared`       | Their subscriptions (any date) and their views from the cutoff on.          |
-| later views of deleted devices  | `viewsOfDeletedSubscriptions` | Views from the cutoff on that pointed to a subscription the purge deletes.  |
-| alert deliveries deleted        | `deliveriesDeleted`           | Deliveries sent before the cutoff, or of a deleted subscription.            |
-| push subscriptions deleted      | `subscriptionsDeleted`        | Subscriptions whose last activity is before the cutoff (endpoint and keys). |
+| Printed line                    | Audit field                   | Counts                                                                                                                                      |
+| ------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| households anonymized           | `householdsAnonymized`        | Inactive households given an anonymous code.                                                                                                |
+| app views before the cutoff     | `viewsUnlinked`               | Views before the cutoff that lost their household or subscription link.                                                                     |
+| later links to those households | `householdLinksCleared`       | Their subscriptions (any date) and their views from the cutoff on.                                                                          |
+| later views of deleted devices  | `viewsOfDeletedSubscriptions` | Views from the cutoff on that pointed to a subscription the purge deletes, other than views of those households (counted in the row above). |
+| alert deliveries deleted        | `deliveriesDeleted`           | Deliveries sent before the cutoff, or of a deleted subscription.                                                                            |
+| push subscriptions deleted      | `subscriptionsDeleted`        | Subscriptions whose last activity is before the cutoff (endpoint and keys).                                                                 |
 
 ## What is kept
 
