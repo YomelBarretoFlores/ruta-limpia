@@ -171,4 +171,6 @@ Details for developers: [`apps/api/src/README.md`](../../apps/api/src/README.md)
 
 ## Next step
 
-Daily checks and incidents: [`runbook.md`](runbook.md). Backups: [`backup-restore.md`](backup-restore.md).
+Daily checks and incidents: [`runbook.md`](runbook.md). Backups:
+[`backup-restore.md`](backup-restore.md). Personal data after the pilot:
+[`data-retention.md`](data-retention.md).

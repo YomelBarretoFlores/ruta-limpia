@@ -822,25 +822,26 @@ and `tokens.test.ts` fails when a text/background pair the components use drops 
 
 ## Scripts
 
-| Command                              | Description                                                                                         |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                           | Run the API (tsx watch) and the web app (Vite).                                                     |
-| `pnpm build`                         | Build every app (`tsc` for the API, Vite for web).                                                  |
-| `pnpm typecheck`                     | Type-check every package.                                                                           |
-| `pnpm lint`                          | ESLint (typescript-eslint, type-aware) on the repo.                                                 |
-| `pnpm test`                          | Run every Vitest project (`api`, `api-integration`, `web`, `simulator`). Docker required.           |
-| `pnpm --filter api test:unit`        | API unit tests only (no Docker).                                                                    |
-| `pnpm --filter api test:integration` | API integration tests against PostGIS (Testcontainers).                                             |
-| `pnpm test:e2e`                      | End-to-end smoke: Traccar 6.16 + PostGIS containers, RI-01 driven through Traccar (about 2.5 min).  |
-| `pnpm sim:bootstrap`                 | First Traccar administrator and the truck's device (idempotent).                                    |
-| `pnpm sim:drive`                     | Drive RI-01 through Traccar in real time (OsmAnd). See [`docs/simulator.md`](docs/simulator.md).    |
-| `pnpm --filter api db:migrate`       | Apply pending database migrations.                                                                  |
-| `pnpm --filter api db:seed`          | Load the pilot catalog (idempotent).                                                                |
-| `pnpm --filter api vapid:generate`   | Print a new VAPID key pair as `.env` lines.                                                         |
-| `pnpm --filter api user:create`      | Create a panel user (`--username`, `--role`); the password is read from stdin.                      |
-| `pnpm --filter api <cmd>:dist`       | The same commands on the compiled build (`db:migrate`, `db:seed`, `user:create`, `vapid:generate`). |
-| `pnpm format` / `format:check`       | Format with Prettier, or check the formatting.                                                      |
-| `pnpm infra:up` / `down` / `logs`    | Manage the local Docker infrastructure.                                                             |
+| Command                              | Description                                                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                           | Run the API (tsx watch) and the web app (Vite).                                                                                          |
+| `pnpm build`                         | Build every app (`tsc` for the API, Vite for web).                                                                                       |
+| `pnpm typecheck`                     | Type-check every package.                                                                                                                |
+| `pnpm lint`                          | ESLint (typescript-eslint, type-aware) on the repo.                                                                                      |
+| `pnpm test`                          | Run every Vitest project (`api`, `api-integration`, `web`, `simulator`). Docker required.                                                |
+| `pnpm --filter api test:unit`        | API unit tests only (no Docker).                                                                                                         |
+| `pnpm --filter api test:integration` | API integration tests against PostGIS (Testcontainers).                                                                                  |
+| `pnpm test:e2e`                      | End-to-end smoke: Traccar 6.16 + PostGIS containers, RI-01 driven through Traccar (about 2.5 min).                                       |
+| `pnpm sim:bootstrap`                 | First Traccar administrator and the truck's device (idempotent).                                                                         |
+| `pnpm sim:drive`                     | Drive RI-01 through Traccar in real time (OsmAnd). See [`docs/simulator.md`](docs/simulator.md).                                         |
+| `pnpm --filter api db:migrate`       | Apply pending database migrations.                                                                                                       |
+| `pnpm --filter api db:seed`          | Load the pilot catalog (idempotent).                                                                                                     |
+| `pnpm --filter api vapid:generate`   | Print a new VAPID key pair as `.env` lines.                                                                                              |
+| `pnpm --filter api user:create`      | Create a panel user (`--username`, `--role`); the password is read from stdin.                                                           |
+| `pnpm --filter api <cmd>:dist`       | The same commands on the compiled build (`db:migrate`, `db:seed`, `user:create`, `vapid:generate`, `data:purge`).                        |
+| `pnpm --filter api data:purge`       | Purge households' personal data past the retention period (`--dry-run`). See [`docs/ops/data-retention.md`](docs/ops/data-retention.md). |
+| `pnpm format` / `format:check`       | Format with Prettier, or check the formatting.                                                                                           |
+| `pnpm infra:up` / `down` / `logs`    | Manage the local Docker infrastructure.                                                                                                  |
 
 Integration tests start a `postgis/postgis:16-3.5` container pinned to `linux/amd64` (the only published
 platform; Apple Silicon runs it emulated). Set `TEST_DATABASE_URL` to use an existing disposable database
@@ -858,6 +859,7 @@ stays internal) and daily backups of both databases.
 | [`docs/ops/configuration.md`](docs/ops/configuration.md)   | Every production variable and secret.                               |
 | [`docs/ops/runbook.md`](docs/ops/runbook.md)               | Daily checks, logs and incidents.                                   |
 | [`docs/ops/backup-restore.md`](docs/ops/backup-restore.md) | Backups, restore checks and recovery.                               |
+| [`docs/ops/data-retention.md`](docs/ops/data-retention.md) | Retention of personal data and the purge command (Ley 29733).       |
 
 ## Repository layout
 

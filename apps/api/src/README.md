@@ -13,6 +13,7 @@ folders name what the system does, not the technical layers.
 | `field`      | Field instruments: point observations, baseline logs, household registry, incidents.     |
 | `indicators` | Impact indicators (ETA error, availability, adoption, ...) and CSV exports.              |
 | `auth`       | Panel users, sessions, and role-based access.                                            |
+| `privacy`    | Retention of the households' personal data: the `data:purge` command (Ley 29733).        |
 | `shared`     | Cross-context kernel: common value objects, ports, and HTTP plumbing (`/health`).        |
 
 Each context has three layers:

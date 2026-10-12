@@ -92,8 +92,9 @@ the lost period as an incident.
 
 ## Routine tasks
 
-| When            | Task                                                                                              |
-| --------------- | ------------------------------------------------------------------------------------------------- |
-| Weekly          | Copy backups off the server ([backup-restore.md](backup-restore.md#copy-backups-off-the-server)). |
-| Monthly         | Restore check into a scratch database; `apt upgrade` and reboot in a quiet hour.                  |
-| On each release | [Upgrade procedure](deploy.md#upgrades).                                                          |
+| When                        | Task                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------- |
+| Weekly                      | Copy backups off the server ([backup-restore.md](backup-restore.md#copy-backups-off-the-server)). |
+| Monthly                     | Restore check into a scratch database; `apt upgrade` and reboot in a quiet hour.                  |
+| On each release             | [Upgrade procedure](deploy.md#upgrades).                                                          |
+| End of the retention period | [Personal-data purge](data-retention.md).                                                         |

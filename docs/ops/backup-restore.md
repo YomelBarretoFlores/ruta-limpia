@@ -18,7 +18,8 @@ also take copies off it. This page shows how backups work, how to check one, and
 | Scripts    | `infra/prod/backup/` (`run.sh` scheduler, `backup.sh`, `restore.sh`).                  |
 
 The dumps contain personal data (household codes, subscriptions): treat every copy like the
-database itself, and delete copies older than the retention period.
+database itself, and delete copies older than the retention period
+([`data-retention.md`](data-retention.md)).
 
 ## Take a backup now
 

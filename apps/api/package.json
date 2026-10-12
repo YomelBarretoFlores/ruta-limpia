@@ -22,7 +22,9 @@
     "db:migrate:dist": "node dist/shared/infrastructure/db/cli.js migrate",
     "db:seed:dist": "node dist/shared/infrastructure/db/cli.js seed",
     "user:create:dist": "node dist/auth/infrastructure/user-cli.js",
-    "vapid:generate:dist": "node dist/alerts/infrastructure/vapid-keys-cli.js"
+    "vapid:generate:dist": "node dist/alerts/infrastructure/vapid-keys-cli.js",
+    "data:purge": "tsx --env-file-if-exists=../../.env src/privacy/infrastructure/purge-cli.ts",
+    "data:purge:dist": "node dist/privacy/infrastructure/purge-cli.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

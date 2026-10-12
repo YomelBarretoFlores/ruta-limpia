@@ -1,0 +1,132 @@
+import { sql } from 'kysely';
+
+import type { AppDatabase } from '../../shared/infrastructure/db/database.js';
+
+/** What a purge removed (or, in a dry run, would remove). */
+export interface PurgeSummary {
+  /** Inactive households (last changed before the cutoff) given an anonymous code. */
+  readonly householdsAnonymized: number;
+  /** Subscriptions and views later than the cutoff unlinked from those households. */
+  readonly householdLinksCleared: number;
+  /** Views before the cutoff unlinked from their household and subscription. */
+  readonly viewsUnlinked: number;
+  /** Deliveries sent before the cutoff, or of a deleted subscription. */
+  readonly deliveriesDeleted: number;
+  /** Subscriptions (push endpoint and keys) whose last activity is before the cutoff. */
+  readonly subscriptionsDeleted: number;
+}
+
+export interface PurgeOptions {
+  readonly cutoff: Date;
+  /** The time recorded in the audit event. */
+  readonly now: Date;
+  /** Count only: the changes run and are rolled back. */
+  readonly dryRun: boolean;
+}
+
+/** Anonymous household codes: never a code the registry generates (`H-###`), never reused. */
+const ANONYMOUS_PREFIX = 'ANON-';
+
+class DryRunRollback extends Error {
+  constructor(readonly summary: PurgeSummary) {
+    super('dry run');
+  }
+}
+
+/**
+ * Purges the households' personal data older than `cutoff`, in one transaction (see
+ * `docs/ops/data-retention.md`). Kept: trips, positions, passes, alerts (emission time,
+ * communicated ETA, recipient/delivered/failed counts), incidents, field records, households
+ * (route, point, dates, consent version) under anonymous codes, surveys, and views (point and
+ * time). Running it again changes nothing more.
+ */
+export async function purgePersonalData(
+  db: AppDatabase,
+  options: PurgeOptions,
+): Promise<PurgeSummary> {
+  const { cutoff, now, dryRun } = options;
+  try {
+    return await db.transaction().execute(async (trx) => {
+      // 1. Inactive households: an anonymous code, no free-text notes.
+      const anonymized = await trx
+        .updateTable('households')
+        .set({
+          code: sql<string>`${ANONYMOUS_PREFIX} || upper(substr(md5(gen_random_uuid()::text), 1, 10))`,
+          notes: null,
+        })
+        .where('active', '=', false)
+        .where('updated_at', '<', cutoff)
+        .where('code', 'not like', `${ANONYMOUS_PREFIX}%`)
+        .returning('id')
+        .execute();
+      const householdIds = anonymized.map((row) => row.id);
+
+      // 2. Nothing later still points to them.
+      let householdLinksCleared = 0;
+      if (householdIds.length > 0) {
+        const subscriptions = await trx
+          .updateTable('push_subscriptions')
+          .set({ household_id: null })
+          .where('household_id', 'in', householdIds)
+          .executeTakeFirst();
+        const views = await trx
+          .updateTable('app_views')
+          .set({ household_id: null })
+          .where('household_id', 'in', householdIds)
+          .executeTakeFirst();
+        householdLinksCleared = Number(subscriptions.numUpdatedRows) + Number(views.numUpdatedRows);
+      }
+
+      // 3. Views before the cutoff keep their point and time only.
+      const views = await trx
+        .updateTable('app_views')
+        .set({ household_id: null, subscription_id: null })
+        .where('viewed_at', '<', cutoff)
+        .where((eb) =>
+          eb.or([eb('household_id', 'is not', null), eb('subscription_id', 'is not', null)]),
+        )
+        .executeTakeFirst();
+
+      // 4. Subscriptions whose last activity (revocation, else last push, else creation) is
+      //    before the cutoff: their deliveries, then the endpoint and keys themselves.
+      const ended = trx
+        .selectFrom('push_subscriptions')
+        .select('id')
+        .where(sql<Date>`coalesce(revoked_at, last_success_at, created_at)`, '<', cutoff);
+      const deliveries = await trx
+        .deleteFrom('alert_deliveries')
+        .where((eb) => eb.or([eb('sent_at', '<', cutoff), eb('subscription_id', 'in', ended)]))
+        .executeTakeFirst();
+      const subscriptions = await trx
+        .deleteFrom('push_subscriptions')
+        .where('id', 'in', ended)
+        .executeTakeFirst();
+
+      const summary: PurgeSummary = {
+        householdsAnonymized: householdIds.length,
+        householdLinksCleared,
+        viewsUnlinked: Number(views.numUpdatedRows),
+        deliveriesDeleted: Number(deliveries.numDeletedRows),
+        subscriptionsDeleted: Number(subscriptions.numDeletedRows),
+      };
+      if (dryRun) throw new DryRunRollback(summary);
+
+      // Counts and the cutoff only: never a code, an endpoint or a note.
+      await trx
+        .insertInto('audit_events')
+        .values({
+          user_id: null,
+          action: 'privacy.purge',
+          entity: 'personal_data',
+          entity_id: cutoff.toISOString(),
+          at: now,
+          details: JSON.stringify(summary),
+        })
+        .execute();
+      return summary;
+    });
+  } catch (error) {
+    if (error instanceof DryRunRollback) return error.summary;
+    throw error;
+  }
+}
