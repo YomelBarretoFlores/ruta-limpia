@@ -64,9 +64,10 @@ IMEI or simulator ID as the identifier. For the simulated truck, `pnpm sim:boots
   `CONFIG_USE_ENVIRONMENT_VARIABLES=true`. `infra/traccar/entrypoint.sh` builds those variables (database,
   `FORWARD_URL`, `FORWARD_HEADER=X-Ingest-Token: <INGEST_TOKEN>`) from `.env`. It then starts Traccar with
   a clean environment, so unrelated variables such as the API's `DATABASE_URL` cannot leak into Traccar.
-- By default, Traccar forwards to the API on the host
-  (`http://host.docker.internal:3000/ingest/traccar/positions`). Change `TRACCAR_FORWARD_URL` when the API
-  runs elsewhere, for example `http://api:3000/...` inside the same compose project.
+- Each compose file sets where Traccar forwards (`TRACCAR_FORWARD_URL`): the API on the host in
+  `infra/docker-compose.yml`, `http://api:3000/...` in production (`infra/prod/`). The entrypoint has
+  no fallback for it, so a missing value stops Traccar with a clear error instead of forwarding to a
+  wrong place. The JVM memory (`TRACCAR_JAVA_OPTS`) defaults only in the entrypoint.
 - The official PostGIS image is published only for amd64. On Apple Silicon it runs under emulation.
 
 ### Configuration
@@ -821,28 +822,42 @@ and `tokens.test.ts` fails when a text/background pair the components use drops 
 
 ## Scripts
 
-| Command                              | Description                                                                                        |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                           | Run the API (tsx watch) and the web app (Vite).                                                    |
-| `pnpm build`                         | Build every app (`tsc` for the API, Vite for web).                                                 |
-| `pnpm typecheck`                     | Type-check every package.                                                                          |
-| `pnpm lint`                          | ESLint (typescript-eslint, type-aware) on the repo.                                                |
-| `pnpm test`                          | Run every Vitest project (`api`, `api-integration`, `web`, `simulator`). Docker required.          |
-| `pnpm --filter api test:unit`        | API unit tests only (no Docker).                                                                   |
-| `pnpm --filter api test:integration` | API integration tests against PostGIS (Testcontainers).                                            |
-| `pnpm test:e2e`                      | End-to-end smoke: Traccar 6.16 + PostGIS containers, RI-01 driven through Traccar (about 2.5 min). |
-| `pnpm sim:bootstrap`                 | First Traccar administrator and the truck's device (idempotent).                                   |
-| `pnpm sim:drive`                     | Drive RI-01 through Traccar in real time (OsmAnd). See [`docs/simulator.md`](docs/simulator.md).   |
-| `pnpm --filter api db:migrate`       | Apply pending database migrations.                                                                 |
-| `pnpm --filter api db:seed`          | Load the pilot catalog (idempotent).                                                               |
-| `pnpm --filter api vapid:generate`   | Print a new VAPID key pair as `.env` lines.                                                        |
-| `pnpm --filter api user:create`      | Create a panel user (`--username`, `--role`); the password is read from stdin.                     |
-| `pnpm format` / `format:check`       | Format with Prettier, or check the formatting.                                                     |
-| `pnpm infra:up` / `down` / `logs`    | Manage the local Docker infrastructure.                                                            |
+| Command                              | Description                                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                           | Run the API (tsx watch) and the web app (Vite).                                                     |
+| `pnpm build`                         | Build every app (`tsc` for the API, Vite for web).                                                  |
+| `pnpm typecheck`                     | Type-check every package.                                                                           |
+| `pnpm lint`                          | ESLint (typescript-eslint, type-aware) on the repo.                                                 |
+| `pnpm test`                          | Run every Vitest project (`api`, `api-integration`, `web`, `simulator`). Docker required.           |
+| `pnpm --filter api test:unit`        | API unit tests only (no Docker).                                                                    |
+| `pnpm --filter api test:integration` | API integration tests against PostGIS (Testcontainers).                                             |
+| `pnpm test:e2e`                      | End-to-end smoke: Traccar 6.16 + PostGIS containers, RI-01 driven through Traccar (about 2.5 min).  |
+| `pnpm sim:bootstrap`                 | First Traccar administrator and the truck's device (idempotent).                                    |
+| `pnpm sim:drive`                     | Drive RI-01 through Traccar in real time (OsmAnd). See [`docs/simulator.md`](docs/simulator.md).    |
+| `pnpm --filter api db:migrate`       | Apply pending database migrations.                                                                  |
+| `pnpm --filter api db:seed`          | Load the pilot catalog (idempotent).                                                                |
+| `pnpm --filter api vapid:generate`   | Print a new VAPID key pair as `.env` lines.                                                         |
+| `pnpm --filter api user:create`      | Create a panel user (`--username`, `--role`); the password is read from stdin.                      |
+| `pnpm --filter api <cmd>:dist`       | The same commands on the compiled build (`db:migrate`, `db:seed`, `user:create`, `vapid:generate`). |
+| `pnpm format` / `format:check`       | Format with Prettier, or check the formatting.                                                      |
+| `pnpm infra:up` / `down` / `logs`    | Manage the local Docker infrastructure.                                                             |
 
 Integration tests start a `postgis/postgis:16-3.5` container pinned to `linux/amd64` (the only published
 platform; Apple Silicon runs it emulated). Set `TEST_DATABASE_URL` to use an existing disposable database
 instead.
+
+## Production
+
+One VPS runs the whole stack with Docker Compose (`infra/prod/`): PostGIS, Traccar, the API (a
+compiled, non-root image), Caddy (automatic HTTPS, the built web app, the API proxy; `/ingest/*`
+stays internal) and daily backups of both databases.
+
+| Guide                                                      | For                                                                 |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| [`docs/ops/deploy.md`](docs/ops/deploy.md)                 | First deploy, Traccar and panel bootstrap, upgrades and migrations. |
+| [`docs/ops/configuration.md`](docs/ops/configuration.md)   | Every production variable and secret.                               |
+| [`docs/ops/runbook.md`](docs/ops/runbook.md)               | Daily checks, logs and incidents.                                   |
+| [`docs/ops/backup-restore.md`](docs/ops/backup-restore.md) | Backups, restore checks and recovery.                               |
 
 ## Repository layout
 
@@ -855,6 +870,7 @@ infra/
   docker-compose.yml   Local PostGIS + Traccar
   db/init/             Database initialization scripts
   traccar/             traccar.xml and the entrypoint wrapper
+  prod/                Production compose, Dockerfiles, Caddyfile and backup scripts
 tools/
   simulator/    GPS simulator: Traccar bootstrap and the RI-01 drive over OsmAnd
 docs/           Indicators, simulator and operations guides

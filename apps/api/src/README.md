@@ -320,4 +320,5 @@ when no alert was sent.
   `CONCURRENTLY`) index build also block inserts into `positions` until the migration commits, so
   forwards wait (and are retried, idempotently) for as long as it runs. With the pilot's volume
   (one truck, a fix every 15–30 s) that is well under a second, but run it in a maintenance window
-  outside the collection schedule. Order: stop the API, migrate, start the new build.
+  outside the collection schedule. Order: stop the API, migrate, start the new build
+  ([`docs/ops/deploy.md`](../../../docs/ops/deploy.md#upgrades)).

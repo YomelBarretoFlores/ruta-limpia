@@ -37,6 +37,9 @@ services:
       - path: ../.env
     # The wrapper derives Traccar's settings (database, forward URL, X-Ingest-Token header) from .env.
     entrypoint: ['/bin/sh', '/opt/traccar/ruta-limpia-entrypoint.sh']
+    environment:
+      # The API runs on the host in development (`pnpm dev`).
+      TRACCAR_FORWARD_URL: http://host.docker.internal:3000/ingest/traccar/positions
     extra_hosts:
       # Lets Traccar reach the API running on the host (built in on Docker Desktop, needed on Linux).
       - 'host.docker.internal:host-gateway'

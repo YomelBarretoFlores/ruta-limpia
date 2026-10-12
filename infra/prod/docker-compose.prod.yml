@@ -1,0 +1,180 @@
+# Ruta Limpia production stack on one VPS: PostGIS, Traccar, the API, Caddy (HTTPS + web app) and
+# daily backups. Operator guide: docs/ops/deploy.md. Every variable: docs/ops/configuration.md.
+#
+# Secrets live in two operator-created files outside the repository (never committed):
+#   RUTA_LIMPIA_ENV_FILE  default /etc/ruta-limpia/ruta-limpia.env  (db, traccar, api, backup)
+#   CADDY_ENV_FILE        default /etc/ruta-limpia/caddy.env        (caddy: domain and ACME e-mail)
+# Caddy, the only service facing the web, never sees the database password or the VAPID key.
+#
+#   docker compose -f infra/prod/docker-compose.prod.yml up -d --build
+
+# Distinct from the development project (infra/docker-compose.yml, `ruta-limpia`): never shares its volumes.
+name: ruta-limpia-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '5'
+
+x-secrets: &secrets
+  env_file:
+    - path: ${RUTA_LIMPIA_ENV_FILE:-/etc/ruta-limpia/ruta-limpia.env}
+
+services:
+  db:
+    <<: *secrets
+    # Published for linux/amd64 only, like the pilot VPS.
+    image: postgis/postgis:16-3.5
+    platform: linux/amd64
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 512m
+    networks: [backend]
+    # No published port: only the API, Traccar and the backup job reach the database.
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ../db/init/20-create-traccar-database.sql:/docker-entrypoint-initdb.d/20-create-traccar-database.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  api:
+    <<: *secrets
+    build:
+      context: ../..
+      dockerfile: infra/prod/api.Dockerfile
+    image: ruta-limpia/api:${RUTA_LIMPIA_VERSION:-latest}
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 384m
+    init: true
+    stop_grace_period: 20s
+    environment:
+      # Fixed for production; everything else comes from the env file.
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      # Behind Caddy: real client IPs from X-Forwarded-For (the API has no published port).
+      TRUST_PROXY: 'true'
+      SESSION_COOKIE_SECURE: 'true'
+      # Migrations are an explicit upgrade step (docs/ops/deploy.md#upgrades), never a restart.
+      MIGRATE_ON_START: 'false'
+    depends_on:
+      db:
+        condition: service_healthy
+    # backend: database and Traccar; edge: outbound Web Push to the browsers' push services.
+    networks: [backend, edge]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
+  traccar:
+    <<: *secrets
+    image: traccar/traccar:6.16.0-alpine
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 512m
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ['/bin/sh', '/opt/traccar/ruta-limpia-entrypoint.sh']
+    environment:
+      TRACCAR_FORWARD_URL: http://api:3000/ingest/traccar/positions
+    networks:
+      backend: {}
+      edge:
+        # Fixed address for the admin UI tunnel: ssh -N -L 8082:172.30.57.10:8082 <vps>.
+        ipv4_address: 172.30.57.10
+    ports:
+      # Trackers report from the internet. The web UI (8082) is NOT published: SSH tunnel only.
+      - '5055:5055' # OsmAnd (HTTP): simulator and phone apps
+      - '5023:5023' # GT06 (TCP): the pilot's 4G trackers
+    volumes:
+      - ../traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+      - ../traccar/entrypoint.sh:/opt/traccar/ruta-limpia-entrypoint.sh:ro
+      - traccar-data:/opt/traccar/data
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8082/api/server']
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  caddy:
+    build:
+      context: ../..
+      dockerfile: infra/prod/web.Dockerfile
+    image: ruta-limpia/web:${RUTA_LIMPIA_VERSION:-latest}
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+    env_file:
+      - path: ${CADDY_ENV_FILE:-/etc/ruta-limpia/caddy.env}
+    depends_on:
+      api:
+        condition: service_started
+    networks: [backend, edge]
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
+    volumes:
+      - caddy-data:/data # certificates: keep this volume
+      - caddy-config:/config
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backup:
+    <<: *secrets
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      # America/Lima is UTC-5 all year (POSIX notation: no time zone database needed).
+      TZ: '<-05>5'
+    networks: [backend]
+    entrypoint: ['/bin/sh', '/opt/backup/run.sh']
+    volumes:
+      - ./backup:/opt/backup:ro
+      - ${BACKUP_DIR:-/var/backups/ruta-limpia}:/backups
+    healthcheck:
+      # Unhealthy when the newest dump is more than 26 hours old.
+      test: ['CMD-SHELL', 'find /backups/daily -name "*.dump" -mmin -1560 | grep -q .']
+      interval: 10m
+      timeout: 10s
+      retries: 1
+      start_period: 10m
+
+networks:
+  # Internal: no route to the internet. The database and the backup job live only here.
+  backend:
+    internal: true
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.57.0/24
+
+volumes:
+  db-data:
+  traccar-data:
+  caddy-data:
+  caddy-config:

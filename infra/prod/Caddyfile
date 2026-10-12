@@ -1,0 +1,87 @@
+# Ruta Limpia production web server (Caddy 2), baked into the `web` image (infra/prod/web.Dockerfile).
+#
+# - Automatic HTTPS for RUTA_LIMPIA_DOMAIN (Let's Encrypt; `localhost` gets Caddy's local CA).
+# - Serves the built web app from /srv: citizen PWA at `/`, municipal panel at `/panel` (SPA).
+# - Proxies `/api/*` and `/health` to the API, keeping the Host header. `/ingest/*` is NOT public:
+#   Traccar reaches the API on the internal Docker network.
+# - The live stream (SSE, `/api/live/...`) is passed through unbuffered and uncompressed; the API
+#   sends a heartbeat every 15 s, well within the upstream read timeout below.
+# Settings: docs/ops/configuration.md.
+{
+	email {$ACME_EMAIL}
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 2m
+			# No write timeout: live streams stay open for as long as the page does.
+		}
+	}
+}
+
+{$RUTA_LIMPIA_DOMAIN} {
+	# Live streams are never compressed (compression buffers events); everything else is.
+	@compressible not path /api/live/*
+	encode @compressible zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# The app never asks for the location, camera or microphone.
+		Permissions-Policy "geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()"
+		# Same-origin app; OpenStreetMap tiles; QR codes and Leaflet icons as data: URLs; the
+		# service worker from the same origin. Leaflet and the truck icon set inline styles.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+		-Server
+	}
+
+	# Position ingestion is internal only (Traccar → api:3000 on the Docker network).
+	handle /ingest/* {
+		respond 404
+	}
+
+	handle /api/* {
+		reverse_proxy api:3000 {
+			# Flush every write at once: Server-Sent Events must not wait in a buffer.
+			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				# Longest silence accepted from the API: above the 15 s SSE heartbeat and the
+				# 15 s statement timeout of the heaviest panel queries.
+				response_header_timeout 60s
+				read_timeout 60s
+			}
+		}
+	}
+
+	handle /health {
+		reverse_proxy api:3000
+	}
+
+	# Hashed build output: cached for a year, never revalidated.
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Everything else: a file of the build, or the app shell for client-side routes (/panel/...).
+	# The shell, the service worker and the manifest are revalidated on every load, so a new
+	# release reaches every device at its next visit.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		@icons path /icons/*
+		header @icons Cache-Control "public, max-age=604800"
+		@revalidated not path /icons/*
+		header @revalidated Cache-Control "no-cache"
+		file_server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

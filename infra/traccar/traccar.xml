@@ -6,7 +6,8 @@
   Secrets and environment-specific values (database URL and credentials, forward URL, X-Ingest-Token
   header) are NOT stored here. Traccar does not expand ${VAR} placeholders inside this file; instead,
   with CONFIG_USE_ENVIRONMENT_VARIABLES=true it reads each key from an environment variable named after
-  it (forward.url -> FORWARD_URL). infra/traccar/entrypoint.sh builds those variables from .env.
+  it (forward.url -> FORWARD_URL). infra/traccar/entrypoint.sh builds those variables from the
+  environment; each compose file sets TRACCAR_FORWARD_URL for its own topology.
 -->
 <properties>
 

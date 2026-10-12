@@ -1,0 +1,32 @@
+# Build context of infra/prod/*.Dockerfile (context: the repository root).
+# Keep it small and never send secrets or local state to the Docker daemon.
+
+# Secrets and local environment
+.env
+.env.*
+**/*.env
+*.pem
+*.key
+
+# Dependencies and build output (rebuilt inside the image)
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+
+# Repository and tooling state
+.git
+.atl
+.claude
+.vscode
+.idea
+**/.DS_Store
+**/*.log
+
+# Not needed to build the API or the web app
+docs
+odd
+infra/docker-compose.yml
+infra/prod/backup
+*.pdf
+**/test-results
