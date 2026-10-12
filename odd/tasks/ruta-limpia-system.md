@@ -82,6 +82,7 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer: 2+ non-trivial files) | [x] |
 | T9b | T9 review follow-ups: settle-flag ordering, lossless CSV restore, migration 0015 deploy order, simulator gap/timeout/route end, e2e robustness, root Vitest project | delegated (writer: 2+ non-trivial files) | [x] |
 | T10 | Production deploy (compose + Caddy HTTPS, backups), data retention, operations and handover docs (OE5) | delegated (writer: 2+ non-trivial files) | [x] (repository scope; real VPS steps pending, see Progress) |
+| T10b | T10 review follow-ups: independent per-database backups and healthcheck, restore through a scratch copy, release-explicit rollback, Caddy network isolation, opt-in OsmAnd port, purge view links and derived cutoff, script and CLI tests | delegated (writer: 2+ non-trivial files) | [x] |
 
 ## Acceptance criteria
 
@@ -917,7 +918,90 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   for the repository, but the pilot is not yet deployed or verified on the real VPS, tracker and
   phones.
 
+- 2026-10-11: the T10 commits were reviewed in two slices, both approved and acknowledged:
+  slice 1 `ca0fb4f..feb61ab` (four lenses) with one bounded correction for `R4-stale-latest-image`
+  (critical) and `R3-image-tag-drift`: `e05eef2`, cherry-picked onto this branch as `df6f1e8`
+  (`RUTA_LIMPIA_VERSION` required, no `latest` fallback), plus `e55dda3` (the purge command pins
+  the release); slice 2 `feb61ab..e55dda3` (four lenses). The reviewed boundary is now
+  `e55dda3`. Their advisory findings are handled in T10b.
+
+- 2026-10-11: T10b done in five work-unit commits (changed lines), each building and passing on
+  its own. Route: delegated writer (trigger: 2+ non-trivial files: shell scripts, compose,
+  purge, tests and docs).
+  - `1e9a14b` `fix(backup): dump each database independently, check each one's freshness and
+    restore through a scratch copy` (459). RED first: a new integration test
+    (`apps/api/test/integration/backup-scripts.integration.test.ts`, 13 tests, `postgres:16-alpine`
+    with the scripts mounted read-only) failed 8 of 13 on the old scripts (one dump failure
+    aborted the other, no per-database freshness, `24:00`/`29:59` accepted, a truncated dump
+    restored over the dropped live database, unquotable names accepted) → GREEN.
+    `backup.sh` dumps each database independently (OK/FAILED per database, non-zero exit when
+    any failed), removes the partial file on failure or signal and leftover partials older than
+    6 h, and rotates only after a good dump. New `healthcheck.sh` (used by the compose
+    healthcheck) needs a dump younger than 26 h of each database; `run.sh` refuses
+    `BACKUP_TIME` outside 00:00–23:59 and skips the startup backup only when both databases have
+    today's dump. `restore.sh` restores into `<target>_restoring`, swaps it in by rename only
+    after a complete restore, then drops the old copy; names limited to `[a-z_][a-z0-9_]*`, at
+    most 48 characters. The restore block in `backup-restore.md` takes `RELEASE` explicitly and
+    writes and exports it after the restore and before `up -d`; `deploy.md`'s rollback points
+    to it with the previous release.
+  - `a77a111` `fix(infra): keep Caddy off the backend network and make the OsmAnd port opt-in`
+    (70). Caddy is on `frontend` (internal: Caddy and the API) and `web` (its published ports
+    and ACME egress) only. 5055 is no longer published; `infra/prod/docker-compose.osmand.yml`
+    opens it for a test (`deploy.md`, "OsmAnd port (temporary)"); 5023 stays.
+  - `9ad9507` `fix(privacy): clear view links before deleting subscriptions and derive the
+    default cutoff` (326). `app_views.subscription_id` is `ON DELETE SET NULL` (migration
+    0003), so the old purge did not fail, but it relied on that. RED first: an integration test
+    that swaps in a plain (NO ACTION) key and seeds a view after the cutoff from a never-pushed
+    subscription failed with an FK violation → GREEN by clearing those links explicitly
+    (`viewsOfDeletedSubscriptions`). Views before the cutoff are now unlinked before the household
+    links, so each row is counted once (`householdLinksCleared` = the anonymized households'
+    subscriptions and later views; documented in `data-retention.md` with a counts table).
+    `DEFAULT_RETENTION_END = addCalendarMonths(PILOT_END_DATE, RETENTION_MONTHS)` (RED as a
+    missing export). `parsePurgeArgs` (new, 5 unit tests, RED as a missing module) refuses an
+    invalid date, a future cutoff, unknown options and positionals before the CLI connects.
+    Clearer local names in the purge. The households' guide now says what the purge does
+    (browser data deleted, household code anonymized once deactivated, anonymous statistics
+    kept).
+  - `01fcc41` `test(e2e): tie the stale-signal check to the API's staleness threshold` (12):
+    `STALE_CHECK_AFTER_SEC = DEFAULT_ETA_SETTINGS.maxFixAgeSec + 15`.
+  - `3087617` `docs(ops): give one lock-duration estimate for migration 0015` (10): "well
+    under a second at pilot volume" in both `deploy.md` and `src/README.md`.
+
+  Findings: slice 1 `R1-osmand-public-port`, `R1-caddy-on-backend`,
+  `R4-backup-health-masks-traccar`, `R3-backup-partial-abort`, `R4-restore-drops-before-verify`,
+  `R4-partial-dumps-not-rotated`, `R3-backup-time-validation`,
+  `R2-migration-lock-duration-inconsistent`, `R2-e2e-stale-offset-constant`, `R3-shell-untested`
+  fixed (`R4-stale-latest-image` and `R3-image-tag-drift` were fixed by the bounded correction);
+  slice 2 `R4-rollback-restores-under-new-release`, `R2-retention-constants-duplicated`,
+  `R3-purge-view-fk-unproved`, `R2-purge-shadowed-locals`, `R2-links-cleared-doc-mismatch`,
+  `R3-links-cleared-count-semantics`, `R2-citizen-guide-overstates-deletion`,
+  `R3-cli-guard-untested` fixed. None skipped.
+
+  Network check (stub containers with the same four networks, project `t10b-netcheck`, removed
+  afterwards): from the Caddy position the API answers; the database, Traccar by name and
+  Traccar's `edge` address are unreachable; the API still reaches the database. The full
+  production images were not rebuilt for T10b; `docker compose config --quiet` passes with
+  rehearsal env files (scratchpad, never committed), with and without the OsmAnd override (5023
+  only by default; 5023 and 5055 with it).
+
+  Verification at the last code commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0,
+  `pnpm format:check` clean, `pnpm test` 128 files / 943 tests passed (the backup script test
+  included), `pnpm test:e2e` 2 passed, the backup script test alone 13 passed.
+
+  Remaining human-only steps (unchanged): rent the VPS and the domain, DNS, first deploy
+  (`deploy.md`); register the real Traccar administrator and the GT06 tracker (IMEI, APN,
+  15–30 s); the manual Web Push check in Chrome and on a phone (`docs/ops/push-check.md`);
+  confirm the retention period with the municipality (then change `RETENTION_MONTHS` if needed);
+  hosting after the 3 paid months; the handover session and the signed `acta-transferencia`;
+  review `.env.example` (not readable by the writer). Pending: the Engram mirror of this
+  document.
+
+  Objective status: the software, the production stack and the handover documents are complete
+  in the repository, with every T10 review finding addressed; the objective ("ready to deploy
+  on one VPS") is met for the repository, but the pilot is not yet deployed or verified on the
+  real VPS, tracker and phones.
+
 ## Next step
 
-Review the T9b/T10 commits (`ca0fb4f..fe7fc2d`), then the human-only steps above: VPS and
-domain, first deploy, real tracker, Web Push check, retention confirmation, handover session.
+Review the T10b commits (`e55dda3..3087617`), then the human-only steps above: VPS and domain,
+first deploy, real tracker, Web Push check, retention confirmation, handover session.
