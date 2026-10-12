@@ -157,8 +157,8 @@ services:
       - ./backup:/opt/backup:ro
       - ${BACKUP_DIR:-/var/backups/ruta-limpia}:/backups
     healthcheck:
-      # Unhealthy when the newest dump is more than 26 hours old.
-      test: ['CMD-SHELL', 'find /backups/daily -name "*.dump" -mmin -1560 | grep -q .']
+      # Unhealthy when either database (the application's or Traccar's) has no dump from the last 26 hours.
+      test: ['CMD', 'sh', '/opt/backup/healthcheck.sh']
       interval: 10m
       timeout: 10s
       retries: 1

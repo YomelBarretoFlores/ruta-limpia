@@ -62,14 +62,14 @@ every existing browser subscription. Without them, alerts are logged but not sen
 
 ## `ruta-limpia.env`: optional
 
-| Variable                 | Default                | When to set it                                                               |
-| ------------------------ | ---------------------- | ---------------------------------------------------------------------------- |
-| `SEED_VEHICLE_UNIQUE_ID` | `ruta-limpia-unidad-a` | Before `seed`: the truck's tracker identifier in Traccar (usually its IMEI). |
-| `LOG_LEVEL`              | `info`                 | `debug` while investigating an incident.                                     |
-| `TRACCAR_JAVA_OPTS`      | `-Xms64m -Xmx320m`     | Traccar's JVM memory; keep the maximum under the container limit (512 MiB).  |
-| `BACKUP_TIME`            | `03:30`                | Daily backup time, `HH:MM`, Lima time.                                       |
-| `BACKUP_KEEP_DAILY`      | `7`                    | Daily copies kept per database.                                              |
-| `BACKUP_KEEP_WEEKLY`     | `4`                    | Weekly (Sunday) copies kept per database.                                    |
+| Variable                 | Default                | When to set it                                                                |
+| ------------------------ | ---------------------- | ----------------------------------------------------------------------------- |
+| `SEED_VEHICLE_UNIQUE_ID` | `ruta-limpia-unidad-a` | Before `seed`: the truck's tracker identifier in Traccar (usually its IMEI).  |
+| `LOG_LEVEL`              | `info`                 | `debug` while investigating an incident.                                      |
+| `TRACCAR_JAVA_OPTS`      | `-Xms64m -Xmx320m`     | Traccar's JVM memory; keep the maximum under the container limit (512 MiB).   |
+| `BACKUP_TIME`            | `03:30`                | Daily backup time, `HH:MM` (00:00–23:59), Lima time; refused at start if not. |
+| `BACKUP_KEEP_DAILY`      | `7`                    | Daily copies kept per database.                                               |
+| `BACKUP_KEEP_WEEKLY`     | `4`                    | Weekly (Sunday) copies kept per database.                                     |
 
 The API's tunables (trip start zone, inactivity timeout, ETA refresh, session lifetimes, rate
 limits, push concurrency) keep their defaults unless the municipality asks otherwise; the full

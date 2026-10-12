@@ -1,18 +1,27 @@
 #!/bin/sh
-# Scheduler of the `backup` service: one backup at start when there is none from today, then one
-# every day at BACKUP_TIME (HH:MM, default 03:30, in the container's TZ; the compose file sets
-# America/Lima as UTC-5, which has no daylight saving time).
+# Scheduler of the `backup` service: one backup at start unless both databases already have a dump
+# from today, then one every day at BACKUP_TIME (HH:MM, 00:00 to 23:59, default 03:30, in the
+# container's TZ; the compose file sets America/Lima as UTC-5, which has no daylight saving time).
 set -eu
 
 BACKUP=/opt/backup/backup.sh
 BACKUP_TIME="${BACKUP_TIME:-03:30}"
+APP_DB="${POSTGRES_DB:-ruta_limpia}"
+# A time `date +%H:%M` never prints (such as 24:00) would silently never run: refuse it now.
 case "$BACKUP_TIME" in
-  [0-2][0-9]:[0-5][0-9]) ;;
-  *) echo "backup: BACKUP_TIME must be HH:MM, got '$BACKUP_TIME'" >&2; exit 1 ;;
+  [01][0-9]:[0-5][0-9] | 2[0-3]:[0-5][0-9]) ;;
+  *) echo "backup: BACKUP_TIME must be HH:MM from 00:00 to 23:59, got '$BACKUP_TIME'" >&2; exit 1 ;;
 esac
 
+# True when each database has a dump from today.
+dumped_today() {
+  for db in "$APP_DB" traccar; do
+    ls /backups/daily/"$db-$(date +%Y%m%d)"-*.dump >/dev/null 2>&1 || return 1
+  done
+}
+
 last=""
-if ls /backups/daily/*-"$(date +%Y%m%d)"-*.dump >/dev/null 2>&1; then
+if dumped_today; then
   last=$(date +%F)
 elif sh "$BACKUP"; then
   last=$(date +%F)

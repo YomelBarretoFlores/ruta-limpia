@@ -155,8 +155,10 @@ echo <release> | sudo tee /etc/ruta-limpia/release   # 6. record it for every la
 ```
 
 Then repeat the checks of step 7. **Rolling back**: migrations cannot be undone from the command
-line; restore the backup of step 1 ([`backup-restore.md`](backup-restore.md#restore-in-place))
-write the previous tag back to `/etc/ruta-limpia/release`, and start it.
+line. Restore the backup of step 1 with
+[`backup-restore.md`](backup-restore.md#restore-in-place), setting `RELEASE` to the **previous**
+release: that block writes it to `/etc/ruta-limpia/release`, exports it and only then starts the
+stack, so the old API never meets the new schema or the new API the old one.
 
 ### Why migrations are a separate step
 
