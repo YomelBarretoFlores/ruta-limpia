@@ -1,0 +1,12 @@
+# Opt-in override: publishes Traccar's OsmAnd port (5055/tcp) for a limited time, for the simulator
+# or an OsmAnd-based phone tracker. OsmAnd has no authentication: anyone who knows a device
+# identifier can send positions as that truck. Close it again as soon as the test ends.
+#
+#   docker compose -f infra/prod/docker-compose.prod.yml -f infra/prod/docker-compose.osmand.yml up -d traccar   # open
+#   docker compose -f infra/prod/docker-compose.prod.yml up -d traccar                                          # close
+#
+# Guide: docs/ops/deploy.md#osmand-port-temporary
+services:
+  traccar:
+    ports:
+      - '5055:5055' # OsmAnd (HTTP): simulator and phone apps, temporary

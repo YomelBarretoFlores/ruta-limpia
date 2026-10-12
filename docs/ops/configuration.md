@@ -32,7 +32,8 @@ lists every variable: what it does, whether it is required, and how to produce i
 | `/etc/ruta-limpia/caddy.env`       | `caddy` only                     | Domain and certificate e-mail              |
 
 Caddy is the only service facing the web, so it never receives the database password or the VAPID
-private key. Different paths can be chosen with `RUTA_LIMPIA_ENV_FILE` and `CADDY_ENV_FILE` (see
+private key, and it shares a Docker network (`frontend`) with the API only: it cannot reach the
+database or Traccar's admin UI. Different paths can be chosen with `RUTA_LIMPIA_ENV_FILE` and `CADDY_ENV_FILE` (see
 [Compose variables](#compose-variables)).
 
 ## `ruta-limpia.env`: required

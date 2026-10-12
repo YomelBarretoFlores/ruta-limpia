@@ -38,12 +38,11 @@ for 3 months (S/ 80 per month) and a domain for 1 year (S/ 60).
 address (and an `AAAA` record if it has IPv6). Caddy requests the certificate on its first start,
 so the record must resolve before step 4.
 
-**Firewall**: allow inbound `22/tcp` (SSH), `80/tcp` and `443/tcp`+`443/udp` (web),
-`5023/tcp` (GT06 trackers) and `5055/tcp` (OsmAnd: simulator and phone apps). Docker publishes
-these ports itself and bypasses `ufw`; ports that are not published (PostgreSQL, the API, Traccar's
-web UI on 8082) are never reachable from outside. `5055` accepts positions from anyone who knows a
-device identifier: once the GT06 tracker works and the simulator is no longer needed, remove the
-`5055` line from the compose file and run `up -d` again.
+**Firewall**: allow inbound `22/tcp` (SSH), `80/tcp` and `443/tcp`+`443/udp` (web) and
+`5023/tcp` (GT06 trackers). Docker publishes these ports itself and bypasses `ufw`; ports that are
+not published (PostgreSQL, the API, Traccar's web UI on 8082, and OsmAnd on 5055 by default) are
+never reachable from outside. OsmAnd is opened only for a test, then closed:
+[OsmAnd port (temporary)](#osmand-port-temporary).
 
 ## 2. Prepare the server
 
@@ -114,6 +113,24 @@ The simulator can do steps 1 and 3 through the same tunnel, from a computer with
 `TRACCAR_URL=http://localhost:8082 TRACCAR_ADMIN_EMAIL=… TRACCAR_ADMIN_PASSWORD=… pnpm
 sim:bootstrap` ([`docs/simulator.md`](../simulator.md)).
 
+### OsmAnd port (temporary)
+
+The GT06 tracker reports on `5023` and needs nothing else. The simulator (`pnpm sim:drive`) and
+OsmAnd-based phone tracker apps use Traccar's OsmAnd protocol on `5055`, which has **no
+authentication**: anyone who knows a device identifier can send positions as that truck, start or
+end trips and trigger the households' alerts. So `5055` is not published by default. To use it,
+open it for the test only and close it right after:
+
+```bash
+O="docker compose -f infra/prod/docker-compose.prod.yml -f infra/prod/docker-compose.osmand.yml"
+$O up -d traccar                       # open 5055 (also allow 5055/tcp in the provider's firewall)
+OSMAND_URL=http://<domain>:5055 pnpm sim:drive   # from a computer with the repository
+$C up -d traccar                       # close it: recreates Traccar without the port
+```
+
+Traccar restarts both times (a few seconds; the tracker resends what it buffered). Check that it
+is closed: `$C port traccar 5055` prints nothing.
+
 ## 6. First panel administrator
 
 ```bash
@@ -130,8 +147,9 @@ every other account in the panel (**Usuarios**).
 - [ ] `https://<domain>/` shows the citizen page; `https://<domain>/panel` the sign-in page.
 - [ ] `curl -s -o /dev/null -w '%{http_code}' https://<domain>/ingest/traccar/positions` is `404`.
 - [ ] Sign-in works for the administrator.
-- [ ] With the tracker on (or `pnpm sim:drive` with `OSMAND_URL=http://<domain>:5055`), **En vivo**
-      shows the truck within 30 s.
+- [ ] With the tracker on (or the simulator through the
+      [temporary OsmAnd port](#osmand-port-temporary), closed afterwards), **En vivo** shows the
+      truck within 30 s.
 - [ ] Real Web Push on a phone: [`push-check.md`](push-check.md).
 - [ ] `ls /var/backups/ruta-limpia/daily` lists today's two dumps.
 

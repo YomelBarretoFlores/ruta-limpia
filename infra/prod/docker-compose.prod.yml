@@ -4,7 +4,8 @@
 # Secrets live in two operator-created files outside the repository (never committed):
 #   RUTA_LIMPIA_ENV_FILE  default /etc/ruta-limpia/ruta-limpia.env  (db, traccar, api, backup)
 #   CADDY_ENV_FILE        default /etc/ruta-limpia/caddy.env        (caddy: domain and ACME e-mail)
-# Caddy, the only service facing the web, never sees the database password or the VAPID key.
+# Caddy, the only service facing the web, never sees the database password or the VAPID key, and
+# shares a network with the API only.
 #
 #   RUTA_LIMPIA_VERSION=<release> docker compose -f infra/prod/docker-compose.prod.yml up -d --build
 
@@ -66,8 +67,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # backend: database and Traccar; edge: outbound Web Push to the browsers' push services.
-    networks: [backend, edge]
+    # backend: database and Traccar; frontend: reached by Caddy; edge: outbound Web Push to the
+    # browsers' push services.
+    networks: [backend, frontend, edge]
     healthcheck:
       test:
         - CMD
@@ -98,7 +100,8 @@ services:
         ipv4_address: 172.30.57.10
     ports:
       # Trackers report from the internet. The web UI (8082) is NOT published: SSH tunnel only.
-      - '5055:5055' # OsmAnd (HTTP): simulator and phone apps
+      # OsmAnd (5055, unauthenticated HTTP: simulator and phone apps) is opt-in and temporary:
+      # docker-compose.osmand.yml (docs/ops/deploy.md#osmand-port-temporary).
       - '5023:5023' # GT06 (TCP): the pilot's 4G trackers
     volumes:
       - ../traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
@@ -124,7 +127,9 @@ services:
     depends_on:
       api:
         condition: service_started
-    networks: [backend, edge]
+    # frontend: the API only (never the database or Traccar's admin UI); web: the published ports
+    # and outbound HTTPS for the certificates.
+    networks: [frontend, web]
     ports:
       - '80:80'
       - '443:443'
@@ -168,6 +173,12 @@ networks:
   # Internal: no route to the internet. The database and the backup job live only here.
   backend:
     internal: true
+  # Internal: Caddy and the API only, so the web-facing service cannot reach the database or Traccar.
+  frontend:
+    internal: true
+  # Caddy's own route to the internet (published ports, certificate requests).
+  web: {}
+  # Traccar's published tracker ports and the API's outbound Web Push.
   edge:
     ipam:
       config:
