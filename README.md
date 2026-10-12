@@ -861,6 +861,10 @@ stays internal) and daily backups of both databases.
 | [`docs/ops/backup-restore.md`](docs/ops/backup-restore.md) | Backups, restore checks and recovery.                               |
 | [`docs/ops/data-retention.md`](docs/ops/data-retention.md) | Retention of personal data and the purge command (Ley 29733).       |
 
+Handover to the municipality (Spanish, OE5): the panel manual, the households' guide, the
+escalation protocol (including the lower-noise announcement scheme) and the handover record
+template are in [`docs/entrega/`](docs/entrega/).
+
 ## Repository layout
 
 ```text
@@ -875,6 +879,6 @@ infra/
   prod/                Production compose, Dockerfiles, Caddyfile and backup scripts
 tools/
   simulator/    GPS simulator: Traccar bootstrap and the RI-01 drive over OsmAnd
-docs/           Indicators, simulator and operations guides
+docs/           Indicators, simulator, operations (ops/) and handover (entrega/) guides
 odd/tasks/      Feature plan and progress
 ```

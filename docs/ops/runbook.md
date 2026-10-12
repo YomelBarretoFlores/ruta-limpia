@@ -1,7 +1,9 @@
 # Operations runbook
 
 What to check every day and what to do when something fails. Commands run on the VPS from the
-repository root with `C="docker compose -f infra/prod/docker-compose.prod.yml"`.
+repository root with `C="docker compose -f infra/prod/docker-compose.prod.yml"`. Who to call and
+when is in the escalation protocol
+([`docs/entrega/protocolo-escalamiento.md`](../entrega/protocolo-escalamiento.md), in Spanish).
 
 ## Daily check (2 minutes, before the first collection run)
 
