@@ -19,6 +19,7 @@ who runs the purge and for whoever confirms the retention period with the munici
 3. Preview:
 
    ```bash
+   export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"
    docker compose -f infra/prod/docker-compose.prod.yml run --rm api \
      node dist/privacy/infrastructure/purge-cli.js --dry-run
    ```
