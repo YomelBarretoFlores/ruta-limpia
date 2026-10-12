@@ -186,11 +186,11 @@ never change the schema by surprise. The upgrade above runs them in that order.
 
 ### Migration notes
 
-| Migration                           | Old API may keep running? | Notes                                                                                                                                                          |
-| ----------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0013-known-networks`               | **No**                    | Renames a `users` column in place: an older API fails every sign-in once it commits.                                                                           |
-| `0014-indicator-inputs`             | Yes                       | Additive (two columns with defaults, one table).                                                                                                               |
-| `0015-positions-without-traccar-id` | **No**                    | An older API answers `5xx` to some replays. Its `DELETE` and unique index lock `positions` until it commits: forwards wait (retried). Seconds at pilot volume. |
+| Migration                           | Old API may keep running? | Notes                                                                                                                                                                      |
+| ----------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0013-known-networks`               | **No**                    | Renames a `users` column in place: an older API fails every sign-in once it commits.                                                                                       |
+| `0014-indicator-inputs`             | Yes                       | Additive (two columns with defaults, one table).                                                                                                                           |
+| `0015-positions-without-traccar-id` | **No**                    | An older API answers `5xx` to some replays. Its `DELETE` and unique index lock `positions` until it commits: forwards wait (retried). Well under a second at pilot volume. |
 
 Details for developers: [`apps/api/src/README.md`](../../apps/api/src/README.md) (deploy notes).
 
