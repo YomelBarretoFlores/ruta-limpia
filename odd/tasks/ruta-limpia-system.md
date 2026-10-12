@@ -80,7 +80,8 @@ Out of scope: SMS/WhatsApp channels (no budget), native mobile apps, measuring n
 | T8 | Indicators and exports: KPI computation (Tabla 16), Instrument 3 surveys and import, CSV exports, panel screens | delegated (writer: 2+ non-trivial files) | [x] |
 | T8b | T8 review follow-ups: sign-in place leak on store errors, headline counts, bounded indicator periods, survey edit clashes, CSV round-trip, survey editor read-only and unknown problems, period params | delegated (writer: 2+ non-trivial files) | [x] |
 | T9 | Simulator (OsmAnd → Traccar) and end-to-end smoke test over the whole pipeline | delegated (writer: 2+ non-trivial files) | [x] |
-| T10 | Production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5) | delegated (writer) | [ ] |
+| T9b | T9 review follow-ups: settle-flag ordering, lossless CSV restore, migration 0015 deploy order, simulator gap/timeout/route end, e2e robustness, root Vitest project | delegated (writer: 2+ non-trivial files) | [x] |
+| T10 | Production deploy (compose + Caddy HTTPS, backups), data retention, operations and handover docs (OE5) | delegated (writer: 2+ non-trivial files) | [x] (repository scope; real VPS steps pending, see Progress) |
 
 ## Acceptance criteria
 
@@ -792,6 +793,131 @@ Authored changed lines: about 8–12k across 10 tasks, which exceeds the ~400-li
   about 150 s). Pending: the Engram mirror of this document; the manual Web Push check
   (`docs/ops/push-check.md`) on a real Chrome.
 
+- 2026-10-11: the T9 commits were reviewed in two slices, both approved and acknowledged:
+  `40cabc9..352eed7` (four lenses) and `352eed7..ca0fb4f` (one lens). The reviewed boundary is
+  now `ca0fb4f`. Their advisory findings are handled in T9b.
+
+- 2026-10-11: T9b and T10 done in four work-unit commits (changed lines, lockfile excluded), each
+  building and passing on its own. Route: delegated writer (trigger: 2+ non-trivial files).
+  - `880749d` `fix: settle sign-in places only once stored, make CSV restore lossless and harden
+    the simulator and e2e smoke` (302), T9b. RED first: two `AuthService` tests (the source
+    store rejecting the settle after a wrong and after a correct password left `inFlight: 1`) →
+    GREEN with the settled flag set only after the store call; a CSV round-trip test of authored
+    `'=…`/`''+…` text (lossy before) → GREEN by giving such text one more apostrophe on export;
+    three simulator tests (gap NaN/negative/infinite refused, the route-end fix kept inside a
+    gap, an OsmAnd fetch that never answers fails after the timeout) → GREEN. Migration 0015's
+    deploy order (stop the old API first) and its `positions` insert lock documented in the
+    migration and `src/README.md`. E2E: bootstrap in `beforeAll` (no test-order dependency),
+    the stale ETA always checked (the last fix before the gap is computed), teardown runs every
+    step and reports an `AggregateError`. `apps/api/vitest.e2e.config.ts` is in the API
+    tsconfig (the `E2E_TIMEOUT_MS` import is gone); the simulator is a root Vitest project
+    (`pnpm test` is plain `vitest run`).
+  - `feb61ab` `feat(infra): production compose with Caddy HTTPS, compiled API image and daily
+    backups` (1048), T10. `infra/prod/`: `api.Dockerfile` (multi-stage, `pnpm deploy --prod`,
+    `node` user, compiled JS and 29 MB of production modules only; migrate/seed/user/VAPID as
+    `node dist/...`; `:dist` package scripts), `web.Dockerfile` (web build → Caddy 2.10),
+    `Caddyfile`, `docker-compose.prod.yml` (project `ruta-limpia-prod`), `backup/`
+    (`run.sh`, `backup.sh`, `restore.sh`), root `.dockerignore`. Docs: `docs/ops/deploy.md`,
+    `configuration.md`, `runbook.md`, `backup-restore.md`.
+  - `3aff035` `feat(privacy): purge households' personal data after the retention period` (718),
+    T10. `privacy` context: `resolveCutoff` (default 2027-12-20, Lima midnight, a future cutoff
+    refused; 4 unit tests, RED as a missing module), `purgePersonalData` (one transaction; 4
+    PostGIS integration tests: what is purged and kept, the audit event without personal data,
+    dry run changes nothing, a second run changes nothing), `data:purge` / `data:purge:dist`
+    CLI. `docs/ops/data-retention.md`.
+  - `fe7fc2d` `docs(entrega): panel manual, households' guide, escalation protocol and handover
+    record` (368), T10, in neutral Spanish.
+
+  Decisions:
+  - `MIGRATE_ON_START=false` in production: 0013 and 0015 need the old API stopped first, a
+    backup precedes any schema change, and a restarting container must never migrate by
+    surprise. Upgrade order: backup, build, stop api, `migrate` with the new image, `up -d`.
+  - Secrets: two operator files outside the repo (`/etc/ruta-limpia/ruta-limpia.env` for db,
+    api, traccar, backup; `caddy.env` with only the domain and ACME e-mail), so the internet-facing
+    Caddy never holds the database password or the VAPID key. `TRUST_PROXY`,
+    `SESSION_COOKIE_SECURE`, `NODE_ENV` and the forward URL are fixed in the compose file. The
+    `backend` network is internal (db and backup have no internet); the API also joins `edge`
+    for Web Push; Traccar has a fixed `edge` address (172.30.57.10) for the SSH tunnel to its UI
+    (8082 never published).
+  - Caddy: `/ingest/*` answers 404; `/api/*` and `/health` proxied with the Host kept,
+    `flush_interval -1`, upstream read and header timeouts 60 s, no server write timeout, SSE
+    excluded from compression; `index.html`, `sw.js`, the manifest and SPA routes `no-cache`,
+    `/assets/*` one year `immutable`, icons one week, a missing asset 404 (not the shell).
+    Headers: HSTS (no preload, no subdomains), CSP `default-src 'self'`, `script-src 'self'`,
+    `style-src 'self' 'unsafe-inline'` (Leaflet and the truck `divIcon`), `img-src 'self' data:
+    https://tile.openstreetmap.org`, `connect-src`/`worker-src`/`manifest-src 'self'`,
+    `frame-ancestors 'none'`; `Permissions-Policy` denies geolocation (the app never uses it),
+    camera and microphone; `nosniff`, `Referrer-Policy`, `X-Frame-Options`.
+  - Backups: `postgres:16-alpine` with a 20 s scheduler loop (no cron, no tzdata: `TZ=<-05>5`),
+    `pg_dump -Fc` of `ruta_limpia` and `traccar`, read back with `pg_restore --list`, written
+    under a temporary name, `umask 077`, 7 daily + 4 weekly (Sunday hard links), healthcheck
+    unhealthy after 26 h without a dump.
+  - Retention scope: deletes push subscriptions whose last activity is before the cutoff (and
+    their deliveries) and deliveries sent before it; clears household/subscription links of
+    earlier views; anonymizes (`ANON-` + 10 hex, notes erased, later links cleared) households
+    inactive since before it. Kept: trips, positions, passes, alerts with emission time,
+    communicated ETA and counts, incidents, field records, baseline logs, surveys, household
+    rows, views (point, time), staff accounts and audit. Adoption (I5, I6) for purged weeks can
+    no longer be recomputed: export first (documented).
+  - Traccar defaults deduplicated: removed the forward-URL fallback from `entrypoint.sh` (now
+    required; set by each compose file: host in dev, `http://api:3000/...` in prod, the test's
+    own in the e2e) and its copy in the README; the JVM default stays only in the entrypoint.
+    `osmand.port`/`gt06.port` stay in `traccar.xml` as the single listener definition.
+
+  Findings: `R3-settle-flag-before-store` fixed; `R3-old-build-unique-violation`, `R4-001`
+  fixed (documented deploy order and window, in the migration, `src/README.md` and
+  `deploy.md`); `R2-001`, `R3-restore-strips-authored-apostrophe` fixed (lossless, not just
+  documented); the six t9r2 suggestions fixed. Skipped: `R2-002`, `R2-003`
+  (`pilot-periods.ts` comments) and `R2-004` (renaming `checkAdmitted`): outside the brief's
+  cheap list; candidates for a later cleanup.
+
+  Local production rehearsal (Docker Desktop, `RUTA_LIMPIA_DOMAIN=localhost`, so Caddy used its
+  local CA; env files in the scratchpad, never committed): `docker compose config --quiet` OK;
+  images built; `migrate` and `seed` through the compiled CLIs; all five services `healthy`.
+  Through Caddy: `/health` 200; `http://` → 308 to `https://`; `/`, `/panel/seguimiento`,
+  `/sw.js`, the manifest `no-cache`; `/assets/index-*.js` `immutable` with `zstd`; icons one
+  week; a missing asset 404; `GET` and `POST /ingest/traccar/positions` 404; all security
+  headers present. SSE: Traccar bootstrapped from inside the network, `sim:drive --speedup 20`
+  over the published OsmAnd port; `curl -N` through Caddy received 125 events (snapshot,
+  trip.started, 49 vehicle.position about 1.0 s apart, matching the send cadence, 15
+  point.passed, 52 eta.updated, 6 alert.emitted, trip.completed) plus heartbeats; the stream
+  had no `content-encoding`. The API logged the client address from `X-Forwarded-For`.
+  Panel: an admin from `user-cli.js`, login through Caddy `200` with `rl_session` `HttpOnly;
+  Secure; SameSite=Strict; Path=/api/panel`, `/auth/me` 200, a foreign `Origin` 403. Headless
+  Chromium: no CSP violation on the citizen page and the panel, 12 OSM tiles 200, panel sign-in
+  and **En vivo** rendered (the service worker does not register on the local CA's untrusted
+  certificate). Backups: the first backup ran at start; a manual run restored into
+  `ruta_limpia_restore_check` and `traccar_restore_check` with identical counts (49 positions,
+  1 trip, 15 passes, 6 alerts, 1 user, 2 audit events, 15 migrations; route 1 280 m; Traccar 1
+  device, 1 user, 50 positions); `restore.sh` refused an existing target without `--replace`;
+  rotation with `BACKUP_KEEP_DAILY=2` kept two. `purge-cli.js` refused the default (future)
+  cutoff and dry-ran `--before 2026-10-11`. Torn down with `down -v` (the `ruta-limpia-prod_*`
+  volumes and networks removed) and the rehearsal images deleted. Incident: the first attempt
+  used the project name `ruta-limpia`, the same as the dev compose, so its `db` started on the
+  existing dev volume `ruta-limpia_db-data`; the password did not match, `migrate` and `seed`
+  failed authentication and nothing was written; the container was removed and the project
+  renamed `ruta-limpia-prod`. After the rehearsal, weekly backups were renamed one per day
+  (`<db>-YYYYMMDD.dump`), checked with `sh -n` only.
+
+  Verification at the last code commit: `pnpm typecheck` exit 0, `pnpm lint` exit 0,
+  `pnpm format:check` clean, `pnpm test` 126 files / 922 tests passed,
+  `pnpm --filter @ruta-limpia/web build` OK (precache 20 entries, no panel file),
+  `pnpm test:e2e` 2 passed (about 150 s).
+
+  Remaining human-only steps: rent the VPS and the domain, DNS, first deploy (`deploy.md`);
+  register the real Traccar administrator and the GT06 tracker (IMEI, APN, 15–30 s); the
+  manual Web Push check in Chrome and on a phone (`docs/ops/push-check.md`); confirm the
+  retention period with the municipality; hosting after the 3 paid months; the handover session
+  and the signed `acta-transferencia`; review `.env.example` (not readable by the writer): it may
+  still list `TRACCAR_FORWARD_URL` (now set by the dev compose) and lacks
+  `TRACCAR_ADMIN_EMAIL`/`TRACCAR_ADMIN_PASSWORD`. Pending: the Engram mirror of this document.
+
+  Objective status: the software, the production stack and the handover documents are complete
+  in the repository and rehearsed locally; the objective ("ready to deploy on one VPS") is met
+  for the repository, but the pilot is not yet deployed or verified on the real VPS, tracker and
+  phones.
+
 ## Next step
 
-T10: production deploy (compose + Caddy HTTPS, backups), operations and handover docs (OE5).
+Review the T9b/T10 commits (`ca0fb4f..fe7fc2d`), then the human-only steps above: VPS and
+domain, first deploy, real tracker, Web Push check, retention confirmation, handover session.
