@@ -5,7 +5,7 @@
 #
 # Runs inside the `backup` service (postgres:16-alpine). Reads POSTGRES_USER, POSTGRES_PASSWORD,
 # POSTGRES_DB (default ruta_limpia) and PGHOST (default db). Writes to /backups/{daily,weekly}.
-# Manual run: docker compose -f infra/prod/docker-compose.prod.yml exec backup sh /opt/backup/backup.sh
+# Manual run: RUTA_LIMPIA_VERSION=<release> docker compose -f infra/prod/docker-compose.prod.yml exec backup sh /opt/backup/backup.sh
 set -eu
 # Dumps hold personal data: readable by root only.
 umask 077

@@ -6,7 +6,7 @@
 #   CADDY_ENV_FILE        default /etc/ruta-limpia/caddy.env        (caddy: domain and ACME e-mail)
 # Caddy, the only service facing the web, never sees the database password or the VAPID key.
 #
-#   docker compose -f infra/prod/docker-compose.prod.yml up -d --build
+#   RUTA_LIMPIA_VERSION=<release> docker compose -f infra/prod/docker-compose.prod.yml up -d --build
 
 # Distinct from the development project (infra/docker-compose.yml, `ruta-limpia`): never shares its volumes.
 name: ruta-limpia-prod
@@ -47,7 +47,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/prod/api.Dockerfile
-    image: ruta-limpia/api:${RUTA_LIMPIA_VERSION:-latest}
+    image: ruta-limpia/api:${RUTA_LIMPIA_VERSION:?set RUTA_LIMPIA_VERSION to the deployed release (see docs/ops/deploy.md)}
     restart: unless-stopped
     logging: *logging
     mem_limit: 384m
@@ -115,7 +115,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/prod/web.Dockerfile
-    image: ruta-limpia/web:${RUTA_LIMPIA_VERSION:-latest}
+    image: ruta-limpia/web:${RUTA_LIMPIA_VERSION:?set RUTA_LIMPIA_VERSION to the deployed release (see docs/ops/deploy.md)}
     restart: unless-stopped
     logging: *logging
     mem_limit: 128m

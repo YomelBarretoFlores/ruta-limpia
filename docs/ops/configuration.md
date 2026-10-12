@@ -19,7 +19,7 @@ lists every variable: what it does, whether it is required, and how to produce i
 3. Check that compose reads them; this prints nothing when everything resolves:
 
    ```bash
-   docker compose -f infra/prod/docker-compose.prod.yml config --quiet
+   RUTA_LIMPIA_VERSION=<release> docker compose -f infra/prod/docker-compose.prod.yml config --quiet
    ```
 
    Without `--quiet` it prints the secrets: never run it where others see the screen or the logs.
@@ -51,11 +51,11 @@ only when its data volume is empty. Changing `POSTGRES_PASSWORD` later needs an 
 
 ## `ruta-limpia.env`: Web Push (set all three or none)
 
-| Variable            | Format                          | How to produce it                                                                                                                                |
-| ------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `VAPID_PUBLIC_KEY`  | 87 characters                   | `docker compose -f infra/prod/docker-compose.prod.yml run --rm --no-deps api node dist/alerts/infrastructure/vapid-keys-cli.js mailto:<contact>` |
-| `VAPID_PRIVATE_KEY` | 43 characters                   | Same command (it prints the three lines). Secret.                                                                                                |
-| `VAPID_SUBJECT`     | `mailto:soporte@municipalidad…` | A real contact the push services can write to.                                                                                                   |
+| Variable            | Format                          | How to produce it                                                                                                                                                              |
+| ------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VAPID_PUBLIC_KEY`  | 87 characters                   | `RUTA_LIMPIA_VERSION=<release> docker compose -f infra/prod/docker-compose.prod.yml run --rm --no-deps api node dist/alerts/infrastructure/vapid-keys-cli.js mailto:<contact>` |
+| `VAPID_PRIVATE_KEY` | 43 characters                   | Same command (it prints the three lines). Secret.                                                                                                                              |
+| `VAPID_SUBJECT`     | `mailto:soporte@municipalidad…` | A real contact the push services can write to.                                                                                                                                 |
 
 Generate them **once** per deployment and keep them with the other credentials: new keys invalidate
 every existing browser subscription. Without them, alerts are logged but not sent.
@@ -98,14 +98,16 @@ These are not configurable on purpose; changing them breaks the security model.
 
 ## Compose variables
 
-Read from the shell that runs `docker compose`, not from the files above.
+Read from the shell that runs `docker compose`, not from the files above. `RUTA_LIMPIA_VERSION` has
+no default on purpose: every compose command refuses to run without it, so no command can fall
+back to an older build after a migration. The deployed release is kept in `/etc/ruta-limpia/release`.
 
-| Variable               | Default                            | Purpose                                                   |
-| ---------------------- | ---------------------------------- | --------------------------------------------------------- |
-| `RUTA_LIMPIA_ENV_FILE` | `/etc/ruta-limpia/ruta-limpia.env` | Path of the main file.                                    |
-| `CADDY_ENV_FILE`       | `/etc/ruta-limpia/caddy.env`       | Path of Caddy's file.                                     |
-| `BACKUP_DIR`           | `/var/backups/ruta-limpia`         | Host directory of the dumps (`daily/`, `weekly/`).        |
-| `RUTA_LIMPIA_VERSION`  | `latest`                           | Tag of the built images; use a release name to roll back. |
+| Variable               | Default                            | Purpose                                                           |
+| ---------------------- | ---------------------------------- | ----------------------------------------------------------------- |
+| `RUTA_LIMPIA_ENV_FILE` | `/etc/ruta-limpia/ruta-limpia.env` | Path of the main file.                                            |
+| `CADDY_ENV_FILE`       | `/etc/ruta-limpia/caddy.env`       | Path of Caddy's file.                                             |
+| `BACKUP_DIR`           | `/var/backups/ruta-limpia`         | Host directory of the dumps (`daily/`, `weekly/`).                |
+| `RUTA_LIMPIA_VERSION`  | none (required)                    | Tag of the built images; read it from `/etc/ruta-limpia/release`. |
 
 ## Checklist
 

@@ -68,6 +68,8 @@ Create `/etc/ruta-limpia/ruta-limpia.env` and `/etc/ruta-limpia/caddy.env` as de
 files to exist, not the VAPID lines yet):
 
 ```bash
+echo <release> | sudo tee /etc/ruta-limpia/release   # the tag being deployed, e.g. 2026.11.0
+export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"   # the deployed release
 C="docker compose -f infra/prod/docker-compose.prod.yml"
 $C build
 $C run --rm --no-deps api node dist/alerts/infrastructure/vapid-keys-cli.js mailto:soporte@municipalidad.example
@@ -78,6 +80,7 @@ Paste the three printed lines into `ruta-limpia.env`.
 ## 4. First start
 
 ```bash
+export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"   # the deployed release
 C="docker compose -f infra/prod/docker-compose.prod.yml"
 $C up -d db                                                       # wait until healthy: $C ps
 $C run --rm api node dist/shared/infrastructure/db/cli.js migrate  # create the schema
@@ -139,6 +142,7 @@ retries the forward (10 times with a growing delay, then it gives up on that pos
 of a few minutes loses nothing, a long one can.
 
 ```bash
+export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"   # the running (old) release
 C="docker compose -f infra/prod/docker-compose.prod.yml"
 git fetch && git checkout <release>                       # the new code
 $C exec backup sh /opt/backup/backup.sh                   # 1. backup first
@@ -147,11 +151,12 @@ $C stop api                                               # 3. stop the old API
 RUTA_LIMPIA_VERSION=<release> $C run --rm api \
   node dist/shared/infrastructure/db/cli.js migrate       # 4. migrate with the new image
 RUTA_LIMPIA_VERSION=<release> $C up -d                    # 5. start the new version
+echo <release> | sudo tee /etc/ruta-limpia/release   # 6. record it for every later command
 ```
 
 Then repeat the checks of step 7. **Rolling back**: migrations cannot be undone from the command
 line; restore the backup of step 1 ([`backup-restore.md`](backup-restore.md#restore-in-place))
-and start the previous image tag.
+write the previous tag back to `/etc/ruta-limpia/release`, and start it.
 
 ### Why migrations are a separate step
 

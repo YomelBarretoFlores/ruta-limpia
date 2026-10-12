@@ -1,9 +1,11 @@
 # Operations runbook
 
 What to check every day and what to do when something fails. Commands run on the VPS from the
-repository root with `C="docker compose -f infra/prod/docker-compose.prod.yml"`. Who to call and
-when is in the escalation protocol
-([`docs/entrega/protocolo-escalamiento.md`](../entrega/protocolo-escalamiento.md), in Spanish).
+repository root with `export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"` and
+`C="docker compose -f infra/prod/docker-compose.prod.yml"`. Without the first line compose refuses to
+run, instead of silently recreating a service from an older image. Who to call and when is in the
+escalation protocol ([`docs/entrega/protocolo-escalamiento.md`](../entrega/protocolo-escalamiento.md),
+in Spanish).
 
 ## Daily check (2 minutes, before the first collection run)
 

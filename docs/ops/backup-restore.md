@@ -26,6 +26,7 @@ database itself, and delete copies older than the retention period
 Before an upgrade, a purge or any manual change:
 
 ```bash
+export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"   # the deployed release
 C="docker compose -f infra/prod/docker-compose.prod.yml"
 $C exec backup sh /opt/backup/backup.sh
 ```
@@ -47,6 +48,7 @@ encrypted.
 A backup is only proven by restoring it. Once a month, and after any change to the stack:
 
 ```bash
+export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"   # the deployed release
 C="docker compose -f infra/prod/docker-compose.prod.yml"
 $C exec backup ls -1 /backups/daily
 $C exec backup sh /opt/backup/restore.sh /backups/daily/ruta_limpia-YYYYMMDD-HHMM.dump ruta_limpia_restore_check
@@ -67,11 +69,12 @@ $C exec db sh -c 'dropdb -U "$POSTGRES_USER" ruta_limpia_restore_check'
 Use this after a bad upgrade or data loss. Everything written after the dump is lost.
 
 ```bash
+export RUTA_LIMPIA_VERSION="$(cat /etc/ruta-limpia/release)"   # the deployed release
 C="docker compose -f infra/prod/docker-compose.prod.yml"
 $C stop api traccar caddy                 # nothing may write meanwhile
 $C exec backup sh /opt/backup/restore.sh /backups/daily/ruta_limpia-YYYYMMDD-HHMM.dump ruta_limpia --replace
 $C exec backup sh /opt/backup/restore.sh /backups/daily/traccar-YYYYMMDD-HHMM.dump traccar --replace
-$C up -d                                  # with the image that matches the dump's schema
+$C up -d                                  # the release in /etc/ruta-limpia/release must match the dump's schema
 ```
 
 Restore both databases from the same run, so Traccar's devices and the application agree.
