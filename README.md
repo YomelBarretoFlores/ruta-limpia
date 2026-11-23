@@ -7,6 +7,9 @@ the route. The system also records the field instruments and computes the pilot'
 
 The requirements come from the project proposal `Proyecto_RSU_Ruta_Limpia_2026.pdf`.
 
+> **New to the project?** Start with [`HANDOVER.md`](HANDOVER.md): what the system does, how to run it,
+> what is finished, and what is still open.
+
 ## Architecture
 
 ```mermaid
